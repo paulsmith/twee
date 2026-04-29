@@ -1,0 +1,134 @@
+package engine
+
+import (
+	"context"
+	"fmt"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/paulsmith/research/twee/internal/vt"
+)
+
+// WaitOption configures a wait call.
+type WaitOption func(*WaitOpts)
+
+// WaitOpts is exposed so tuitest can re-export Option helpers without
+// type aliasing pain.
+type WaitOpts struct {
+	Timeout time.Duration
+	Ctx     context.Context
+}
+
+// WithTimeout overrides the timeout for one call.
+func WithTimeout(d time.Duration) WaitOption {
+	return func(o *WaitOpts) { o.Timeout = d }
+}
+
+// WithContext lets the wait be canceled externally.
+func WithContext(ctx context.Context) WaitOption {
+	return func(o *WaitOpts) { o.Ctx = ctx }
+}
+
+func (t *Term) waitOpts(opts []WaitOption) WaitOpts {
+	o := WaitOpts{Timeout: t.cfg.DefaultTimeout, Ctx: context.Background()}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
+}
+
+// WaitForText waits until s appears as a substring of any visible line.
+func (t *Term) WaitForText(s string, opts ...WaitOption) error {
+	o := t.waitOpts(opts)
+	err := t.pump.Wait(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
+		for _, line := range vt.VisibleLines(snap) {
+			if strings.Contains(line, s) {
+				return true
+			}
+		}
+		return false
+	})
+	if err != nil {
+		return fmt.Errorf("WaitForText(%q): %w\n%s", s, err, t.Diagnostic())
+	}
+	return nil
+}
+
+// WaitForNoText waits until s no longer appears in any visible line.
+func (t *Term) WaitForNoText(s string, opts ...WaitOption) error {
+	o := t.waitOpts(opts)
+	err := t.pump.Wait(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
+		for _, line := range vt.VisibleLines(snap) {
+			if strings.Contains(line, s) {
+				return false
+			}
+		}
+		return true
+	})
+	if err != nil {
+		return fmt.Errorf("WaitForNoText(%q): %w\n%s", s, err, t.Diagnostic())
+	}
+	return nil
+}
+
+// WaitForTextRegex waits until re matches the visible viewport joined by \n.
+func (t *Term) WaitForTextRegex(re *regexp.Regexp, opts ...WaitOption) error {
+	o := t.waitOpts(opts)
+	err := t.pump.Wait(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
+		return re.MatchString(vt.VisibleText(snap))
+	})
+	if err != nil {
+		return fmt.Errorf("WaitForTextRegex(%q): %w\n%s", re, err, t.Diagnostic())
+	}
+	return nil
+}
+
+// WaitForStableScreen waits for at least quietFor with no model-changing output.
+func (t *Term) WaitForStableScreen(quietFor time.Duration, opts ...WaitOption) error {
+	o := t.waitOpts(opts)
+	err := t.pump.WaitStable(o.Ctx, quietFor, o.Timeout)
+	if err != nil {
+		return fmt.Errorf("WaitForStableScreen: %w\n%s", err, t.Diagnostic())
+	}
+	return nil
+}
+
+// WaitUntil waits until fn(snapshot) returns true.
+func (t *Term) WaitUntil(fn func(Snapshot) bool, opts ...WaitOption) error {
+	o := t.waitOpts(opts)
+	err := t.pump.Wait(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
+		return fn(fromVT(snap))
+	})
+	if err != nil {
+		return fmt.Errorf("WaitUntil: %w\n%s", err, t.Diagnostic())
+	}
+	return nil
+}
+
+// WaitForCursorAt waits until the cursor is at (col, row).
+func (t *Term) WaitForCursorAt(col, row int, opts ...WaitOption) error {
+	o := t.waitOpts(opts)
+	err := t.pump.Wait(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
+		return snap.Cursor.Col == col && snap.Cursor.Row == row
+	})
+	if err != nil {
+		return fmt.Errorf("WaitForCursorAt(%d,%d): %w\n%s", col, row, err, t.Diagnostic())
+	}
+	return nil
+}
+
+// WaitForExit blocks until the child exits or timeout fires.
+func (t *Term) WaitForExit(opts ...WaitOption) (int, error) {
+	o := t.waitOpts(opts)
+	timer := time.NewTimer(o.Timeout)
+	defer timer.Stop()
+	select {
+	case <-t.runner.ExitedCh():
+		return t.runner.ExitCode(), nil
+	case <-timer.C:
+		return 0, fmt.Errorf("WaitForExit: timeout after %s", o.Timeout)
+	case <-o.Ctx.Done():
+		return 0, o.Ctx.Err()
+	}
+}

@@ -1,0 +1,8 @@
+bin/
+build/
+result
+result-*
+.direnv/
+
+# Allow direnv config (overrides user-global ignore of .envrc).
+!.envrc
