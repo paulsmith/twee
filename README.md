@@ -5,6 +5,8 @@ and driving it from outside: type, press keys, query the screen, wait
 for text, take screenshots. Every command prints one JSON object and
 exits, so it composes well from `bash`, scripts, and AI agents.
 
+**Demo:** [Watch the 2-minute walkthrough on YouTube](https://www.youtube.com/watch?v=5TVU-ACDD1A).
+
 ```
 $ twee start ./myapp
 {"ok":true,"data":{"name":"default","socket":"...","pid":12345}}
