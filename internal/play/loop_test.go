@@ -98,14 +98,18 @@ func TestLoopStepAdvancesExactlyOneEvent(t *testing.T) {
 	}
 }
 
-func TestLoopToastClearsAfterExpiry(t *testing.T) {
+func TestLoopToastPersistsUntilNextDisplayedEvent(t *testing.T) {
 	cmds := make(chan command, 2)
 	sink := &fakeSink{}
 	l := testLoop(loopConfig{
-		Events: []Event{{TMS: 0, Type: "input", Kind: "key", Key: "Enter"}},
-		Step:   true,
-		Cmds:   cmds,
-		Sink:   sink,
+		Events: []Event{
+			{TMS: 0, Type: "input", Kind: "key", Key: "Enter"},
+			{TMS: 700, Type: "output", Bytes: []byte("A")},
+			{TMS: 800, Type: "resize", Cols: 12, Rows: 4},
+		},
+		Step: true,
+		Cmds: cmds,
+		Sink: sink,
 	})
 	now := time.Unix(0, 0)
 	l.tick(now)
@@ -116,14 +120,16 @@ func TestLoopToastClearsAfterExpiry(t *testing.T) {
 		t.Fatalf("toast = %q, want Enter", got)
 	}
 
-	l.tick(now.Add(499 * time.Millisecond))
-	n := len(sink.frames)
-	l.tick(now.Add(501 * time.Millisecond))
-	if len(sink.frames) != n+1 {
-		t.Fatalf("frames after expiry = %d, want %d", len(sink.frames), n+1)
+	cmds <- cmdStep
+	l.tick(now.Add(700 * time.Millisecond))
+	if got := lastFrame(t, sink).toast; !strings.Contains(got, "Enter") {
+		t.Fatalf("toast after output = %q, want previous input", got)
 	}
-	if got := lastFrame(t, sink).toast; got != "" {
-		t.Fatalf("toast after expiry = %q, want empty", got)
+
+	cmds <- cmdStep
+	l.tick(now.Add(800 * time.Millisecond))
+	if got := lastFrame(t, sink).toast; !strings.Contains(got, "resize 12x4") {
+		t.Fatalf("toast after resize = %q, want resize", got)
 	}
 }
 

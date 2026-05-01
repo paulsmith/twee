@@ -220,8 +220,8 @@ and returns it in the JSON response.
 
 `twee play` replays a `.twee` bundle in your terminal as an animated
 session. It uses the recorded event timing by default, supports
-accelerated playback, and shows a transient footer for inputs such as
-keys, typed text, paste, and resizes.
+accelerated playback, and shows a footer for the latest input or resize
+event so you can correlate user actions with screen changes.
 
 ```
 $ twee play /tmp/myapp.twee --speed 2

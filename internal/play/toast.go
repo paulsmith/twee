@@ -3,13 +3,11 @@ package play
 import (
 	"fmt"
 	"strconv"
-	"time"
 	"unicode/utf8"
 )
 
 type toast struct {
-	text      string
-	expiresAt time.Time
+	text string
 }
 
 func formatEventToast(ev Event) string {

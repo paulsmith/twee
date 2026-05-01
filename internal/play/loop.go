@@ -133,7 +133,6 @@ func (l *loop) tick(now time.Time) (done bool) {
 	if l.cursor == len(l.events) {
 		l.atEnd = true
 	}
-	l.expireToast(now)
 	l.emitFrame(now)
 	return l.err != nil || l.quitNext
 }
@@ -210,26 +209,20 @@ func (l *loop) dispatch(ev Event, now time.Time) {
 			}
 			l.cols, l.rows = ev.Cols, ev.Rows
 		}
-		l.setToast(ev, now)
+		l.setToast(ev)
 	case "input":
-		l.setToast(ev, now)
+		l.setToast(ev)
 	case "exit":
 		// Exit records are metadata in playback v0.
 	}
 }
 
-func (l *loop) setToast(ev Event, now time.Time) {
+func (l *loop) setToast(ev Event) {
 	text := formatEventToast(ev)
 	if text == "" {
 		return
 	}
-	l.toast = toast{text: text, expiresAt: now.Add(500 * time.Millisecond)}
-}
-
-func (l *loop) expireToast(now time.Time) {
-	if !l.toast.expiresAt.IsZero() && !now.Before(l.toast.expiresAt) {
-		l.toast = toast{}
-	}
+	l.toast = toast{text: text}
 }
 
 func (l *loop) emitFrame(time.Time) {
