@@ -47,13 +47,21 @@ func Run(t testing.TB, command string, opts ...Option) *Term {
 	}
 	te := &Term{Term: eng, t: t}
 	t.Cleanup(func() {
-		_ = te.Close()
-		if t.Failed() {
-			if te.RecordPath() != "" {
-				t.Logf("tuitest recording: %s", te.RecordPath())
+		recordPath := te.RecordPath()
+		tracePath := te.TracePath()
+		if err := te.Close(); err != nil {
+			if tracePath != "" {
+				t.Errorf("tuitest close: %v", err)
+			} else {
+				t.Logf("tuitest close: %v", err)
 			}
-			if te.TracePath() != "" {
-				t.Logf("tuitest trace: %s", te.TracePath())
+		}
+		if t.Failed() {
+			if recordPath != "" {
+				t.Logf("tuitest recording: %s", recordPath)
+			}
+			if tracePath != "" {
+				t.Logf("tuitest trace: %s", tracePath)
 			}
 		}
 	})

@@ -4,11 +4,13 @@ package trace
 
 import (
 	"archive/zip"
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -58,16 +60,19 @@ type event struct {
 	Rows  int    `json:"rows,omitempty"`
 }
 
-// Trace accumulates session artifacts in memory and writes a .twee zip
-// bundle when Close is called.
+// Trace streams session artifacts into a temporary work directory and
+// writes a .twee zip bundle when Close is called.
 type Trace struct {
-	mu   sync.Mutex
-	path string
-	man  Manifest
+	mu      sync.Mutex
+	path    string
+	workDir string
+	man     Manifest
 
-	events      bytes.Buffer
-	evEnc       *json.Encoder
-	screenshots [][]byte // PNG-encoded
+	eventsPath string
+	eventsFile *os.File
+	evEnc      *json.Encoder
+
+	screenshots []string // workDir-local PNG paths
 
 	start  time.Time
 	closed bool
@@ -77,16 +82,37 @@ type Trace struct {
 // New creates a Trace that will be written to path on Close.
 // The manifest's StartedAt is set to time.Now(); Version is forced to 1.
 func New(path string, m Manifest) (*Trace, error) {
+	if path == "" {
+		return nil, errors.New("trace: empty output path")
+	}
+	if st, err := os.Stat(path); err == nil && st.IsDir() {
+		return nil, fmt.Errorf("trace: output path is a directory: %s", path)
+	} else if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	workDir, err := os.MkdirTemp(filepath.Dir(path), ".twee-trace-*")
+	if err != nil {
+		return nil, err
+	}
+	eventsPath := filepath.Join(workDir, "events.jsonl")
+	eventsFile, err := os.Create(eventsPath)
+	if err != nil {
+		_ = os.RemoveAll(workDir)
+		return nil, err
+	}
 	now := time.Now()
 	m.Version = 1
 	m.StartedAt = now
 	m.Host = DefaultHostInfo()
 	tr := &Trace{
-		path:  path,
-		man:   m,
-		start: now,
+		path:       path,
+		workDir:    workDir,
+		man:        m,
+		eventsPath: eventsPath,
+		eventsFile: eventsFile,
+		start:      now,
 	}
-	tr.evEnc = json.NewEncoder(&tr.events)
+	tr.evEnc = json.NewEncoder(eventsFile)
 	return tr, nil
 }
 
@@ -101,36 +127,51 @@ func (tr *Trace) ms(ts time.Time) int64 {
 func (tr *Trace) WriteOutput(b []byte, ts time.Time) {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
-	_ = tr.evEnc.Encode(event{
+	if tr.closed {
+		return
+	}
+	if err := tr.evEnc.Encode(event{
 		TMS:   tr.ms(ts),
 		Type:  "output",
 		Bytes: base64.StdEncoding.EncodeToString(b),
-	})
+	}); err != nil && tr.err == nil {
+		tr.err = err
+	}
 }
 
 // WriteInput records an input event (type, key, paste).
 func (tr *Trace) WriteInput(kind, key string, b []byte) {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
-	_ = tr.evEnc.Encode(event{
+	if tr.closed {
+		return
+	}
+	if err := tr.evEnc.Encode(event{
 		TMS:   tr.ms(time.Now()),
 		Type:  "input",
 		Kind:  kind,
 		Key:   key,
 		Bytes: base64.StdEncoding.EncodeToString(b),
-	})
+	}); err != nil && tr.err == nil {
+		tr.err = err
+	}
 }
 
 // WriteResize records a terminal resize.
 func (tr *Trace) WriteResize(cols, rows int) {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
-	_ = tr.evEnc.Encode(event{
+	if tr.closed {
+		return
+	}
+	if err := tr.evEnc.Encode(event{
 		TMS:  tr.ms(time.Now()),
 		Type: "resize",
 		Cols: cols,
 		Rows: rows,
-	})
+	}); err != nil && tr.err == nil {
+		tr.err = err
+	}
 }
 
 // AddScreenshotPNG stores a pre-encoded PNG screenshot. The caller is
@@ -138,7 +179,17 @@ func (tr *Trace) WriteResize(cols, rows int) {
 func (tr *Trace) AddScreenshotPNG(pngData []byte) {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
-	tr.screenshots = append(tr.screenshots, append([]byte(nil), pngData...))
+	if tr.closed {
+		return
+	}
+	path := filepath.Join(tr.workDir, fmt.Sprintf("screenshot-%04d.png", len(tr.screenshots)))
+	if err := os.WriteFile(path, pngData, 0o600); err != nil {
+		if tr.err == nil {
+			tr.err = err
+		}
+		return
+	}
+	tr.screenshots = append(tr.screenshots, path)
 }
 
 // Close finalises the trace, writing the zip bundle to disk. It is
@@ -156,6 +207,15 @@ func (tr *Trace) Close() error {
 }
 
 func (tr *Trace) writeLocked() error {
+	defer func() {
+		_ = os.RemoveAll(tr.workDir)
+	}()
+	if err := tr.eventsFile.Close(); err != nil && tr.err == nil {
+		tr.err = err
+	}
+	if tr.err != nil {
+		return tr.err
+	}
 	tr.man.StoppedAt = time.Now()
 
 	// Build screenshot manifest paths.
@@ -164,7 +224,8 @@ func (tr *Trace) writeLocked() error {
 		tr.man.Screenshots[i] = fmt.Sprintf("screenshots/%04d.png", i)
 	}
 
-	f, err := os.Create(tr.path)
+	zipPath := filepath.Join(tr.workDir, "bundle.twee")
+	f, err := os.Create(zipPath)
 	if err != nil {
 		return err
 	}
@@ -189,19 +250,39 @@ func (tr *Trace) writeLocked() error {
 		_ = f.Close()
 		return err
 	}
-	if _, err := ew.Write(tr.events.Bytes()); err != nil {
+	events, err := os.Open(tr.eventsPath)
+	if err != nil {
+		_ = f.Close()
+		return err
+	}
+	if _, err := io.Copy(ew, events); err != nil {
+		_ = events.Close()
+		_ = f.Close()
+		return err
+	}
+	if err := events.Close(); err != nil {
 		_ = f.Close()
 		return err
 	}
 
 	// screenshots
-	for i, png := range tr.screenshots {
+	for i, path := range tr.screenshots {
 		sw, err := zw.Create(fmt.Sprintf("screenshots/%04d.png", i))
 		if err != nil {
 			_ = f.Close()
 			return err
 		}
-		if _, err := sw.Write(png); err != nil {
+		png, err := os.Open(path)
+		if err != nil {
+			_ = f.Close()
+			return err
+		}
+		if _, err := io.Copy(sw, png); err != nil {
+			_ = png.Close()
+			_ = f.Close()
+			return err
+		}
+		if err := png.Close(); err != nil {
 			_ = f.Close()
 			return err
 		}
@@ -211,5 +292,8 @@ func (tr *Trace) writeLocked() error {
 		_ = f.Close()
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(zipPath, tr.path)
 }

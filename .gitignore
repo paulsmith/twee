@@ -4,4 +4,4 @@ bin/
 build/
 result
 result-*
-.tracker/runs/*/activity.jsonl
+.tracker/runs/

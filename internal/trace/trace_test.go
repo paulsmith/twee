@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -157,6 +158,33 @@ func TestTraceIdempotentClose(t *testing.T) {
 	}
 	if err := tr.Close(); err != nil {
 		t.Fatal("second close should succeed:", err)
+	}
+}
+
+func TestTraceNewValidatesOutputPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing", "session.twee")
+	if _, err := New(path, Manifest{Command: []string{"echo"}, Cols: 10, Rows: 3}); err == nil {
+		t.Fatal("New succeeded with missing output directory")
+	}
+
+	dir := t.TempDir()
+	if _, err := New(dir, Manifest{Command: []string{"echo"}, Cols: 10, Rows: 3}); err == nil {
+		t.Fatal("New succeeded with output path pointing at directory")
+	}
+
+	validPath := filepath.Join(t.TempDir(), "session.twee")
+	tr, err := New(validPath, Manifest{Command: []string{"echo"}, Cols: 10, Rows: 3})
+	if err != nil {
+		t.Fatalf("New valid path: %v", err)
+	}
+	if _, err := os.Stat(validPath); !os.IsNotExist(err) {
+		t.Fatalf("final path exists before Close: %v", err)
+	}
+	if err := tr.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := os.Stat(validPath); err != nil {
+		t.Fatalf("final path after Close: %v", err)
 	}
 }
 

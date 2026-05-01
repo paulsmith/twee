@@ -85,40 +85,41 @@ func Start(ctx context.Context, cfg Config) (*Term, error) {
 		pumpDone:  make(chan struct{}),
 		startedAt: time.Now(),
 	}
-	// Set up output hook for the initial recorder (if any). The hook
-	// will be updated by EnableTrace if a trace is also started.
-	if rec != nil {
+	if cfg.TracePath != "" {
+		if err := t.EnableTrace(cfg.TracePath); err != nil {
+			if rec != nil {
+				_ = rec.Close()
+			}
+			_ = runner.Close()
+			return nil, fmt.Errorf("trace: %w", err)
+		}
+	} else if rec != nil {
 		t.updateOutputHookLocked() // safe: no other goroutines access t yet
 	}
 	go func() {
 		_ = p.Run()
 		close(t.pumpDone)
 	}()
-	if cfg.TracePath != "" {
-		if err := t.EnableTrace(cfg.TracePath); err != nil {
-			_ = t.Close()
-			return nil, fmt.Errorf("trace: %w", err)
-		}
-	}
 	return t, nil
 }
 
 // Close terminates the child and the pump.
 func (t *Term) Close() error {
 	t.closeOnce.Do(func() {
-		t.closeErr = t.runner.Close()
+		err := t.runner.Close()
 		<-t.pumpDone
 		t.cfgMu.Lock()
 		if t.tr != nil {
-			_ = t.tr.Close()
+			err = errors.Join(err, t.tr.Close())
 			t.tr = nil
 		}
 		if t.rec != nil {
 			t.rec.WriteExit(t.runner.ExitCode())
-			_ = t.rec.Close()
+			err = errors.Join(err, t.rec.Close())
 			t.rec = nil
 		}
 		t.cfgMu.Unlock()
+		t.closeErr = err
 	})
 	return t.closeErr
 }
@@ -194,8 +195,13 @@ func (t *Term) EnableTrace(path string) error {
 	t.cfgMu.Lock()
 	defer t.cfgMu.Unlock()
 	if t.tr != nil {
-		_ = t.tr.Close()
+		err := t.tr.Close()
 		t.tr = nil
+		t.cfg.TracePath = ""
+		t.updateOutputHookLocked()
+		if err != nil {
+			return err
+		}
 	}
 	tr, err := trace.New(path, trace.Manifest{
 		Command: t.cfg.Cmd,
