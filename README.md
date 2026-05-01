@@ -138,6 +138,7 @@ exit` which defaults to 30s). Failure exits non-zero with code
 
 ### Misc
 
+`play <bundle.twee> [--speed N] [--step] [--max-idle 2s]`,
 `sleep <duration>` (client-side), `version`, `help`,
 `completion <bash|zsh|fish>`.
 
@@ -214,6 +215,43 @@ $ twee trace stop
 
 If `--out` is omitted, `trace start` chooses a temporary `.twee` path
 and returns it in the JSON response.
+
+## Playback
+
+`twee play` replays a `.twee` bundle in your terminal as an animated
+session. It uses the recorded event timing by default, supports
+accelerated playback, and shows a transient footer for inputs such as
+keys, typed text, paste, and resizes.
+
+```
+$ twee play /tmp/myapp.twee --speed 2
+```
+
+Interactive controls during playback:
+
+| Key | Action |
+|---|---|
+| `space` | Pause / resume |
+| `.` | Step one event and remain paused |
+| `>` | Jump forward 1s of trace time |
+| `r` | Restart from the beginning |
+| `q` | Quit |
+
+Flags:
+
+| Flag | Purpose |
+|---|---|
+| `--speed N` | Playback speed multiplier. `0.5` is half-speed, `4` is 4x. |
+| `--step` | Start paused and advance with `.`. |
+| `--max-idle <dur>` | Cap long idle gaps between events. `0` disables compression. |
+| `-v` | Print a one-line summary to stderr after exit. |
+
+Playback owns the terminal for its lifetime: it switches to the alt
+screen, enters raw mode, and writes frames with the Kitty graphics
+protocol. `stdout` must be a TTY, and the terminal must be large enough
+for the maximum recorded trace size plus two footer rows. Today that
+means Kitty-compatible playback only; there is no Sixel or iTerm2 image
+backend yet.
 
 ## Parallel sessions
 
