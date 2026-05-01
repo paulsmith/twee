@@ -213,6 +213,9 @@ func (t *Term) EnableTrace(path string) error {
 	if err != nil {
 		return err
 	}
+	if seed := traceSeedOutput(t.pump.Snapshot()); len(seed) > 0 {
+		tr.WriteOutput(seed, time.Now())
+	}
 	t.tr = tr
 	t.cfg.TracePath = path
 	t.updateOutputHookLocked()
