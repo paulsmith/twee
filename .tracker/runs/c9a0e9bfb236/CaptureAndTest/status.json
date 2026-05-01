@@ -1,0 +1,7 @@
+{
+  "outcome": "success",
+  "context_updates": {
+    "tool_stderr": "",
+    "tool_stdout": "/Users/paul/projects/research/twee/.ai/worktrees/claude\n/Users/paul/projects/research/twee/.ai/worktrees/codex\n/Users/paul/projects/research/twee/.ai/worktrees/gemini\n\nclaude: TESTS PASS, diff=0 lines\ncodex: TESTS PASS, diff=0 lines\ngemini: TESTS PASS, diff=0 lines"
+  }
+}

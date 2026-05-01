@@ -48,8 +48,13 @@ func Run(t testing.TB, command string, opts ...Option) *Term {
 	te := &Term{Term: eng, t: t}
 	t.Cleanup(func() {
 		_ = te.Close()
-		if t.Failed() && te.RecordPath() != "" {
-			t.Logf("tuitest recording: %s", te.RecordPath())
+		if t.Failed() {
+			if te.RecordPath() != "" {
+				t.Logf("tuitest recording: %s", te.RecordPath())
+			}
+			if te.TracePath() != "" {
+				t.Logf("tuitest trace: %s", te.TracePath())
+			}
 		}
 	})
 	return te

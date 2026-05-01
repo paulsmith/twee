@@ -1,5 +1,7 @@
+.ai/
+.direnv/
 bin/
 build/
 result
 result-*
-.direnv/
+.tracker/runs/*/activity.jsonl

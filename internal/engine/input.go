@@ -15,9 +15,13 @@ func (t *Term) Type(s string) error {
 	t.recordInput(fmt.Sprintf("Type %q", s))
 	t.cfgMu.Lock()
 	rec := t.rec
+	tr := t.tr
 	t.cfgMu.Unlock()
 	if rec != nil {
 		rec.WriteInput("type", "", []byte(s))
+	}
+	if tr != nil {
+		tr.WriteInput("type", "", []byte(s))
 	}
 	return nil
 }
@@ -34,9 +38,13 @@ func (t *Term) Key(k input.Key) error {
 	t.recordInput("Key " + input.Name(k))
 	t.cfgMu.Lock()
 	rec := t.rec
+	tr := t.tr
 	t.cfgMu.Unlock()
 	if rec != nil {
 		rec.WriteInput("key", input.Name(k), b)
+	}
+	if tr != nil {
+		tr.WriteInput("key", input.Name(k), b)
 	}
 	return nil
 }
@@ -50,9 +58,13 @@ func (t *Term) Paste(text string) error {
 	t.recordInput(fmt.Sprintf("Paste %q", text))
 	t.cfgMu.Lock()
 	rec := t.rec
+	tr := t.tr
 	t.cfgMu.Unlock()
 	if rec != nil {
 		rec.WriteInput("paste", "", b)
+	}
+	if tr != nil {
+		tr.WriteInput("paste", "", b)
 	}
 	return nil
 }
@@ -69,9 +81,13 @@ func (t *Term) Resize(cols, rows int) error {
 	t.recordInput(fmt.Sprintf("Resize %dx%d", cols, rows))
 	t.cfgMu.Lock()
 	rec := t.rec
+	tr := t.tr
 	t.cfgMu.Unlock()
 	if rec != nil {
 		rec.WriteResize(cols, rows)
+	}
+	if tr != nil {
+		tr.WriteResize(cols, rows)
 	}
 	return nil
 }

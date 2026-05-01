@@ -1,0 +1,7 @@
+{
+  "outcome": "success",
+  "context_updates": {
+    "tool_stderr": "Preparing worktree (new branch 'impl/claude')\nPreparing worktree (new branch 'impl/codex')\nPreparing worktree (new branch 'impl/gemini')",
+    "tool_stdout": "HEAD is now at a121c5a Don't track .envrc\nHEAD is now at a121c5a Don't track .envrc\nHEAD is now at a121c5a Don't track .envrc\nworktrees-ready"
+  }
+}

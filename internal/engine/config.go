@@ -19,6 +19,7 @@ type Config struct {
 	StableQuietWindow time.Duration
 
 	RecordPath string
+	TracePath  string
 }
 
 // applyDefaults fills in zero fields with sensible values.

@@ -95,6 +95,10 @@ type RecordStartArgs struct {
 	Out string `json:"out,omitempty"`
 }
 
+type TraceStartArgs struct {
+	Out string `json:"out,omitempty"`
+}
+
 type DiffArgs struct {
 	Against string `json:"against"`
 }

@@ -81,6 +81,14 @@ func (r *Runner) wait() {
 	close(r.exited)
 }
 
+// Pid returns the child process ID, or 0 if the process has not started.
+func (r *Runner) Pid() int {
+	if r.cmd.Process != nil {
+		return r.cmd.Process.Pid
+	}
+	return 0
+}
+
 // Master returns the PTY master fd. Reads on it produce app output;
 // writes deliver input to the app.
 func (r *Runner) Master() io.ReadWriter { return r.master }

@@ -1,0 +1,7 @@
+{
+  "outcome": "fail",
+  "context_updates": {
+    "tool_stderr": "error: Your local changes to the following files would be overwritten by merge:\n\tcmd/twee/cmd_trace.go\n\tinternal/daemon/handlers_trace.go\n\tinternal/trace/trace.go\n\tinternal/trace/trace_test.go\nPlease commit your changes or stash them before you merge.\nerror: Your local changes to the following files would be overwritten by merge:\n\tinternal/engine/config.go\n\tinternal/engine/input.go\n\tinternal/engine/query.go\n\tinternal/engine/term.go\n\tinternal/ptyrunner/runner.go\n\tinternal/rpc/ops.go\n\tinternal/rpc/types.go\n\ttuitest/options.go\n\ttuitest/term.go\nPlease commit your changes or stash them before you merge.\nAborting",
+    "tool_stdout": "Updating a121c5a..a1c2856"
+  }
+}

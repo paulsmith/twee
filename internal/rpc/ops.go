@@ -27,6 +27,8 @@ const (
 	OpScreenshot  = "screenshot"
 	OpRecordStart = "record_start"
 	OpRecordStop  = "record_stop"
+	OpTraceStart  = "trace_start"
+	OpTraceStop   = "trace_stop"
 	OpDiff        = "diff"
 
 	// Waits

@@ -84,6 +84,9 @@ func (t *Term) Diagnostic() string {
 	if t.cfg.RecordPath != "" {
 		sb.printf("recording: %s\n", t.cfg.RecordPath)
 	}
+	if t.cfg.TracePath != "" {
+		sb.printf("trace: %s\n", t.cfg.TracePath)
+	}
 	return sb.String()
 }
 
