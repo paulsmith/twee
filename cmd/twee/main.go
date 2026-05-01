@@ -91,7 +91,7 @@ Lifecycle:
 Input:    type | key | keys | paste | signal
 Queries:  text | lines | cell | region | cursor | find
           size | title | mode | scrollback | snapshot
-State:    resize | screenshot | record | diff
+State:    resize | screenshot | record | trace | diff
 Waits:    wait text | wait no-text | wait stable | wait cursor | wait exit
 Misc:     sleep | version | help | completion
 

@@ -119,6 +119,7 @@ available) for per-verb usage.
 | `resize <cols> <rows>` | `resize` | TIOCSWINSZ + SIGWINCH + model resize. |
 | `screenshot [--out path.png]` | `screenshot` | PNG to disk; without `--out`, response includes `png_base64`. |
 | `record start [--out path.jsonl]` / `record stop` | `record_start` / `record_stop` | Toggle JSONL recording. |
+| `trace start [--out path.twee]` / `trace stop` | `trace_start` / `trace_stop` | Toggle `.twee` trace bundle recording. |
 | `diff --against path` | `diff` | Compare current viewport to a saved text snapshot. Always exits 0; branch on `data.equal`. |
 
 ### Waits
@@ -193,6 +194,26 @@ name from the tables above (e.g. `wait_text`, not `wait text`). Pass
 `--script -` (or omit `--script`) to read from stdin. With
 `--emit results`, each op's response is streamed as NDJSON instead of
 the summary envelope.
+
+## Traces
+
+`twee trace` records a running daemon to a `.twee` zip bundle for
+debugging and replay tooling. A trace contains `manifest.json`,
+`events.jsonl`, and `screenshots/*.png`. Events include PTY output,
+input, and terminal resizes; screenshots capture the initial and final
+viewports.
+
+```
+$ twee start ./myapp
+$ twee trace start --out /tmp/myapp.twee
+$ twee wait text "Choose an option"
+$ twee key Down
+$ twee trace stop
+{"ok":true,"data":{"path":"/tmp/myapp.twee"}}
+```
+
+If `--out` is omitted, `trace start` chooses a temporary `.twee` path
+and returns it in the JSON response.
 
 ## Parallel sessions
 
