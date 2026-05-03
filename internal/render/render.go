@@ -16,6 +16,12 @@ import (
 // Options controls a render pass.
 type Options struct {
 	SizePt float64 // font size in points; default 14
+
+	// PixelWidth and PixelHeight request an exact output image size. When
+	// both are > 0 and SizePt is 0, the renderer picks a font size that fits
+	// the requested cell dimensions.
+	PixelWidth  int
+	PixelHeight int
 }
 
 // Default returns sensible options.
@@ -23,18 +29,16 @@ func Default() Options { return Options{SizePt: 14} }
 
 // Render rasterizes the snapshot and returns the resulting RGBA image.
 func Render(snap engine.Snapshot, opts Options) (*image.RGBA, error) {
-	if opts.SizePt == 0 {
-		opts.SizePt = 14
-	}
-	face, err := Face(opts.SizePt)
+	sizePt, w, h, err := resolveSize(snap, opts)
 	if err != nil {
 		return nil, err
 	}
-	cw, ch := cellMetrics(face)
-	w := cw * snap.Cols
-	h := ch * snap.Rows
 	if w <= 0 || h <= 0 {
 		return image.NewRGBA(image.Rect(0, 0, 1, 1)), nil
+	}
+	face, err := Face(sizePt)
+	if err != nil {
+		return nil, err
 	}
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 
@@ -45,7 +49,7 @@ func Render(snap engine.Snapshot, opts Options) (*image.RGBA, error) {
 	for y := 0; y < snap.Rows && y < len(snap.Lines); y++ {
 		line := snap.Lines[y].Cells
 		for x := 0; x < snap.Cols && x < len(line); x++ {
-			drawCell(img, x, y, cw, ch, face, line[x])
+			drawCell(img, snap.Cols, snap.Rows, x, y, face, line[x])
 		}
 	}
 	return img, nil
@@ -70,7 +74,50 @@ func cellMetrics(face font.Face) (cw, ch int) {
 	return cw, ch
 }
 
-func drawCell(img *image.RGBA, cx, cy, cw, ch int, face font.Face, c engine.Cell) {
+func resolveSize(snap engine.Snapshot, opts Options) (sizePt float64, w int, h int, err error) {
+	sizePt = opts.SizePt
+	if sizePt == 0 {
+		sizePt = 14
+	}
+
+	face, err := Face(sizePt)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	cw, ch := cellMetrics(face)
+	w = cw * snap.Cols
+	h = ch * snap.Rows
+
+	if opts.PixelWidth <= 0 || opts.PixelHeight <= 0 {
+		return sizePt, w, h, nil
+	}
+	w, h = opts.PixelWidth, opts.PixelHeight
+
+	if opts.SizePt != 0 || snap.Cols <= 0 || snap.Rows <= 0 {
+		return sizePt, w, h, nil
+	}
+
+	targetCW := float64(opts.PixelWidth) / float64(snap.Cols)
+	targetCH := float64(opts.PixelHeight) / float64(snap.Rows)
+	sizeFromW := sizePt
+	sizeFromH := sizePt
+	if cw > 0 {
+		sizeFromW = sizePt * targetCW / float64(cw)
+	}
+	if ch > 0 {
+		sizeFromH = sizePt * targetCH / float64(ch)
+	}
+	sizePt = sizeFromH
+	if sizeFromW > 0 && sizeFromW < sizePt {
+		sizePt = sizeFromW
+	}
+	if sizePt <= 0 {
+		sizePt = 14
+	}
+	return sizePt, w, h, nil
+}
+
+func drawCell(img *image.RGBA, cols, rows, cx, cy int, face font.Face, c engine.Cell) {
 	// Width=0: continuation cell of a wide glyph; skip.
 	if c.Width == 0 {
 		return
@@ -89,7 +136,7 @@ func drawCell(img *image.RGBA, cx, cy, cw, ch int, face font.Face, c engine.Cell
 		fg = dim(fg)
 	}
 
-	rect := image.Rect(cx*cw, cy*ch, (cx+width)*cw, (cy+1)*ch)
+	rect := cellRect(img.Bounds(), cols, rows, cx, cy, width)
 	draw.Draw(img, rect, &image.Uniform{C: bg}, image.Point{}, draw.Src)
 
 	if c.Text == "" {
@@ -98,8 +145,8 @@ func drawCell(img *image.RGBA, cx, cy, cw, ch int, face font.Face, c engine.Cell
 
 	m := face.Metrics()
 	dot := fixed.Point26_6{
-		X: fixed.I(cx * cw),
-		Y: fixed.I(cy*ch) + m.Ascent,
+		X: fixed.I(rect.Min.X),
+		Y: fixed.I(rect.Min.Y) + m.Ascent,
 	}
 	d := &font.Drawer{
 		Dst:  img,
@@ -111,20 +158,38 @@ func drawCell(img *image.RGBA, cx, cy, cw, ch int, face font.Face, c engine.Cell
 
 	if c.Bold {
 		d.Dot = fixed.Point26_6{
-			X: fixed.I(cx*cw + 1),
-			Y: fixed.I(cy*ch) + m.Ascent,
+			X: fixed.I(rect.Min.X + 1),
+			Y: fixed.I(rect.Min.Y) + m.Ascent,
 		}
 		d.DrawString(c.Text)
 	}
 
 	if c.Underline {
-		uy := (cy+1)*ch - 1
-		ux1 := cx * cw
-		ux2 := (cx + width) * cw
-		for x := ux1; x < ux2; x++ {
+		uy := rect.Max.Y - 1
+		for x := rect.Min.X; x < rect.Max.X; x++ {
 			img.Set(x, uy, fg)
 		}
 	}
+}
+
+func cellRect(bounds image.Rectangle, cols, rows, cx, cy, width int) image.Rectangle {
+	if cols <= 0 || rows <= 0 {
+		return image.Rectangle{}
+	}
+	if width <= 0 {
+		width = 1
+	}
+	x1 := bounds.Min.X + cx*bounds.Dx()/cols
+	x2 := bounds.Min.X + (cx+width)*bounds.Dx()/cols
+	if x2 > bounds.Max.X {
+		x2 = bounds.Max.X
+	}
+	y1 := bounds.Min.Y + cy*bounds.Dy()/rows
+	y2 := bounds.Min.Y + (cy+1)*bounds.Dy()/rows
+	if y2 > bounds.Max.Y {
+		y2 = bounds.Max.Y
+	}
+	return image.Rect(x1, y1, x2, y2)
 }
 
 func resolveColor(c engine.Color, fallback color.RGBA) color.RGBA {

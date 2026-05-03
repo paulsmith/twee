@@ -88,7 +88,9 @@ type ResizeArgs struct {
 }
 
 type ScreenshotArgs struct {
-	Out string `json:"out,omitempty"`
+	Out         string `json:"out,omitempty"`
+	PixelWidth  int    `json:"pixel_width,omitempty"`
+	PixelHeight int    `json:"pixel_height,omitempty"`
 }
 
 type RecordStartArgs struct {

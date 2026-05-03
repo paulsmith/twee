@@ -23,7 +23,7 @@ func handleScreenshot(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 		return nil, &rpc.Error{Code: rpc.CodeInvalidArgument, Message: err.Error()}
 	}
 	snap := t.Snapshot()
-	img, err := render.Render(snap, render.Default())
+	img, err := render.Render(snap, renderOptionsForScreenshot(a))
 	if err != nil {
 		return nil, &rpc.Error{Code: rpc.CodeInternal, Message: err.Error()}
 	}
@@ -51,4 +51,11 @@ func handleScreenshot(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 		Width:     img.Bounds().Dx(),
 		Height:    img.Bounds().Dy(),
 	}, nil
+}
+
+func renderOptionsForScreenshot(a rpc.ScreenshotArgs) render.Options {
+	if a.PixelWidth > 0 && a.PixelHeight > 0 {
+		return render.Options{PixelWidth: a.PixelWidth, PixelHeight: a.PixelHeight}
+	}
+	return render.Default()
 }

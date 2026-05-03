@@ -30,7 +30,12 @@ func runScreenshot(args []string) {
 	if err := fs.Parse(args); err != nil {
 		fatalUsage("screenshot: %v", err)
 	}
-	callAndEmit(*name, rpc.OpScreenshot, rpc.ScreenshotArgs{Out: *out})
+	pixelWidth, pixelHeight := nativeDisplayPixels()
+	callAndEmit(*name, rpc.OpScreenshot, rpc.ScreenshotArgs{
+		Out:         *out,
+		PixelWidth:  pixelWidth,
+		PixelHeight: pixelHeight,
+	})
 }
 
 func runResize(args []string) {

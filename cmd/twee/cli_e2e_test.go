@@ -1,14 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"image/png"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/creack/pty"
 )
 
 // runCLI executes ./bin/twee with args from the test process' env. It
@@ -28,6 +35,31 @@ func runCLI(t *testing.T, bin string, env []string, args ...string) (map[string]
 	}
 	var got map[string]any
 	if err := json.Unmarshal(out, &got); err != nil {
+		return nil, out, fmt.Errorf("decode %s: %w", out, err)
+	}
+	return got, out, nil
+}
+
+func runCLIOnPTY(t *testing.T, bin string, env []string, ws *pty.Winsize, args ...string) (map[string]any, []byte, error) {
+	t.Helper()
+	cmd := exec.Command(bin, args...)
+	cmd.Env = append(os.Environ(), env...)
+	ptmx, err := pty.StartWithSize(cmd, ws)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer ptmx.Close()
+
+	out, readErr := io.ReadAll(ptmx)
+	waitErr := cmd.Wait()
+	if readErr != nil && !errors.Is(readErr, syscall.EIO) {
+		return nil, out, readErr
+	}
+	if waitErr != nil {
+		return nil, out, waitErr
+	}
+	var got map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(out), &got); err != nil {
 		return nil, out, fmt.Errorf("decode %s: %w", out, err)
 	}
 	return got, out, nil
@@ -138,5 +170,46 @@ func TestStartStatusStopRoundTrip(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "NOT_FOUND") && !strings.Contains(string(out), "no such file") {
 		t.Errorf("expected NOT_FOUND after stop, got %s", out)
+	}
+}
+
+func TestScreenshotUsesPTYPixelSizeViaCLI(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+	name := "shot-pixels"
+	defer exec.Command(bin, "stop", "--name", name).Run()
+
+	mustOK(t, bin, env, "start", "--name", name, "/bin/sh", "-c", "printf 'hi\\r\\n'; sleep 30")
+	mustOK(t, bin, env, "wait", "text", "--name", name, "hi")
+
+	outPath := filepath.Join(t.TempDir(), "screen.png")
+	resp, raw, err := runCLIOnPTY(t, bin, env, &pty.Winsize{
+		Rows: 24,
+		Cols: 80,
+		X:    333,
+		Y:    222,
+	}, "screenshot", "--name", name, "--out", outPath)
+	if err != nil {
+		t.Fatalf("screenshot: %v\n%s", err, raw)
+	}
+	if resp["ok"] != true {
+		t.Fatalf("screenshot: %v", resp)
+	}
+	data, _ := resp["data"].(map[string]any)
+	if data["width"] != float64(333) || data["height"] != float64(222) {
+		t.Fatalf("response size = %v, want 333x222", data)
+	}
+
+	f, err := os.Open(outPath)
+	if err != nil {
+		t.Fatalf("open screenshot: %v", err)
+	}
+	defer f.Close()
+	cfg, err := png.DecodeConfig(f)
+	if err != nil {
+		t.Fatalf("decode screenshot: %v", err)
+	}
+	if cfg.Width != 333 || cfg.Height != 222 {
+		t.Fatalf("png size = %dx%d, want 333x222", cfg.Width, cfg.Height)
 	}
 }

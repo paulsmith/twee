@@ -36,6 +36,26 @@ func TestRenderEmitsPNG(t *testing.T) {
 	}
 }
 
+func TestRenderUsesRequestedPixelSize(t *testing.T) {
+	snap := engine.Snapshot{
+		Cols: 10, Rows: 2,
+		Lines: []engine.Line{
+			{Cells: makeCells("hello     ")},
+			{Cells: makeCells("world!    ")},
+		},
+	}
+	img, err := Render(snap, Options{PixelWidth: 123, PixelHeight: 45})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if got := img.Bounds().Dx(); got != 123 {
+		t.Errorf("width = %d, want 123", got)
+	}
+	if got := img.Bounds().Dy(); got != 45 {
+		t.Errorf("height = %d, want 45", got)
+	}
+}
+
 func makeCells(s string) []engine.Cell {
 	out := make([]engine.Cell, 0, len(s))
 	for _, r := range s {
