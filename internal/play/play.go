@@ -18,6 +18,12 @@ type Options struct {
 	MaxIdle time.Duration
 	Verbose bool
 
+	// DisplayPixelWidth and DisplayPixelHeight are the host terminal's native
+	// pixel dimensions. When set, frames are rendered to the pixel size of
+	// their Kitty placement area instead of the renderer's default font size.
+	DisplayPixelWidth  int
+	DisplayPixelHeight int
+
 	Stdin  *os.File
 	Stdout *os.File
 	Stderr io.Writer
@@ -52,12 +58,14 @@ func Run(path string, opts Options) error {
 
 	pf := defaultPreflightOptions(opts.Stdin, opts.Stdout)
 	terminalCols := 0
+	terminalRows := 0
 	if !opts.SkipPreflight {
 		if err := checkStdoutTTY(pf); err != nil {
 			return err
 		}
-		if width, _, err := pf.Term.GetSize(pf.StdoutFD); err == nil {
+		if width, height, err := pf.Term.GetSize(pf.StdoutFD); err == nil {
 			terminalCols = width
+			terminalRows = height
 		}
 	}
 	bundle, err := OpenBundle(path)
@@ -71,6 +79,15 @@ func Run(path string, opts Options) error {
 	}
 	if terminalCols <= 0 {
 		terminalCols = bundle.MaxCols
+		if terminalCols < 1 {
+			terminalCols = 1
+		}
+	}
+	if terminalRows <= 0 {
+		terminalRows = bundle.MaxRows + 2
+		if terminalRows < 3 {
+			terminalRows = 3
+		}
 	}
 
 	rawRestore := func() {}
@@ -114,6 +131,14 @@ func Run(path string, opts Options) error {
 		Step:    opts.Step,
 		Cmds:    cmds,
 		Sink:    newKittySink(opts.Stdout, terminalCols),
+		DisplayPixels: displayPixels{
+			Width:  opts.DisplayPixelWidth,
+			Height: opts.DisplayPixelHeight,
+		},
+		TerminalSize: terminalSize{
+			Cols: terminalCols,
+			Rows: terminalRows,
+		},
 	})
 
 	ticker := time.NewTicker(33 * time.Millisecond)

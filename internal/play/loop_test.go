@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/paulsmith/research/twee/internal/render"
 	"github.com/paulsmith/research/twee/internal/vt"
 )
 
@@ -46,6 +47,7 @@ func (m *fakeModel) Snapshot() vt.Snapshot {
 }
 
 type frameRecord struct {
+	cols   int
 	rows   int
 	toast  string
 	status string
@@ -56,9 +58,9 @@ type fakeSink struct {
 	frames []frameRecord
 }
 
-func (s *fakeSink) Emit(img *image.RGBA, _, rows int, toast, status string) error {
+func (s *fakeSink) Emit(img *image.RGBA, cols, rows int, toast, status string) error {
 	s.frames = append(s.frames, frameRecord{
-		rows: rows, toast: toast, status: status, size: img.Bounds(),
+		cols: cols, rows: rows, toast: toast, status: status, size: img.Bounds(),
 	})
 	return nil
 }
@@ -200,6 +202,70 @@ func TestLoopClosedCommandChannelEmitsCurrentFrameThenDone(t *testing.T) {
 	}
 	if len(sink.frames) == 0 {
 		t.Fatal("closed command channel exited before emitting current frame")
+	}
+}
+
+func TestLoopUsesStaticRenderOptions(t *testing.T) {
+	sink := &fakeSink{}
+	l := testLoop(loopConfig{
+		Sink:          sink,
+		RenderOptions: render.Options{PixelWidth: 123, PixelHeight: 45},
+	})
+	l.tick(time.Unix(0, 0))
+
+	got := lastFrame(t, sink).size
+	if got.Dx() != 123 || got.Dy() != 45 {
+		t.Fatalf("frame size = %dx%d, want 123x45", got.Dx(), got.Dy())
+	}
+}
+
+func TestLoopExpandsWideFrameToAvailableWidth(t *testing.T) {
+	sink := &fakeSink{}
+	l := testLoop(loopConfig{
+		Events: []Event{{TMS: 0, Type: "resize", Cols: 20, Rows: 4}},
+		Sink:   sink,
+		DisplayPixels: displayPixels{
+			Width:  1000,
+			Height: 500,
+		},
+		TerminalSize: terminalSize{
+			Cols: 100,
+			Rows: 25,
+		},
+	})
+	l.tick(time.Unix(0, 0))
+
+	frame := lastFrame(t, sink)
+	if frame.cols != 100 || frame.rows != 20 {
+		t.Fatalf("placement = %dx%d, want 100x20", frame.cols, frame.rows)
+	}
+	if got := frame.size; got.Dx() != 1000 || got.Dy() != 400 {
+		t.Fatalf("frame size = %dx%d, want 1000x400", got.Dx(), got.Dy())
+	}
+}
+
+func TestLoopExpandsTallFrameToAvailableHeight(t *testing.T) {
+	sink := &fakeSink{}
+	l := testLoop(loopConfig{
+		Events: []Event{{TMS: 0, Type: "resize", Cols: 10, Rows: 20}},
+		Sink:   sink,
+		DisplayPixels: displayPixels{
+			Width:  1000,
+			Height: 500,
+		},
+		TerminalSize: terminalSize{
+			Cols: 100,
+			Rows: 25,
+		},
+	})
+	l.tick(time.Unix(0, 0))
+
+	frame := lastFrame(t, sink)
+	if frame.cols != 12 || frame.rows != 23 {
+		t.Fatalf("placement = %dx%d, want 12x23", frame.cols, frame.rows)
+	}
+	if got := frame.size; got.Dx() != 120 || got.Dy() != 460 {
+		t.Fatalf("frame size = %dx%d, want 120x460", got.Dx(), got.Dy())
 	}
 }
 

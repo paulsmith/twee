@@ -41,6 +41,10 @@ func runPlay(args []string) {
 	if os.Getenv("TWEE_PLAY_FAKE_KITTY") == "1" {
 		opts.SkipPreflight = true
 		opts.SkipRaw = true
+	} else {
+		pixelWidth, pixelHeight := nativeDisplayPixels()
+		opts.DisplayPixelWidth = pixelWidth
+		opts.DisplayPixelHeight = pixelHeight
 	}
 	if err := play.Run(path, opts); err != nil {
 		fmt.Fprintln(os.Stderr, err)

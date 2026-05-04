@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"image"
+	"math"
 	"time"
 
 	"github.com/paulsmith/research/twee/internal/engine"
@@ -51,7 +52,19 @@ type loop struct {
 	initCols, initRows int
 	newModel           func(int, int) vt.Model
 	renderOptions      render.Options
+	displayPixels      displayPixels
+	terminalSize       terminalSize
 	err                error
+}
+
+type displayPixels struct {
+	Width  int
+	Height int
+}
+
+type terminalSize struct {
+	Cols int
+	Rows int
 }
 
 type loopConfig struct {
@@ -65,6 +78,8 @@ type loopConfig struct {
 	Sink          frameSink
 	NewModel      func(int, int) vt.Model
 	RenderOptions render.Options
+	DisplayPixels displayPixels
+	TerminalSize  terminalSize
 }
 
 func newLoop(cfg loopConfig) *loop {
@@ -95,6 +110,8 @@ func newLoop(cfg loopConfig) *loop {
 		initRows:      cfg.Rows,
 		newModel:      cfg.NewModel,
 		renderOptions: cfg.RenderOptions,
+		displayPixels: cfg.DisplayPixels,
+		terminalSize:  cfg.TerminalSize,
 	}
 }
 
@@ -128,7 +145,7 @@ func (l *loop) tick(now time.Time) (done bool) {
 	}
 
 	if dispatchReady {
-		l.dispatchReady(now)
+		l.dispatchReady()
 	}
 	if l.cursor == len(l.events) {
 		l.atEnd = true
@@ -157,7 +174,7 @@ func (l *loop) drainCommands(now time.Time) (skipAdvance, dispatchReady, done bo
 				if l.cursor < len(l.events) {
 					ev := l.events[l.cursor]
 					l.playT = ev.traceTime()
-					l.dispatch(ev, now)
+					l.dispatch(ev)
 					l.cursor++
 				}
 			case cmdFwd1s:
@@ -189,14 +206,14 @@ func (l *loop) drainCommands(now time.Time) (skipAdvance, dispatchReady, done bo
 	}
 }
 
-func (l *loop) dispatchReady(now time.Time) {
+func (l *loop) dispatchReady() {
 	for l.cursor < len(l.events) && l.events[l.cursor].traceTime() <= l.playT {
-		l.dispatch(l.events[l.cursor], now)
+		l.dispatch(l.events[l.cursor])
 		l.cursor++
 	}
 }
 
-func (l *loop) dispatch(ev Event, now time.Time) {
+func (l *loop) dispatch(ev Event) {
 	switch ev.Type {
 	case "output":
 		if err := l.model.Feed(ev.Bytes); err != nil && l.err == nil {
@@ -236,18 +253,90 @@ func (l *loop) emitFrame(time.Time) {
 	if bytes.Equal(hash, l.snapHash) && toastText == l.emittedToast && status == l.emittedStatus {
 		return
 	}
-	img, err := render.Render(engineSnapshot(snap), l.renderOptions)
+	placement := l.placementForSnapshot(snap)
+	img, err := render.Render(engineSnapshot(snap), l.renderOptionsForPlacement(placement))
 	if err != nil {
 		l.err = err
 		return
 	}
-	if err := l.sink.Emit(img, l.cols, l.rows, toastText, status); err != nil {
+	if err := l.sink.Emit(img, placement.Cols, placement.Rows, toastText, status); err != nil {
 		l.err = err
 		return
 	}
 	l.snapHash = hash
 	l.emittedToast = toastText
 	l.emittedStatus = status
+}
+
+func (l *loop) placementForSnapshot(snap vt.Snapshot) terminalSize {
+	frame := terminalSize{Cols: snap.Size.Cols, Rows: snap.Size.Rows}
+	if frame.Cols <= 0 {
+		frame.Cols = l.cols
+	}
+	if frame.Rows <= 0 {
+		frame.Rows = l.rows
+	}
+	if frame.Cols <= 0 || frame.Rows <= 0 ||
+		l.terminalSize.Cols <= 0 || l.terminalSize.Rows <= 2 {
+		return frame
+	}
+	return fitFrameCells(frame, terminalSize{
+		Cols: l.terminalSize.Cols,
+		Rows: l.terminalSize.Rows - 2,
+	})
+}
+
+func fitFrameCells(frame, available terminalSize) terminalSize {
+	if frame.Cols <= 0 || frame.Rows <= 0 ||
+		available.Cols <= 0 || available.Rows <= 0 {
+		return frame
+	}
+	scaleW := float64(available.Cols) / float64(frame.Cols)
+	scaleH := float64(available.Rows) / float64(frame.Rows)
+	scale := scaleW
+	if scaleH < scale {
+		scale = scaleH
+	}
+	cols := int(math.Round(float64(frame.Cols) * scale))
+	rows := int(math.Round(float64(frame.Rows) * scale))
+	if cols < 1 {
+		cols = 1
+	}
+	if rows < 1 {
+		rows = 1
+	}
+	if cols > available.Cols {
+		cols = available.Cols
+	}
+	if rows > available.Rows {
+		rows = available.Rows
+	}
+	return terminalSize{Cols: cols, Rows: rows}
+}
+
+func (l *loop) renderOptionsForPlacement(placement terminalSize) render.Options {
+	if l.displayPixels.Width <= 0 || l.displayPixels.Height <= 0 ||
+		l.terminalSize.Cols <= 0 || l.terminalSize.Rows <= 0 {
+		return l.renderOptions
+	}
+	if placement.Cols <= 0 || placement.Rows <= 0 {
+		return l.renderOptions
+	}
+	return render.Options{
+		PixelWidth:  scaledPixels(l.displayPixels.Width, placement.Cols, l.terminalSize.Cols),
+		PixelHeight: scaledPixels(l.displayPixels.Height, placement.Rows, l.terminalSize.Rows),
+	}
+}
+
+func scaledPixels(displayPixels, placementCells, terminalCells int) int {
+	if displayPixels <= 0 || placementCells <= 0 || terminalCells <= 0 {
+		return 0
+	}
+	n := int(math.Round(float64(displayPixels) * float64(placementCells) / float64(terminalCells)))
+	if n < 1 {
+		return 1
+	}
+	return n
 }
 
 func (l *loop) status() string {
