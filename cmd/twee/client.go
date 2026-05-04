@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"sync/atomic"
 	"time"
 
@@ -16,7 +15,7 @@ func callDaemon(name, op string, args any) (rpc.Response, error) {
 	if err != nil {
 		return rpc.Response{}, err
 	}
-	c, err := net.DialTimeout("unix", sock, 2*time.Second)
+	c, err := dialUnixSocketTimeout(sock, 2*time.Second)
 	if err != nil {
 		return rpc.Response{}, fmt.Errorf("dial %s: %w", sock, err)
 	}

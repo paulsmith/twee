@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"strconv"
@@ -79,7 +78,7 @@ func runDaemonChildReal() {
 		os.Exit(1)
 	}
 
-	l, err := net.Listen("unix", sock)
+	l, err := listenUnixSocket(sock)
 	if err != nil {
 		_ = te.Close()
 		writeReadyErr(readyW, name, fmt.Errorf("listen %s: %w", sock, err))

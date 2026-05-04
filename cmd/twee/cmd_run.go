@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 
@@ -68,7 +67,7 @@ func runRun(args []string) {
 	tmpDir, _ := os.MkdirTemp("", "twee-run-")
 	defer os.RemoveAll(tmpDir)
 	sock := filepath.Join(tmpDir, "twee.sock")
-	l, err := net.Listen("unix", sock)
+	l, err := listenUnixSocket(sock)
 	if err != nil {
 		emitError(rpc.CodeIO, err.Error(), nil, 1)
 	}
@@ -81,7 +80,7 @@ func runRun(args []string) {
 	emitResults := *emit == "results"
 	for i, op := range ops {
 		op.ID = fmt.Sprintf("%d", i)
-		c, err := net.Dial("unix", sock)
+		c, err := dialUnixSocket(sock)
 		if err != nil {
 			emitError(rpc.CodeIO, err.Error(), nil, 1)
 		}

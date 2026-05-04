@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +45,7 @@ func runLs(args []string) {
 		go func(name string) {
 			defer wg.Done()
 			path := filepath.Join(dir, name+".sock")
-			c, err := net.DialTimeout("unix", path, 500*time.Millisecond)
+			c, err := dialUnixSocketTimeout(path, 500*time.Millisecond)
 			if err != nil {
 				return
 			}
