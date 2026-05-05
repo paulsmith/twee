@@ -2,8 +2,12 @@ package render
 
 import (
 	"bytes"
+	"image"
 	"image/png"
 	"testing"
+
+	"golang.org/x/image/font"
+	"golang.org/x/image/math/fixed"
 
 	"github.com/paulsmith/research/twee/internal/engine"
 )
@@ -56,10 +60,89 @@ func TestRenderUsesRequestedPixelSize(t *testing.T) {
 	}
 }
 
+func TestFaceForRuneUsesFallbackForAnyPrimaryMiss(t *testing.T) {
+	primary := &testFace{glyphs: map[rune]bool{'A': true}}
+	firstFallback := &testFace{glyphs: map[rune]bool{'B': true}}
+	secondFallback := &testFace{glyphs: map[rune]bool{'C': true}}
+	fallbackFaces := []font.Face{firstFallback, secondFallback}
+
+	tests := []struct {
+		name string
+		r    rune
+		want font.Face
+	}{
+		{name: "primary hit", r: 'A', want: primary},
+		{name: "first fallback hit", r: 'B', want: firstFallback},
+		{name: "later fallback hit", r: 'C', want: secondFallback},
+		{name: "all faces miss", r: 'D', want: primary},
+	}
+
+	for _, tt := range tests {
+		if got := faceForRune(primary, fallbackFaces, tt.r); got != tt.want {
+			t.Fatalf("%s: faceForRune(%U) = %p, want %p", tt.name, tt.r, got, tt.want)
+		}
+	}
+}
+
+func TestFallbackFontsCoverKnownTerminalSymbols(t *testing.T) {
+	face, err := Face(14)
+	if err != nil {
+		t.Fatalf("face: %v", err)
+	}
+	monoFace, err := FallbackFace(14)
+	if err != nil {
+		t.Fatalf("fallback face: %v", err)
+	}
+	fallbackFaces, err := FallbackFaces(14)
+	if err != nil {
+		t.Fatalf("fallback faces: %v", err)
+	}
+	if len(fallbackFaces) == 0 || fallbackFaces[0] != monoFace {
+		t.Fatal("Noto Sans Mono is not the first fallback face")
+	}
+
+	for _, r := range []rune{'⎿', '✽', '⏵', '▰'} {
+		if _, ok := face.GlyphAdvance(r); ok {
+			t.Fatalf("primary face unexpectedly has %U %q", r, r)
+		}
+		if got := faceForRune(face, fallbackFaces, r); got == face {
+			t.Fatalf("faceForRune(%U) did not use a fallback", r)
+		}
+	}
+}
+
 func makeCells(s string) []engine.Cell {
 	out := make([]engine.Cell, 0, len(s))
 	for _, r := range s {
 		out = append(out, engine.Cell{Text: string(r), Width: 1})
 	}
 	return out
+}
+
+type testFace struct {
+	glyphs map[rune]bool
+}
+
+func (f *testFace) Close() error {
+	return nil
+}
+
+func (f *testFace) Glyph(fixed.Point26_6, rune) (image.Rectangle, image.Image, image.Point, fixed.Int26_6, bool) {
+	return image.Rectangle{}, nil, image.Point{}, fixed.I(1), false
+}
+
+func (f *testFace) GlyphBounds(r rune) (fixed.Rectangle26_6, fixed.Int26_6, bool) {
+	return fixed.Rectangle26_6{}, fixed.I(1), f.glyphs[r]
+}
+
+func (f *testFace) GlyphAdvance(r rune) (fixed.Int26_6, bool) {
+	return fixed.I(1), f.glyphs[r]
+}
+
+func (f *testFace) Kern(rune, rune) fixed.Int26_6 {
+	return 0
+}
+
+func (f *testFace) Metrics() font.Metrics {
+	return font.Metrics{}
 }

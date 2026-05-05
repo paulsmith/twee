@@ -40,6 +40,10 @@ func Render(snap engine.Snapshot, opts Options) (*image.RGBA, error) {
 	if err != nil {
 		return nil, err
 	}
+	fallbackFaces, err := FallbackFaces(sizePt)
+	if err != nil {
+		return nil, err
+	}
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 
 	// Default background: black.
@@ -49,7 +53,7 @@ func Render(snap engine.Snapshot, opts Options) (*image.RGBA, error) {
 	for y := 0; y < snap.Rows && y < len(snap.Lines); y++ {
 		line := snap.Lines[y].Cells
 		for x := 0; x < snap.Cols && x < len(line); x++ {
-			drawCell(img, snap.Cols, snap.Rows, x, y, face, line[x])
+			drawCell(img, snap.Cols, snap.Rows, x, y, face, fallbackFaces, line[x])
 		}
 	}
 	return img, nil
@@ -117,7 +121,7 @@ func resolveSize(snap engine.Snapshot, opts Options) (sizePt float64, w int, h i
 	return sizePt, w, h, nil
 }
 
-func drawCell(img *image.RGBA, cols, rows, cx, cy int, face font.Face, c engine.Cell) {
+func drawCell(img *image.RGBA, cols, rows, cx, cy int, face font.Face, fallbackFaces []font.Face, c engine.Cell) {
 	// Width=0: continuation cell of a wide glyph; skip.
 	if c.Width == 0 {
 		return
@@ -148,20 +152,14 @@ func drawCell(img *image.RGBA, cols, rows, cx, cy int, face font.Face, c engine.
 		X: fixed.I(rect.Min.X),
 		Y: fixed.I(rect.Min.Y) + m.Ascent,
 	}
-	d := &font.Drawer{
-		Dst:  img,
-		Src:  &image.Uniform{C: fg},
-		Face: face,
-		Dot:  dot,
-	}
-	d.DrawString(c.Text)
+	drawText(img, fg, face, fallbackFaces, dot, c.Text)
 
 	if c.Bold {
-		d.Dot = fixed.Point26_6{
+		dot = fixed.Point26_6{
 			X: fixed.I(rect.Min.X + 1),
 			Y: fixed.I(rect.Min.Y) + m.Ascent,
 		}
-		d.DrawString(c.Text)
+		drawText(img, fg, face, fallbackFaces, dot, c.Text)
 	}
 
 	if c.Underline {
@@ -170,6 +168,51 @@ func drawCell(img *image.RGBA, cols, rows, cx, cy int, face font.Face, c engine.
 			img.Set(x, uy, fg)
 		}
 	}
+}
+
+func drawText(img *image.RGBA, fg color.RGBA, face font.Face, fallbackFaces []font.Face, dot fixed.Point26_6, text string) {
+	d := &font.Drawer{
+		Dst: img,
+		Src: &image.Uniform{C: fg},
+		Dot: dot,
+	}
+	var currentFace font.Face
+	var runes []rune
+	flush := func() {
+		if len(runes) == 0 {
+			return
+		}
+		d.Face = currentFace
+		d.DrawString(string(runes))
+		runes = runes[:0]
+	}
+	for _, r := range text {
+		nextFace := faceForRune(face, fallbackFaces, r)
+		if currentFace == nil {
+			currentFace = nextFace
+		}
+		if nextFace != currentFace {
+			flush()
+			currentFace = nextFace
+		}
+		runes = append(runes, r)
+	}
+	flush()
+}
+
+func faceForRune(face font.Face, fallbackFaces []font.Face, r rune) font.Face {
+	if _, ok := face.GlyphAdvance(r); ok {
+		return face
+	}
+	for _, fallbackFace := range fallbackFaces {
+		if fallbackFace == nil {
+			continue
+		}
+		if _, ok := fallbackFace.GlyphAdvance(r); ok {
+			return fallbackFace
+		}
+	}
+	return face
 }
 
 func cellRect(bounds image.Rectangle, cols, rows, cx, cy, width int) image.Rectangle {
