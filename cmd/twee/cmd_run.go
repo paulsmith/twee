@@ -55,6 +55,17 @@ func runRun(args []string) {
 	if err := json.Unmarshal(scriptBytes, &ops); err != nil {
 		emitError(rpc.CodeInvalidArgument, "script: "+err.Error(), nil, 1)
 	}
+	colsSet, rowsSet := flagWasSet(fs, "cols"), flagWasSet(fs, "rows")
+	if !colsSet || !rowsSet {
+		if initial, ok := leadingResize(ops); ok {
+			if !colsSet {
+				*cols = initial.Cols
+			}
+			if !rowsSet {
+				*rows = initial.Rows
+			}
+		}
+	}
 
 	te, err := engine.Start(context.Background(), engine.Config{
 		Cmd: cmd, Cols: *cols, Rows: *rows, Dir: *dir,
@@ -114,4 +125,25 @@ func readScript(path string) ([]byte, error) {
 		return io.ReadAll(os.Stdin)
 	}
 	return os.ReadFile(path)
+}
+
+func flagWasSet(fs *flag.FlagSet, name string) bool {
+	wasSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			wasSet = true
+		}
+	})
+	return wasSet
+}
+
+func leadingResize(ops []rpc.Request) (rpc.ResizeArgs, bool) {
+	if len(ops) == 0 || ops[0].Op != rpc.OpResize {
+		return rpc.ResizeArgs{}, false
+	}
+	var args rpc.ResizeArgs
+	if err := json.Unmarshal(ops[0].Args, &args); err != nil {
+		return rpc.ResizeArgs{}, false
+	}
+	return args, args.Cols > 0 && args.Rows > 0
 }

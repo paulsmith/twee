@@ -87,6 +87,7 @@ Lifecycle:
   ls                            List running daemons
   status                        Print the status of a daemon
   run <cmd> [args...] -script   Single-shot ephemeral session
+  codegen <cmd> [args...] -out  Interactively author a run script
 
 Input:    type | key | keys | paste | signal
 Queries:  text | lines | cell | region | cursor | find
