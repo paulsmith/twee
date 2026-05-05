@@ -22,6 +22,7 @@ type kittySink struct {
 	placementID  int
 	chunkSize    int
 	terminalCols int
+	lastRows     int
 }
 
 func newKittySink(w io.Writer, terminalCols int) *kittySink {
@@ -42,6 +43,11 @@ func (s *kittySink) Emit(img *image.RGBA, cols, rows int, toast, status string) 
 	if _, err := io.WriteString(s.w, "\x1b[H"); err != nil {
 		return err
 	}
+	if s.lastRows > 0 && s.lastRows != rows {
+		if err := clearFooter(s.w, s.lastRows); err != nil {
+			return err
+		}
+	}
 	if err := writeKittyPNG(s.w, img, kittyPlacement{
 		imageID:     s.imageID,
 		placementID: s.placementID,
@@ -59,6 +65,18 @@ func (s *kittySink) Emit(img *image.RGBA, cols, rows int, toast, status string) 
 	status = sanitizeFooterLine(status, width)
 	_, err := fmt.Fprintf(s.w, "\x1b[%d;1H\x1b[2K%s\x1b[%d;1H\x1b[2K%s\x1b[H",
 		rows+1, toast, rows+2, status)
+	if err == nil {
+		s.lastRows = rows
+	}
+	return err
+}
+
+func clearFooter(w io.Writer, rows int) error {
+	if rows <= 0 {
+		return nil
+	}
+	_, err := fmt.Fprintf(w, "\x1b[%d;1H\x1b[2K\x1b[%d;1H\x1b[2K",
+		rows+1, rows+2)
 	return err
 }
 

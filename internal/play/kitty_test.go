@@ -73,6 +73,29 @@ func TestKittySinkReusesStableImageID(t *testing.T) {
 	}
 }
 
+func TestKittySinkClearsPreviousFooterWhenFrameShrinks(t *testing.T) {
+	var buf bytes.Buffer
+	sink := &kittySink{w: &buf, imageID: 9, placementID: 1, chunkSize: 1000, terminalCols: 80}
+	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+
+	if err := sink.Emit(img, 1, 4, "old toast", "old status"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sink.Emit(img, 1, 2, "new toast", "new status"); err != nil {
+		t.Fatal(err)
+	}
+	got := buf.String()
+	for _, want := range []string{
+		"\x1b[5;1H\x1b[2K\x1b[6;1H\x1b[2K",
+		"\x1b[3;1H\x1b[2Knew toast",
+		"\x1b[4;1H\x1b[2Knew status",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output missing %q in %q", want, got)
+		}
+	}
+}
+
 func TestKittySinkSanitizesAndTruncatesFooter(t *testing.T) {
 	var buf bytes.Buffer
 	sink := &kittySink{w: &buf, imageID: 9, placementID: 1, chunkSize: 1000, terminalCols: 12}
