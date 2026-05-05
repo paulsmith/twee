@@ -22,13 +22,14 @@ import (
 
 // Options configures an interactive codegen run.
 type Options struct {
-	Command []string
-	Env     map[string]string
-	Dir     string
-	Cols    int
-	Rows    int
-	OutPath string
-	NoWaits bool
+	Command   []string
+	Env       map[string]string
+	Dir       string
+	Cols      int
+	Rows      int
+	OutPath   string
+	TracePath string
+	NoWaits   bool
 
 	Stdin  *os.File
 	Stdout *os.File
@@ -37,7 +38,10 @@ type Options struct {
 	Quiet time.Duration
 }
 
-type outputEvent struct{ bytes []byte }
+type outputEvent struct {
+	bytes []byte
+	ts    time.Time
+}
 type inputBytesEvent struct{ bytes []byte }
 type resizeEvent struct {
 	cols int
@@ -126,18 +130,26 @@ func Run(ctx context.Context, opts Options) error {
 		return fmt.Errorf("spawn: %w", err)
 	}
 
-	events := make(chan any, 32)
-	auxDone := make(chan struct{})
-	go readPTY(runner.Master(), events)
-	go readStdin(opts.Stdin, events, auxDone)
-	go watchResize(opts.Stdout, events, auxDone)
-
 	model := vt.New(cols, rows)
 	rec := &recorder{}
 	if err := rec.Resize(cols, rows); err != nil {
 		_ = runner.Close()
 		return err
 	}
+	traces := newTraceController(opts, cols, rows, runner.Pid())
+	if opts.TracePath != "" {
+		if err := traces.startFullSession(opts.TracePath, model.Snapshot()); err != nil {
+			_ = runner.Close()
+			return fmt.Errorf("trace: %w", err)
+		}
+	}
+
+	events := make(chan any, 32)
+	auxDone := make(chan struct{})
+	go readPTY(runner.Master(), events)
+	go readStdin(opts.Stdin, events, auxDone)
+	go watchResize(opts.Stdout, events, auxDone)
+
 	dec := &Decoder{}
 	var warnings warningSummary
 	var runErr error
@@ -212,6 +224,11 @@ func Run(ctx context.Context, opts Options) error {
 			case 'q':
 				fmt.Fprint(opts.Stderr, "\r\ntwee codegen: stopping\r\n")
 				stopChild()
+			case 't':
+				if err := traces.toggleHotkey(model.Snapshot()); err != nil && runErr == nil {
+					runErr = err
+					stopChild()
+				}
 			case 'd':
 				fmt.Fprint(opts.Stderr, "\r\ntwee codegen: detach is reserved for a future named-session backend\r\n")
 			default:
@@ -219,24 +236,36 @@ func Run(ctx context.Context, opts Options) error {
 			}
 		case inputType:
 			writeInput(in.bytes)
+			if forward {
+				traces.recordInput(in)
+			}
 			if err := rec.Type(in.text); err != nil && runErr == nil {
 				runErr = err
 			}
 			armAfterAction()
 		case inputKey:
 			writeInput(in.bytes)
+			if forward {
+				traces.recordInput(in)
+			}
 			if err := rec.Key(in.key); err != nil && runErr == nil {
 				runErr = err
 			}
 			armAfterAction()
 		case inputPaste:
 			writeInput(in.bytes)
+			if forward {
+				traces.recordInput(in)
+			}
 			if err := rec.Paste(in.text); err != nil && runErr == nil {
 				runErr = err
 			}
 			armAfterAction()
 		case inputUnknown:
 			writeInput(in.bytes)
+			if forward {
+				traces.recordInput(in)
+			}
 			warnings.Add(in.warning)
 		}
 	}
@@ -248,6 +277,7 @@ func Run(ctx context.Context, opts Options) error {
 			case outputEvent:
 				_, _ = opts.Stdout.Write(ev.bytes)
 				_ = model.Feed(ev.bytes)
+				traces.recordOutput(ev.bytes, ev.ts)
 				if waitingForQuiet {
 					outputSinceAction = true
 					resetQuiet()
@@ -268,6 +298,7 @@ func Run(ctx context.Context, opts Options) error {
 				if err := rec.Resize(cols, rows); err != nil && runErr == nil {
 					runErr = err
 				}
+				traces.recordResize(cols, rows)
 				armAfterAction()
 			case fatalEvent:
 				if runErr == nil {
@@ -297,12 +328,13 @@ func Run(ctx context.Context, opts Options) error {
 		handleInput(in, false)
 	}
 	flushPendingWait()
+	traceErr := traces.close()
 	restore()
 	warnings.Report(opts.Stderr)
 
 	writeErr := writeScript(opts.OutPath, rec.Requests())
-	if runErr != nil {
-		return runErr
+	if runErr != nil || traceErr != nil {
+		return errors.Join(runErr, traceErr)
 	}
 	return writeErr
 }
@@ -337,7 +369,7 @@ func readPTY(r io.ReadWriter, events chan<- any) {
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
-			events <- outputEvent{bytes: append([]byte(nil), buf[:n]...)}
+			events <- outputEvent{bytes: append([]byte(nil), buf[:n]...), ts: time.Now()}
 		}
 		if err != nil {
 			if !errors.Is(err, os.ErrClosed) && !errors.Is(err, syscall.EIO) && err != io.EOF {

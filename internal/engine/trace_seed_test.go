@@ -12,7 +12,7 @@ func TestTraceSeedOutputReconstructsVisibleText(t *testing.T) {
 		t.Fatal(err)
 	}
 	snap := src.Snapshot()
-	seed := traceSeedOutput(snap)
+	seed := TraceSeedOutput(snap)
 	if len(seed) == 0 {
 		t.Fatal("empty seed")
 	}

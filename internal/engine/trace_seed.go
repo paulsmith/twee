@@ -9,7 +9,9 @@ import (
 	"github.com/paulsmith/research/twee/internal/vt"
 )
 
-func traceSeedOutput(s vt.Snapshot) []byte {
+// TraceSeedOutput returns terminal output that reconstructs the visible
+// contents of a VT snapshot for trace playback.
+func TraceSeedOutput(s vt.Snapshot) []byte {
 	if s.Size.Cols <= 0 || s.Size.Rows <= 0 {
 		return nil
 	}

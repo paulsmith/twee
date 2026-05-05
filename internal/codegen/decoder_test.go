@@ -78,6 +78,13 @@ func TestDecoderPreservesSplitControlPrefix(t *testing.T) {
 	}
 }
 
+func TestDecoderHandlesTraceToggleControl(t *testing.T) {
+	got := DecodeBytes([]byte{controlPrefix, 't'})
+	if len(got) != 1 || got[0].kind != inputControl || got[0].control != 't' {
+		t.Fatalf("decode = %#v, want Ctrl+] t", got)
+	}
+}
+
 func TestDecoderPreservesSplitEscapeSequence(t *testing.T) {
 	var dec Decoder
 	if got := dec.Decode([]byte("\x1b[")); len(got) != 0 {

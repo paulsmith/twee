@@ -196,6 +196,24 @@ name from the tables above (e.g. `wait_text`, not `wait text`). Pass
 `--emit results`, each op's response is streamed as NDJSON instead of
 the summary envelope.
 
+## Codegen
+
+`twee codegen` runs a command interactively and writes the actions you
+take as a replayable JSON operations script. It can also record `.twee`
+trace bundles for `twee play`.
+
+```
+$ twee codegen ./myapp --out ops.json --trace-out session.twee
+$ twee play session.twee
+```
+
+Without `--trace-out`, press `Ctrl+] t` during codegen to start and
+stop a hotkey trace. Hotkey traces are written next to `--out`: for
+`--out ops.json`, the first path is
+`ops-trace-YYYYMMDD-HHMMSS.twee`; if that exists, codegen uses
+`-02`, `-03`, and so on. Codegen prints the selected path to stderr
+when hotkey tracing starts and when it stops.
+
 ## Traces
 
 `twee trace` records a running daemon to a `.twee` zip bundle for

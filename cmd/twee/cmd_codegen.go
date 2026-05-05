@@ -17,10 +17,13 @@ your terminal to it, and writes a replayable twee run JSON script.
 
 Controls:
   Ctrl+] q        stop recording, terminate the child, write the script
+  Ctrl+] t        toggle trace recording when no full-session trace is active
   Ctrl+] d        reserved for future detach/session support
 
 Flags:
   -out <path>     output script path (required)
+  -trace-out <path.twee>
+                  record a full-session trace bundle
   -cols <int>     initial columns (default: terminal width or 80)
   -rows <int>     initial rows (default: terminal height or 24)
   -dir <path>     child working directory (default: inherit)
@@ -58,6 +61,12 @@ func parseCodegenArgs(args []string) (codegen.Options, error) {
 				return opts, fmt.Errorf("%s requires a value", a)
 			}
 			opts.OutPath = args[i]
+		case "-trace-out", "--trace-out":
+			i++
+			if i >= len(args) {
+				return opts, fmt.Errorf("%s requires a value", a)
+			}
+			opts.TracePath = args[i]
 		case "-cols", "--cols":
 			i++
 			if i >= len(args) {
