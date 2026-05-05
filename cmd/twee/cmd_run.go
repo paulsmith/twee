@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/paulsmith/research/twee/internal/daemon"
 	"github.com/paulsmith/research/twee/internal/engine"
@@ -33,21 +34,15 @@ op names (e.g. "wait_text", not "wait text"). See:
 }
 
 func runRun(args []string) {
-	fs := flag.NewFlagSet("run", flag.ExitOnError)
-	scriptPath := fs.String("script", "", "path to script JSON; '-' or empty reads stdin")
-	cols := fs.Int("cols", 80, "initial cols")
-	rows := fs.Int("rows", 24, "initial rows")
-	dir := fs.String("dir", "", "child working dir")
-	emit := fs.String("emit", "", "if 'results', stream NDJSON op responses")
-	if err := fs.Parse(args); err != nil {
+	opts, err := parseRunArgs(args)
+	if err != nil {
 		fatalUsage("run: %v", err)
 	}
-	cmd := fs.Args()
-	if len(cmd) == 0 {
+	if len(opts.cmd) == 0 {
 		fatalUsage("run: missing command")
 	}
 
-	scriptBytes, err := readScript(*scriptPath)
+	scriptBytes, err := readScript(opts.scriptPath)
 	if err != nil {
 		emitError(rpc.CodeIO, err.Error(), nil, 1)
 	}
@@ -55,20 +50,19 @@ func runRun(args []string) {
 	if err := json.Unmarshal(scriptBytes, &ops); err != nil {
 		emitError(rpc.CodeInvalidArgument, "script: "+err.Error(), nil, 1)
 	}
-	colsSet, rowsSet := flagWasSet(fs, "cols"), flagWasSet(fs, "rows")
-	if !colsSet || !rowsSet {
+	if !opts.colsSet || !opts.rowsSet {
 		if initial, ok := leadingResize(ops); ok {
-			if !colsSet {
-				*cols = initial.Cols
+			if !opts.colsSet {
+				opts.cols = initial.Cols
 			}
-			if !rowsSet {
-				*rows = initial.Rows
+			if !opts.rowsSet {
+				opts.rows = initial.Rows
 			}
 		}
 	}
 
 	te, err := engine.Start(context.Background(), engine.Config{
-		Cmd: cmd, Cols: *cols, Rows: *rows, Dir: *dir,
+		Cmd: opts.cmd, Cols: opts.cols, Rows: opts.rows, Dir: opts.dir,
 	})
 	if err != nil {
 		emitError(rpc.CodeIO, "engine.Start: "+err.Error(), nil, 1)
@@ -88,7 +82,7 @@ func runRun(args []string) {
 	go srv.Serve(context.Background(), l)
 	defer srv.Stop()
 
-	emitResults := *emit == "results"
+	emitResults := opts.emit == "results"
 	for i, op := range ops {
 		op.ID = fmt.Sprintf("%d", i)
 		c, err := dialUnixSocket(sock)
@@ -120,21 +114,101 @@ func runRun(args []string) {
 	}
 }
 
+type runOptions struct {
+	cmd        []string
+	scriptPath string
+	cols       int
+	rows       int
+	dir        string
+	emit       string
+	colsSet    bool
+	rowsSet    bool
+}
+
+func parseRunArgs(args []string) (runOptions, error) {
+	opts := runOptions{cols: 80, rows: 24}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			opts.cmd = append(opts.cmd, args[i+1:]...)
+			break
+		}
+		name, val, hasValue := splitFlagValue(arg)
+		switch name {
+		case "-script", "--script":
+			v, next, err := flagValue(name, val, hasValue, args, i)
+			if err != nil {
+				return opts, err
+			}
+			opts.scriptPath = v
+			i = next
+		case "-cols", "--cols":
+			v, next, err := flagValue(name, val, hasValue, args, i)
+			if err != nil {
+				return opts, err
+			}
+			n, err := strconv.Atoi(v)
+			if err != nil || n <= 0 {
+				return opts, fmt.Errorf("%s must be a positive integer", name)
+			}
+			opts.cols = n
+			opts.colsSet = true
+			i = next
+		case "-rows", "--rows":
+			v, next, err := flagValue(name, val, hasValue, args, i)
+			if err != nil {
+				return opts, err
+			}
+			n, err := strconv.Atoi(v)
+			if err != nil || n <= 0 {
+				return opts, fmt.Errorf("%s must be a positive integer", name)
+			}
+			opts.rows = n
+			opts.rowsSet = true
+			i = next
+		case "-dir", "--dir":
+			v, next, err := flagValue(name, val, hasValue, args, i)
+			if err != nil {
+				return opts, err
+			}
+			opts.dir = v
+			i = next
+		case "-emit", "--emit":
+			v, next, err := flagValue(name, val, hasValue, args, i)
+			if err != nil {
+				return opts, err
+			}
+			opts.emit = v
+			i = next
+		default:
+			opts.cmd = append(opts.cmd, arg)
+		}
+	}
+	return opts, nil
+}
+
+func splitFlagValue(arg string) (name, value string, ok bool) {
+	if i := strings.IndexByte(arg, '='); i >= 0 {
+		return arg[:i], arg[i+1:], true
+	}
+	return arg, "", false
+}
+
+func flagValue(name, value string, hasValue bool, args []string, i int) (string, int, error) {
+	if hasValue {
+		return value, i, nil
+	}
+	if i+1 >= len(args) {
+		return "", i, fmt.Errorf("%s requires a value", name)
+	}
+	return args[i+1], i + 1, nil
+}
+
 func readScript(path string) ([]byte, error) {
 	if path == "" || path == "-" {
 		return io.ReadAll(os.Stdin)
 	}
 	return os.ReadFile(path)
-}
-
-func flagWasSet(fs *flag.FlagSet, name string) bool {
-	wasSet := false
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == name {
-			wasSet = true
-		}
-	})
-	return wasSet
 }
 
 func leadingResize(ops []rpc.Request) (rpc.ResizeArgs, bool) {

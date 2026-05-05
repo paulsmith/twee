@@ -46,6 +46,32 @@ type resizeEvent struct {
 type fatalEvent struct{ err error }
 type ptyDoneEvent struct{}
 
+type warningSummary struct {
+	count int
+	first string
+}
+
+func (w *warningSummary) Add(msg string) {
+	if msg == "" {
+		return
+	}
+	w.count++
+	if w.first == "" {
+		w.first = msg
+	}
+}
+
+func (w warningSummary) Report(dst io.Writer) {
+	if w.count == 0 {
+		return
+	}
+	if w.count == 1 {
+		fmt.Fprintf(dst, "\ntwee codegen: %s\n", w.first)
+		return
+	}
+	fmt.Fprintf(dst, "\ntwee codegen: omitted %d unknown input sequences from script; first: %s\n", w.count, w.first)
+}
+
 // Run starts the child under a PTY, proxies the user's terminal to it, and
 // writes a replayable twee run script when the child exits or the user quits.
 func Run(ctx context.Context, opts Options) error {
@@ -113,6 +139,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	dec := &Decoder{}
+	var warnings warningSummary
 	var runErr error
 	var stopping bool
 	var ptyDone bool
@@ -210,9 +237,7 @@ func Run(ctx context.Context, opts Options) error {
 			armAfterAction()
 		case inputUnknown:
 			writeInput(in.bytes)
-			if in.warning != "" {
-				fmt.Fprintf(opts.Stderr, "\r\ntwee codegen: %s\r\n", in.warning)
-			}
+			warnings.Add(in.warning)
 		}
 	}
 
@@ -273,6 +298,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	flushPendingWait()
 	restore()
+	warnings.Report(opts.Stderr)
 
 	writeErr := writeScript(opts.OutPath, rec.Requests())
 	if runErr != nil {

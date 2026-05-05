@@ -1,6 +1,8 @@
 package codegen
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/paulsmith/research/twee/internal/rpc"
@@ -152,6 +154,22 @@ func TestRecorderEmitsRunScriptOps(t *testing.T) {
 	assertOp(t, got[2], rpc.OpPaste, "{\"text\":\"x\\ny\"}")
 	assertOp(t, got[3], rpc.OpResize, `{"cols":100,"rows":40}`)
 	assertOp(t, got[4], rpc.OpWaitStable, `{}`)
+}
+
+func TestWarningSummaryReportsOnce(t *testing.T) {
+	var warnings warningSummary
+	warnings.Add("unknown escape sequence omitted from script: 1b 5b 39 7e")
+	warnings.Add("unknown input byte omitted from script: 80")
+
+	var out bytes.Buffer
+	warnings.Report(&out)
+	got := out.String()
+	if !strings.Contains(got, "omitted 2 unknown input sequences") {
+		t.Fatalf("summary = %q", got)
+	}
+	if strings.Count(got, "twee codegen:") != 1 {
+		t.Fatalf("summary reported multiple lines: %q", got)
+	}
 }
 
 func assertOp(t *testing.T, got any, op, args string) {
