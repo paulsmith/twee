@@ -18,6 +18,7 @@ import (
 	"github.com/paulsmith/research/twee/internal/play"
 	"github.com/paulsmith/research/twee/internal/rpc"
 	"github.com/paulsmith/research/twee/internal/vt"
+	"golang.org/x/term"
 )
 
 func TestParseCodegenArgsInterspersedFlags(t *testing.T) {
@@ -80,6 +81,7 @@ func TestCodegenWritesScriptFromPTYInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	makePTYRaw(t, ptmx)
 	defer ptmx.Close()
 
 	if _, err := ptmx.Write([]byte("abc\x1dq")); err != nil {
@@ -152,6 +154,7 @@ func TestCodegenTraceOutWritesBundleFromPTYInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	makePTYRaw(t, ptmx)
 	defer ptmx.Close()
 
 	if _, err := ptmx.Write([]byte("abc\x1dq")); err != nil {
@@ -194,6 +197,7 @@ func TestCodegenHotkeyToggleWritesTraceBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	makePTYRaw(t, ptmx)
 	proc := watchPTY(cmd, ptmx)
 	defer ptmx.Close()
 
@@ -245,6 +249,7 @@ func TestCodegenDoesNotHangOnHighVolumeChildExit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	makePTYRaw(t, ptmx)
 	defer ptmx.Close()
 
 	done := make(chan error, 1)
@@ -297,6 +302,13 @@ func watchPTY(cmd *exec.Cmd, ptmx *os.File) *watchedPTY {
 		p.done <- errors.Join(readErr, cmd.Wait())
 	}()
 	return p
+}
+
+func makePTYRaw(t *testing.T, ptmx *os.File) {
+	t.Helper()
+	if _, err := term.MakeRaw(int(ptmx.Fd())); err != nil {
+		t.Fatalf("make PTY raw: %v", err)
+	}
 }
 
 func (p *watchedPTY) write(t *testing.T, b []byte) {
@@ -408,6 +420,7 @@ func TestCodegenFlushesFinalWaitOnChildExit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	makePTYRaw(t, ptmx)
 	defer ptmx.Close()
 
 	if _, err := ptmx.Write([]byte("x\r")); err != nil {
