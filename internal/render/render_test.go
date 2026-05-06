@@ -101,7 +101,7 @@ func TestFallbackFontsCoverKnownTerminalSymbols(t *testing.T) {
 		t.Fatal("Noto Sans Mono is not the first fallback face")
 	}
 
-	for _, r := range []rune{'⎿', '✽', '⏵', '▰'} {
+	for _, r := range []rune{'⎿', '⏵', '⏺', '✢', '✳', '✻', '✽', '▰'} {
 		if _, ok := face.GlyphAdvance(r); ok {
 			t.Fatalf("primary face unexpectedly has %U %q", r, r)
 		}

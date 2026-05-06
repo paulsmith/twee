@@ -7,7 +7,7 @@ cache_dir="${TWEE_FONT_SOURCE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/twee/font-s
 
 noto_sans_mono_unicodes="U+25B0"
 noto_sans_symbols_unicodes="U+23BF"
-noto_sans_symbols2_unicodes="U+273D,U+23F5"
+noto_sans_symbols2_unicodes="U+23F5,U+23FA,U+2722,U+2733,U+273B,U+273D"
 
 usage() {
 	cat <<'EOF'
@@ -19,7 +19,7 @@ The primary JetBrains Mono font is not modified.
 Defaults:
   NotoSansMono-Regular.ttf      U+25B0
   NotoSansSymbols-Regular.ttf   U+23BF
-  NotoSansSymbols2-Regular.ttf  U+273D,U+23F5
+  NotoSansSymbols2-Regular.ttf  U+23F5,U+23FA,U+2722,U+2733,U+273B,U+273D
 
 Options:
   --mono <list>         Replace Noto Sans Mono code points.
