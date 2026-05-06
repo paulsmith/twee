@@ -4,6 +4,8 @@ package engine
 
 import (
 	"os"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -11,7 +13,7 @@ import (
 // are applied by Start when zero.
 type Config struct {
 	Cmd        []string
-	Env        map[string]string // overrides on top of defaults
+	Env        map[string]string // overrides on top of parent environment and defaults
 	Dir        string
 	Cols, Rows int
 
@@ -41,27 +43,42 @@ func (c *Config) applyDefaults() {
 	}
 }
 
-// BuildEnv assembles the final []string env for exec, applying TERM/
-// COLORTERM/LANG defaults and inheriting PATH/HOME/USER from the parent
-// when not overridden.
+// BuildEnv assembles the final []string env for exec, inheriting the parent
+// environment, applying terminal defaults for missing values, and then applying
+// explicit overrides.
 func (c *Config) BuildEnv() []string {
+	env := map[string]string{}
+	for _, kv := range os.Environ() {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		env[k] = v
+	}
+
 	defaults := map[string]string{
 		"TERM":      "xterm-256color",
 		"COLORTERM": "truecolor",
 		"LANG":      "C.UTF-8",
 	}
-	for k, v := range c.Env {
-		defaults[k] = v
-	}
-	for _, k := range []string{"PATH", "HOME", "USER"} {
-		if _, ok := defaults[k]; !ok {
-			if v := os.Getenv(k); v != "" {
-				defaults[k] = v
-			}
+	for k, v := range defaults {
+		if _, ok := env[k]; !ok {
+			env[k] = v
 		}
 	}
-	out := make([]string, 0, len(defaults))
-	for k, v := range defaults {
+	for k, v := range c.Env {
+		env[k] = v
+	}
+
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	out := make([]string, 0, len(env))
+	for _, k := range keys {
+		v := env[k]
 		out = append(out, k+"="+v)
 	}
 	return out

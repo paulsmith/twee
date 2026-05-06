@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/paulsmith/research/twee/internal/play"
 )
 
 func TestParseRunArgsInterspersedFlags(t *testing.T) {
@@ -51,12 +53,13 @@ func TestParseRunArgsRunFlagsAndCommandFlags(t *testing.T) {
 		"cmd",
 		"-child-flag",
 		"--rows=40",
+		"--trace-out", "session.twee",
 		"--emit", "results",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.scriptPath != "ops.json" || opts.cols != 100 || opts.rows != 40 || opts.emit != "results" {
+	if opts.scriptPath != "ops.json" || opts.cols != 100 || opts.rows != 40 || opts.emit != "results" || opts.tracePath != "session.twee" {
 		t.Fatalf("opts = %+v", opts)
 	}
 	want := []string{"cmd", "-child-flag"}
@@ -67,6 +70,60 @@ func TestParseRunArgsRunFlagsAndCommandFlags(t *testing.T) {
 		if opts.cmd[i] != want[i] {
 			t.Fatalf("cmd = %#v, want %#v", opts.cmd, want)
 		}
+	}
+}
+
+func TestRunTraceOutWritesBundle(t *testing.T) {
+	bin := buildBinary(t)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "ops.json")
+	tracePath := filepath.Join(dir, "session.twee")
+	raw := []byte(`[
+		{"op":"type","args":{"text":"abc\n"}},
+		{"op":"wait_text","args":{"text":"abc","timeout":"2s"}}
+	]`)
+	if err := os.WriteFile(script, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin,
+		"run", "/bin/cat",
+		"--script", script,
+		"--trace-out", tracePath,
+	)
+	cmd.Env = append(os.Environ(), testEnv(t)...)
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("command hung: %v\n%s", ctx.Err(), out)
+	}
+	if err != nil {
+		t.Fatalf("run: %v\n%s", err, out)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(out, &resp); err != nil {
+		t.Fatalf("decode %s: %v", out, err)
+	}
+	if resp["ok"] != true {
+		t.Fatalf("response = %s", out)
+	}
+
+	bundle, err := play.OpenBundle(tracePath)
+	if err != nil {
+		t.Fatalf("OpenBundle: %v", err)
+	}
+	if len(bundle.Manifest.Command) != 1 || bundle.Manifest.Command[0] != "/bin/cat" {
+		t.Fatalf("manifest command = %#v, want [/bin/cat]", bundle.Manifest.Command)
+	}
+	if len(bundle.Manifest.Screenshots) < 2 {
+		t.Fatalf("screenshots = %v, want start + stop frames", bundle.Manifest.Screenshots)
+	}
+	if !eventsContain(bundle.Events, "input", "type", "", []byte("abc\n")) {
+		t.Fatalf("trace missing typed input event: %#v", bundle.Events)
+	}
+	if !eventsContain(bundle.Events, "output", "", "", []byte("abc")) {
+		t.Fatalf("trace missing output containing abc: %#v", bundle.Events)
 	}
 }
 

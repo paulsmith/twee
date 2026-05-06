@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/paulsmith/research/twee/internal/daemon"
 	"github.com/paulsmith/research/twee/internal/engine"
@@ -26,6 +28,8 @@ Flags:
   -cols <int>      initial cols (default 80)
   -rows <int>      initial rows (default 24)
   -dir <path>      child working directory
+  -trace-out <path.twee>
+                  record a .twee trace bundle for the whole run
   -emit results    stream NDJSON op responses instead of one summary
 
 The script is a JSON array of RPC bodies (op + args). Use the wire
@@ -67,36 +71,88 @@ func runRun(args []string) {
 	if err != nil {
 		emitError(rpc.CodeIO, "engine.Start: "+err.Error(), nil, 1)
 	}
-	defer te.Close()
 
-	tmpDir, _ := os.MkdirTemp("", "twee-run-")
-	defer os.RemoveAll(tmpDir)
-	sock := filepath.Join(tmpDir, "twee.sock")
-	l, err := listenUnixSocket(sock)
-	if err != nil {
-		emitError(rpc.CodeIO, err.Error(), nil, 1)
+	var (
+		cleanupOnce sync.Once
+		listener    net.Listener
+		srv         *daemon.Server
+		tmpDir      string
+		traceActive bool
+	)
+	stopTrace := func() *rpc.Error {
+		if !traceActive {
+			return nil
+		}
+		resp, err := dispatchRunControl(te, rpc.OpTraceStop, nil)
+		if err != nil {
+			return &rpc.Error{Code: rpc.CodeInternal, Message: err.Error()}
+		}
+		if !resp.OK {
+			return resp.Error
+		}
+		traceActive = false
+		return nil
 	}
-	defer l.Close()
+	cleanup := func() {
+		cleanupOnce.Do(func() {
+			_ = stopTrace()
+			if srv != nil {
+				srv.Stop()
+			}
+			if listener != nil {
+				_ = listener.Close()
+			}
+			if tmpDir != "" {
+				_ = os.RemoveAll(tmpDir)
+			}
+			_ = te.Close()
+		})
+	}
+	defer cleanup()
+	fail := func(code, msg string, details json.RawMessage) {
+		cleanup()
+		emitError(code, msg, details, 1)
+	}
 
-	srv := daemon.NewServer(te)
-	go srv.Serve(context.Background(), l)
-	defer srv.Stop()
+	if opts.tracePath != "" {
+		resp, err := dispatchRunControl(te, rpc.OpTraceStart, rpc.TraceStartArgs{Out: opts.tracePath})
+		if err != nil {
+			fail(rpc.CodeInternal, err.Error(), nil)
+		}
+		if !resp.OK {
+			fail(resp.Error.Code, resp.Error.Message, resp.Error.Details)
+		}
+		traceActive = true
+	}
+
+	tmpDir, err = os.MkdirTemp("", "twee-run-")
+	if err != nil {
+		fail(rpc.CodeIO, err.Error(), nil)
+	}
+	sock := filepath.Join(tmpDir, "twee.sock")
+	listener, err = listenUnixSocket(sock)
+	if err != nil {
+		fail(rpc.CodeIO, err.Error(), nil)
+	}
+
+	srv = daemon.NewServer(te)
+	go srv.Serve(context.Background(), listener)
 
 	emitResults := opts.emit == "results"
 	for i, op := range ops {
 		op.ID = fmt.Sprintf("%d", i)
 		c, err := dialUnixSocket(sock)
 		if err != nil {
-			emitError(rpc.CodeIO, err.Error(), nil, 1)
+			fail(rpc.CodeIO, err.Error(), nil)
 		}
 		if err := rpc.WriteMessage(c, op); err != nil {
 			c.Close()
-			emitError(rpc.CodeIO, err.Error(), nil, 1)
+			fail(rpc.CodeIO, err.Error(), nil)
 		}
 		var resp rpc.Response
 		if err := rpc.ReadMessage(c, &resp); err != nil {
 			c.Close()
-			emitError(rpc.CodeIO, err.Error(), nil, 1)
+			fail(rpc.CodeIO, err.Error(), nil)
 		}
 		c.Close()
 		if emitResults {
@@ -104,10 +160,14 @@ func runRun(args []string) {
 		}
 		if !resp.OK {
 			if !emitResults {
-				emitError(resp.Error.Code, resp.Error.Message, resp.Error.Details, 1)
+				fail(resp.Error.Code, resp.Error.Message, resp.Error.Details)
 			}
+			cleanup()
 			os.Exit(1)
 		}
+	}
+	if errResp := stopTrace(); errResp != nil {
+		fail(errResp.Code, errResp.Message, errResp.Details)
 	}
 	if !emitResults {
 		emitOK(map[string]any{"ops": len(ops)})
@@ -121,6 +181,7 @@ type runOptions struct {
 	rows       int
 	dir        string
 	emit       string
+	tracePath  string
 	colsSet    bool
 	rowsSet    bool
 }
@@ -180,6 +241,13 @@ func parseRunArgs(args []string) (runOptions, error) {
 			}
 			opts.emit = v
 			i = next
+		case "-trace-out", "--trace-out":
+			v, next, err := flagValue(name, val, hasValue, args, i)
+			if err != nil {
+				return opts, err
+			}
+			opts.tracePath = v
+			i = next
 		default:
 			opts.cmd = append(opts.cmd, arg)
 		}
@@ -220,4 +288,16 @@ func leadingResize(ops []rpc.Request) (rpc.ResizeArgs, bool) {
 		return rpc.ResizeArgs{}, false
 	}
 	return args, args.Cols > 0 && args.Rows > 0
+}
+
+func dispatchRunControl(te *engine.Term, op string, args any) (rpc.Response, error) {
+	var raw json.RawMessage
+	if args != nil {
+		b, err := json.Marshal(args)
+		if err != nil {
+			return rpc.Response{}, err
+		}
+		raw = b
+	}
+	return daemon.NewDispatcher(te).Dispatch(rpc.Request{ID: op, Op: op, Args: raw}), nil
 }

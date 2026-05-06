@@ -194,7 +194,8 @@ The script is a JSON array of RPC request bodies — `op` uses the wire
 name from the tables above (e.g. `wait_text`, not `wait text`). Pass
 `--script -` (or omit `--script`) to read from stdin. With
 `--emit results`, each op's response is streamed as NDJSON instead of
-the summary envelope.
+the summary envelope. Use `--trace-out session.twee` to record the whole
+single-shot run as a replayable trace bundle.
 
 ## Codegen
 
