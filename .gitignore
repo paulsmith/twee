@@ -2,6 +2,7 @@
 .direnv/
 bin/
 build/
+dist/
 result
 result-*
 .tracker/runs/

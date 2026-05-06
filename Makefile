@@ -11,7 +11,7 @@ STAMP := $(BUILD_DIR)/.ghostty-built
 
 VERSION := $(shell jj log -r @ -T 'change_id.short()' --no-graph 2>/dev/null || echo dev)
 
-.PHONY: all build test smoke clean twee
+.PHONY: all build test smoke clean twee libghostty
 
 all: build
 
@@ -19,6 +19,8 @@ $(STAMP):
 	cmake -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Release
 	cmake --build $(BUILD_DIR)
 	@touch $(STAMP)
+
+libghostty: $(STAMP)
 
 twee: $(STAMP)
 	PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) go build -o ./bin/twee \

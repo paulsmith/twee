@@ -144,6 +144,7 @@
           packages = [
             pkgs.cmake
             pkgs.go
+            pkgs.goreleaser
             pkgs.gnumake
             pkgs.pkg-config
             zigPkg
