@@ -1,6 +1,10 @@
 Use `go doc` and `gopls` liberally when writing, reading, understanding, and
 debugging Go code.
 
+Use `shellcheck` with all Bash scripts.
+
+Use `uvx ruff format` on all Python code.
+
 ## Pushing a new bookmark with jj
 
 `jj git push --remote <r> -b <bookmark> --allow-new` still works but prints a
