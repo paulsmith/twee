@@ -38,23 +38,35 @@ permission to run `twee` via `bash`.
 
 ## Install
 
-`twee` uses `libghostty-vt` (a CGO library built from the
-[Ghostty](https://ghostty.org) source tree) for VT parsing. The
-provided Nix flake pulls Zig, CMake, Go, and pkg-config into a dev
-shell; CMake's `FetchContent` fetches and builds `libghostty-vt` on
-first use.
+Download a release tarball from
+[GitHub Releases](https://github.com/paulsmith/twee/releases), unpack
+it, and put `twee` on your `PATH`.
 
+```sh
+curl -LO https://github.com/paulsmith/twee/releases/download/v0.1.0/twee_0.1.0_darwin_arm64.tar.gz
+tar -xzf twee_0.1.0_darwin_arm64.tar.gz
+./twee version
 ```
+
+To build locally with Nix:
+
+```sh
+nix build
+./result/bin/twee version
+```
+
+For contributor builds, use the development shell:
+
+```sh
 nix develop                         # enter the dev shell
 make twee                           # builds libghostty-vt + ./bin/twee
 ./bin/twee version
 ```
 
-A vanilla `go build` outside the dev shell will fail because the cgo
-package needs `libghostty-vt` on the pkg-config path. Toolchain
-requirements: CGO, Zig 0.15.2, and (on macOS) Apple Developer Tools —
-libghostty-vt's zig build assembles an xcframework on darwin and needs
-`xcodebuild`.
+`twee` uses `libghostty-vt` (a CGO library built from the
+[Ghostty](https://ghostty.org) source tree) for VT parsing. A vanilla
+`go build` outside the Nix build or dev shell will fail because the cgo
+package needs `libghostty-vt` on the pkg-config path.
 
 ## Model
 
