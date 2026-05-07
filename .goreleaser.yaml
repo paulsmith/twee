@@ -13,6 +13,7 @@ builds:
     binary: twee
     targets:
       - linux_amd64_v1
+      - darwin_arm64
     tags:
       - static
     env:

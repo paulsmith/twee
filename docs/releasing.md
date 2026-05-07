@@ -1,6 +1,9 @@
 # Releasing
 
-GitHub releases are published by GoReleaser from `.github/workflows/release.yml`.
+GitHub releases are built by GoReleaser from `.github/workflows/release.yml`.
+The workflow builds each release target on a native runner, uploads the archives
+as workflow artifacts, then publishes one GitHub release with a combined
+checksum file.
 
 1. Create and push a semver tag:
 
@@ -10,15 +13,17 @@ GitHub releases are published by GoReleaser from `.github/workflows/release.yml`
    ```
 
 2. The release workflow installs Nix, enters the repo's Nix dev shell, builds
-   `libghostty-vt`, then publishes the release assets with GoReleaser.
+   `libghostty-vt`, then packages release archives.
 
-3. The current downloadable asset is a Linux x86_64 archive. The binary is built
-   with go-libghostty's `static` build tag so users do not need to install
-   `libghostty-vt` separately.
+3. The downloadable assets are Linux x86_64 and macOS arm64 archives. The
+   binaries are built with go-libghostty's `static` build tag so users do not
+   need to install `libghostty-vt` separately.
 
-Release-target smoke test on Linux x86_64:
+Release-target smoke test on a native target:
 
 ```sh
 nix develop --command goreleaser check
-nix develop --command goreleaser release --snapshot --clean --skip=publish
+TARGET=linux_amd64_v1 nix develop --command goreleaser build --single-target --snapshot --clean --output dist/twee
+# or, on macOS arm64:
+TARGET=darwin_arm64 nix develop --command goreleaser build --single-target --snapshot --clean --output dist/twee
 ```
