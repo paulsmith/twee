@@ -1,5 +1,4 @@
-// Command twee is a CLI for driving terminal UIs. See
-// docs/superpowers/specs/2026-04-28-twee-cli-design.md for the design.
+// Command twee drives terminal UIs from shell scripts and tests.
 package main
 
 import (
@@ -7,10 +6,21 @@ import (
 	"io"
 	"os"
 	"strings"
+	"text/tabwriter"
 )
 
 // Version is overridden at build time via -ldflags "-X main.Version=...".
 var Version = "dev"
+
+func init() {
+	registerUsage("completion", `twee completion <bash|zsh|fish>
+Print a shell completion script. Completion generation is currently a
+placeholder.`)
+	registerUsage("help", `twee help [<verb> [<subverb>...]]
+Print top-level help or per-command usage.`)
+	registerUsage("version", `twee version
+Print the twee version.`)
+}
 
 func main() {
 	if inDaemonMode() {
@@ -77,24 +87,23 @@ func printVerbHelp(w io.Writer, args []string) {
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintln(w, `twee — drive TUIs from the shell.
+	fmt.Fprintln(w, `twee - drive TUIs from the shell.
 
 Usage: twee <verb> [positional args...] [-flag value ...]
 
-Lifecycle:
-  start <cmd> [args...]         Spawn a TUI in a daemon
-  stop                          Stop the running daemon
-  ls                            List running daemons
-  status                        Print the status of a daemon
-  run <cmd> [args...] -script   Single-shot ephemeral session
-  codegen <cmd> [args...] -out  Interactively author a run script
-
-Input:    type | key | keys | paste | signal
-Queries:  text | lines | cell | region | cursor | find
-          size | title | mode | scrollback | snapshot
-State:    resize | screenshot | record | trace | diff | play
-Waits:    wait text | wait no-text | wait stable | wait cursor | wait exit
-Misc:     sleep | version | help | completion
+Commands:`)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	for _, cmd := range commandSummaries {
+		fmt.Fprintf(tw, "  %s\t%s\n", cmd.name, cmd.summary)
+	}
+	_ = tw.Flush()
+	fmt.Fprintln(w, `
+Wait commands:
+  wait cursor     Wait for the cursor to reach a position
+  wait exit       Wait for the child process to exit
+  wait no-text    Wait for text to disappear
+  wait stable     Wait for the screen to stop changing
+  wait text       Wait for text or a regex to appear
 
 Common flags (per verb; both -name and --name are accepted):
   -name <name>      Target a named daemon (default: "default")
@@ -112,8 +121,48 @@ Output is JSON by default:
   {"ok": false, "error": {...}}          on failure
 
 Run "twee help <verb>" for per-verb usage (e.g. "twee help start",
-"twee help wait text"). Spec:
-  docs/superpowers/specs/2026-04-28-twee-cli-design.md`)
+"twee help wait text").`)
+}
+
+type commandSummary struct {
+	name    string
+	summary string
+}
+
+var commandSummaries = []commandSummary{
+	{"cell", "Show one cell at x,y"},
+	{"codegen", "Interactively author a run script"},
+	{"completion", "Print shell completion setup"},
+	{"cursor", "Show cursor state"},
+	{"diff", "Compare the viewport to a saved text snapshot"},
+	{"find", "Find text in the viewport"},
+	{"help", "Print top-level or per-command help"},
+	{"key", "Send one named key"},
+	{"keys", "Send multiple named keys"},
+	{"lines", "Show visible viewport lines"},
+	{"ls", "List running daemons"},
+	{"mode", "Show active terminal modes"},
+	{"paste", "Send bracketed paste text"},
+	{"play", "Play a .twee trace bundle"},
+	{"record", "Start or stop JSONL recording"},
+	{"region", "Show cells in a rectangular region"},
+	{"resize", "Resize the terminal"},
+	{"run", "Run a one-shot ephemeral session"},
+	{"screenshot", "Render the current screen to PNG"},
+	{"scrollback", "Show retained scrollback"},
+	{"signal", "Send a signal to the child process"},
+	{"size", "Show terminal dimensions"},
+	{"sleep", "Sleep client-side"},
+	{"snapshot", "Show the full terminal snapshot"},
+	{"start", "Spawn a TUI in a daemon"},
+	{"status", "Show daemon status"},
+	{"stop", "Stop the running daemon"},
+	{"text", "Show visible viewport text"},
+	{"title", "Show the window title"},
+	{"trace", "Start or stop .twee trace recording"},
+	{"type", "Write literal text to the PTY"},
+	{"version", "Print the twee version"},
+	{"wait", "Wait for terminal state or process exit"},
 }
 
 func runCompletion(args []string) {

@@ -33,8 +33,7 @@ Flags:
   -emit results    stream NDJSON op responses instead of one summary
 
 The script is a JSON array of RPC bodies (op + args). Use the wire
-op names (e.g. "wait_text", not "wait text"). See:
-  docs/superpowers/specs/2026-04-28-twee-cli-design.md`)
+op names (e.g. "wait_text", not "wait text").`)
 }
 
 func runRun(args []string) {

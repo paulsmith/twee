@@ -86,73 +86,57 @@ For a one-shot run with no daemon to manage, see `twee run` below.
 ## Command reference
 
 Run `twee help` for the top-level list and `twee help <verb>` (when
-available) for per-verb usage.
+available) for per-command usage. The top-level command list is:
 
-### Lifecycle
-
-| Verb | Purpose |
+| Command | Purpose |
 |---|---|
-| `start <cmd> [args...]` | Spawn TUI in a new daemon. Flags: `--name`, `--cols`, `--rows`, `--dir`, `--env K=V` (repeatable). |
-| `stop` | Stop the daemon. |
+| `cell` | Show one cell at x,y. |
+| `codegen` | Interactively author a run script. |
+| `completion` | Print shell completion setup. |
+| `cursor` | Show cursor state. |
+| `diff` | Compare the viewport to a saved text snapshot. |
+| `find` | Find text in the viewport. |
+| `help` | Print top-level or per-command help. |
+| `key` | Send one named key. |
+| `keys` | Send multiple named keys. |
+| `lines` | Show visible viewport lines. |
 | `ls` | List running daemons. |
-| `status` | `{name, socket, pid, cmd, size, started_at, running, exit_code}`. |
-| `run <cmd> [args...] --script ops.json` | Single-shot ephemeral session. |
+| `mode` | Show active terminal modes. |
+| `paste` | Send bracketed paste text. |
+| `play` | Play a `.twee` trace bundle. |
+| `record` | Start or stop JSONL recording. |
+| `region` | Show cells in a rectangular region. |
+| `resize` | Resize the terminal. |
+| `run` | Run a one-shot ephemeral session. |
+| `screenshot` | Render the current screen to PNG. |
+| `scrollback` | Show retained scrollback. |
+| `signal` | Send a signal to the child process. |
+| `size` | Show terminal dimensions. |
+| `sleep` | Sleep client-side. |
+| `snapshot` | Show the full terminal snapshot. |
+| `start` | Spawn a TUI in a daemon. |
+| `status` | Show daemon status. |
+| `stop` | Stop the running daemon. |
+| `text` | Show visible viewport text. |
+| `title` | Show the window title. |
+| `trace` | Start or stop `.twee` trace recording. |
+| `type` | Write literal text to the PTY. |
+| `version` | Print the twee version. |
+| `wait` | Wait for terminal state or process exit. |
 
-### Input
+Wait subcommands:
 
-| Verb | Wire op | Notes |
-|---|---|---|
-| `type <text>` | `type` | Literal text to the PTY. |
-| `key <name>` | `key` | One named key (`Enter`, `Down`, `Ctrl+C`, …). |
-| `keys <name...>` | desugars to N `key` calls | Convenience. |
-| `paste <text>` | `paste` | Bracketed paste (DEC mode 2004). |
-| `signal <name>` | `signal` | `SIGWINCH`, `SIGINT`, `SIGTERM`, … to the child. |
-
-### Queries
-
-| Verb | Wire op | Returns |
-|---|---|---|
-| `text` | `text` | Visible viewport as one string. |
-| `lines` | `lines` | Viewport as `string[]`. |
-| `cell <x> <y>` | `cell` | One cell with style. |
-| `region <x> <y> <w> <h>` | `region` | Rectangle of cells. |
-| `cursor` | `cursor` | `{x, y, visible, shape}`. |
-| `find <text> [--regex]` | `find` | `[{x, y, w, h, line, text}]`. |
-| `size` | `size` | `{cols, rows}`. |
-| `title` | `title` | OSC 0/2 title. |
-| `mode` | `mode` | Active VT modes (`alt_screen`, …). |
-| `scrollback` | `scrollback` | Scrollback lines. |
-| `snapshot` | `snapshot` | Full `{size, cursor, lines, cells}`. |
-
-### State changes
-
-| Verb | Wire op | Notes |
-|---|---|---|
-| `resize <cols> <rows>` | `resize` | TIOCSWINSZ + SIGWINCH + model resize. |
-| `screenshot [--out path.png]` | `screenshot` | PNG to disk; without `--out`, response includes `png_base64`. |
-| `record start [--out path.jsonl]` / `record stop` | `record_start` / `record_stop` | Toggle JSONL recording. |
-| `trace start [--out path.twee]` / `trace stop` | `trace_start` / `trace_stop` | Toggle `.twee` trace bundle recording. |
-| `diff --against path` | `diff` | Compare current viewport to a saved text snapshot. Always exits 0; branch on `data.equal`. |
-
-### Waits
+| Command | Purpose |
+|---|---|
+| `wait cursor` | Wait for the cursor to reach a position. |
+| `wait exit` | Wait for the child process to exit. |
+| `wait no-text` | Wait for text to disappear. |
+| `wait stable` | Wait for the screen to stop changing. |
+| `wait text` | Wait for text or a regex to appear. |
 
 All waits accept `--timeout <duration>` (default 5s, except `wait
 exit` which defaults to 30s). Failure exits non-zero with code
 `TIMEOUT`.
-
-| Verb | Wire op |
-|---|---|
-| `wait text <substr> [--regex]` | `wait_text` |
-| `wait no-text <substr>` | `wait_no_text` |
-| `wait stable [--quiet 100ms]` | `wait_stable` |
-| `wait cursor <x> <y>` | `wait_cursor` |
-| `wait exit` | `wait_exit` |
-
-### Misc
-
-`play <bundle.twee> [--speed N] [--step] [--max-idle 2s]`,
-`sleep <duration>` (client-side), `version`, `help`,
-`completion <bash|zsh|fish>`.
 
 ## JSON envelope
 
@@ -202,9 +186,9 @@ $ twee run ./myapp --script ops.json
 {"ok":true,"data":{"ops":5}}
 ```
 
-The script is a JSON array of RPC request bodies — `op` uses the wire
-name from the tables above (e.g. `wait_text`, not `wait text`). Pass
-`--script -` (or omit `--script`) to read from stdin. With
+The script is a JSON array of RPC request bodies. Each `op` uses the
+daemon RPC wire name, for example `wait_text` rather than `wait text`.
+Pass `--script -` (or omit `--script`) to read from stdin. With
 `--emit results`, each op's response is streamed as NDJSON instead of
 the summary envelope. Use `--trace-out session.twee` to record the whole
 single-shot run as a replayable trace bundle.
@@ -312,8 +296,3 @@ Every verb that talks to a daemon accepts `--name`.
 - Screenshots use synthetic bold and render emoji cells as the
   leftmost glyph plus space.
 - macOS-tested. Linux should work but isn't exercised in this POC.
-
-## Spec
-
-The wire format and full op set are specified in
-[`docs/superpowers/specs/2026-04-28-twee-cli-design.md`](docs/superpowers/specs/2026-04-28-twee-cli-design.md).
