@@ -11,7 +11,7 @@ STAMP := $(BUILD_DIR)/.ghostty-built
 
 VERSION := $(shell jj log -r @ -T 'change_id.short()' --no-graph 2>/dev/null || echo dev)
 
-.PHONY: all build test smoke clean twee libghostty
+.PHONY: all build test coverage smoke clean twee libghostty
 
 all: build
 
@@ -34,6 +34,13 @@ test: $(STAMP)
 	DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH) \
 	LD_LIBRARY_PATH=$(LD_LIBRARY_PATH) \
 	go test ./...
+
+coverage: $(STAMP)
+	PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) \
+	DYLD_LIBRARY_PATH=$(DYLD_LIBRARY_PATH) \
+	LD_LIBRARY_PATH=$(LD_LIBRARY_PATH) \
+	go test ./... -coverprofile=coverage.out -covermode=atomic
+	go tool cover -func=coverage.out
 
 smoke: $(STAMP)
 	PKG_CONFIG_PATH=$(PKG_CONFIG_PATH) \
