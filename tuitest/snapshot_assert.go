@@ -4,7 +4,7 @@ import (
 	"flag"
 	"path/filepath"
 
-	"github.com/paulsmith/research/twee/internal/snapshot"
+	"github.com/paulsmith/twee/internal/snapshot"
 )
 
 var updateSnapshots = flag.Bool("tuitest-update", false,

@@ -6,7 +6,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/paulsmith/research/twee/internal/codegen"
+	"github.com/paulsmith/twee/internal/codegen"
 )
 
 func init() {

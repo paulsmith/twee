@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/paulsmith/research/twee/tuitest"
+	"github.com/paulsmith/twee/tuitest"
 )
 
 func ensureMenuBuilt(t *testing.T) string {

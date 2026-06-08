@@ -16,7 +16,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/paulsmith/research/twee/internal/engine"
+	"github.com/paulsmith/twee/internal/engine"
 )
 
 // Term is a running TUI under test.

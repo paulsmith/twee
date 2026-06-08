@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/paulsmith/research/twee/internal/engine"
+	"github.com/paulsmith/twee/internal/engine"
 )
 
 // WaitOption is re-exported from engine.

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/paulsmith/research/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/rpc"
 )
 
 func TestInputHandlers(t *testing.T) {

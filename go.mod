@@ -1,4 +1,4 @@
-module github.com/paulsmith/research/twee
+module github.com/paulsmith/twee
 
 go 1.26.0
 

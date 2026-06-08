@@ -9,8 +9,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/paulsmith/research/twee/internal/engine"
-	"github.com/paulsmith/research/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/engine"
+	"github.com/paulsmith/twee/internal/rpc"
 )
 
 // Server owns one engine.Term and serves RPC over a net.Listener.

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/paulsmith/research/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/rpc"
 )
 
 func TestScreenshotUsesRequestedPixelSize(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/paulsmith/research/twee/internal/render"
+	"github.com/paulsmith/twee/internal/render"
 )
 
 const defaultKittyChunkSize = 4096

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/paulsmith/research/twee/internal/vt"
+	"github.com/paulsmith/twee/internal/vt"
 )
 
 func TestRecordAndReplay(t *testing.T) {

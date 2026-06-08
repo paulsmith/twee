@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/paulsmith/research/twee/internal/vt"
+	"github.com/paulsmith/twee/internal/vt"
 )
 
 // WaitOption configures a wait call.

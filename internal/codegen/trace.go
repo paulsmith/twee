@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/paulsmith/research/twee/internal/engine"
-	"github.com/paulsmith/research/twee/internal/trace"
-	"github.com/paulsmith/research/twee/internal/vt"
+	"github.com/paulsmith/twee/internal/engine"
+	"github.com/paulsmith/twee/internal/trace"
+	"github.com/paulsmith/twee/internal/vt"
 )
 
 type traceMode int

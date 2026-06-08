@@ -3,7 +3,7 @@ package tuitest
 import (
 	"time"
 
-	"github.com/paulsmith/research/twee/internal/engine"
+	"github.com/paulsmith/twee/internal/engine"
 )
 
 // Option configures a Term.

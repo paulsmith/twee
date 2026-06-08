@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"github.com/paulsmith/research/twee/internal/vt"
+	"github.com/paulsmith/twee/internal/vt"
 )
 
 func TestTraceSeedOutputReconstructsVisibleText(t *testing.T) {

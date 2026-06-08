@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/paulsmith/research/twee/internal/input"
-	"github.com/paulsmith/research/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/input"
+	"github.com/paulsmith/twee/internal/rpc"
 )
 
 func init() {

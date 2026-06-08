@@ -3,7 +3,7 @@ package codegen
 import (
 	"encoding/json"
 
-	"github.com/paulsmith/research/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/rpc"
 )
 
 type recorder struct {

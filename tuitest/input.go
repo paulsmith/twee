@@ -1,6 +1,6 @@
 package tuitest
 
-import "github.com/paulsmith/research/twee/internal/input"
+import "github.com/paulsmith/twee/internal/input"
 
 // Key is a named key.
 type Key = input.Key

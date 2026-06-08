@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/creack/pty"
-	"github.com/paulsmith/research/twee/internal/engine"
-	"github.com/paulsmith/research/twee/internal/ptyrunner"
-	"github.com/paulsmith/research/twee/internal/rpc"
-	"github.com/paulsmith/research/twee/internal/vt"
+	"github.com/paulsmith/twee/internal/engine"
+	"github.com/paulsmith/twee/internal/ptyrunner"
+	"github.com/paulsmith/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/vt"
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )

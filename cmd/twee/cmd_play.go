@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/paulsmith/research/twee/internal/play"
+	"github.com/paulsmith/twee/internal/play"
 )
 
 func init() {

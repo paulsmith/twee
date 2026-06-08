@@ -1,6 +1,6 @@
 package tuitest
 
-import "github.com/paulsmith/research/twee/internal/engine"
+import "github.com/paulsmith/twee/internal/engine"
 
 // Type aliases — the engine owns the actual definitions.
 type (

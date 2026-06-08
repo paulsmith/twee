@@ -3,8 +3,8 @@ package daemon
 import (
 	"encoding/json"
 
-	"github.com/paulsmith/research/twee/internal/engine"
-	"github.com/paulsmith/research/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/engine"
+	"github.com/paulsmith/twee/internal/rpc"
 )
 
 func (d *Dispatcher) registerLifecycle() {

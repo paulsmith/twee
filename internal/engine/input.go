@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/paulsmith/research/twee/internal/input"
+	"github.com/paulsmith/twee/internal/input"
 )
 
 // Type writes literal text to the PTY.
