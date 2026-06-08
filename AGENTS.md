@@ -1,6 +1,10 @@
 Use `go doc` and `gopls` liberally when writing, reading, understanding, and
 debugging Go code.
 
+`twee` is pre-release experimental software. There are no compatibility
+guarantees for its CLI, Go API, JSON output, daemon protocol, or trace formats
+yet; they may change without notice before a stable release.
+
 Use `shellcheck` with all Bash scripts.
 
 Use `uvx ruff format` on all Python code.
