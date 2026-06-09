@@ -74,8 +74,7 @@ func runDaemonChildReal() {
 
 	sock, err := socketPath(name)
 	if err != nil {
-		writeReadyErr(readyW, name, err)
-		os.Exit(1)
+		failDaemonStartup(readyW, name, err)
 	}
 	_ = os.Remove(sock) // stale socket; lock confirmed no live owner
 
@@ -87,8 +86,7 @@ func runDaemonChildReal() {
 		Rows: rows,
 	})
 	if err != nil {
-		writeReadyErr(readyW, name, fmt.Errorf("engine.Start: %w", err))
-		os.Exit(1)
+		failDaemonStartup(readyW, name, fmt.Errorf("engine.Start: %w", err))
 	}
 
 	tracePath := os.Getenv(envDaemonTrace)
@@ -101,23 +99,20 @@ func runDaemonChildReal() {
 		}
 		if err != nil {
 			_ = te.Close()
-			writeReadyErr(readyW, name, fmt.Errorf("trace start: %w", err))
-			os.Exit(1)
+			failDaemonStartup(readyW, name, fmt.Errorf("trace start: %w", err))
 		}
 	}
 
 	l, err := listenUnixSocket(sock)
 	if err != nil {
 		_ = te.Close()
-		writeReadyErr(readyW, name, fmt.Errorf("listen %s: %w", sock, err))
-		os.Exit(1)
+		failDaemonStartup(readyW, name, fmt.Errorf("listen %s: %w", sock, err))
 	}
 	if err := os.Chmod(sock, 0o600); err != nil {
 		_ = l.Close()
 		_ = os.Remove(sock)
 		_ = te.Close()
-		writeReadyErr(readyW, name, fmt.Errorf("chmod socket: %w", err))
-		os.Exit(1)
+		failDaemonStartup(readyW, name, fmt.Errorf("chmod socket: %w", err))
 	}
 
 	select {
@@ -136,6 +131,7 @@ func runDaemonChildReal() {
 		_ = l.Close()
 		_ = te.Close()
 		_ = os.Remove(sock)
+		removeLockFile(name)
 		writeReadyErrCode(readyW, name, rpc.CodeChildExited, "child exited during startup", details)
 		os.Exit(0)
 	case <-time.After(100 * time.Millisecond):
@@ -169,7 +165,26 @@ func runDaemonChildReal() {
 	_ = srv.Serve(context.Background(), l)
 	_ = te.Close()
 	_ = os.Remove(sock)
+	removeLockFile(name)
 	os.Exit(0)
+}
+
+// failDaemonStartup reports a startup error to the parent, removes the
+// session lock (still held via the inherited fd), and exits.
+func failDaemonStartup(readyW *os.File, name string, err error) {
+	removeLockFile(name)
+	writeReadyErr(readyW, name, err)
+	os.Exit(1)
+}
+
+// removeLockFile unlinks the session's lock file. Callers must still hold
+// the flock (or know the owner is gone) so a concurrent start cannot be
+// racing them; starts guard against the unlink race by re-checking the
+// path after locking (see acquireSessionLock).
+func removeLockFile(name string) {
+	if lp, err := lockPath(name); err == nil {
+		_ = os.Remove(lp)
+	}
 }
 
 func writeReadyErr(w *os.File, name string, err error) {
@@ -184,24 +199,47 @@ func writeReadyErrCode(w *os.File, name, code, msg string, details json.RawMessa
 // daemonize re-execs into daemon mode with the given config, holding
 // the named lock file. Returns the ready message read back from the
 // child.
+// acquireSessionLock creates and flocks the session lock file. After
+// locking it verifies the file at the lock path is still the inode it
+// locked — a daemon removing its lock at exit can unlink the path between
+// our open and flock — and retries with a fresh open when it is not.
+func acquireSessionLock(name string) (*os.File, error) {
+	lp, err := lockPath(name)
+	if err != nil {
+		return nil, err
+	}
+	for range 5 {
+		lf, err := os.OpenFile(lp, os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			return nil, fmt.Errorf("open lock: %w", err)
+		}
+		if err := syscall.Flock(int(lf.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+			_ = lf.Close()
+			if err == syscall.EWOULDBLOCK {
+				return nil, fmt.Errorf("daemon %q already running", name)
+			}
+			return nil, fmt.Errorf("flock: %w", err)
+		}
+		var fdSt, pathSt syscall.Stat_t
+		if err := syscall.Fstat(int(lf.Fd()), &fdSt); err != nil {
+			_ = lf.Close()
+			return nil, fmt.Errorf("fstat lock: %w", err)
+		}
+		if err := syscall.Stat(lp, &pathSt); err == nil && fdSt.Ino == pathSt.Ino && fdSt.Dev == pathSt.Dev {
+			return lf, nil
+		}
+		_ = lf.Close() // path unlinked or replaced under us; retry
+	}
+	return nil, fmt.Errorf("lock %s: path kept changing during acquisition", lp)
+}
+
 func daemonize(name, dir string, cmd []string, cols, rows int, envOverrides map[string]string, tracePath string) (readyMessage, error) {
 	if err := validateName(name); err != nil {
 		return readyMessage{}, err
 	}
-	lp, err := lockPath(name)
+	lf, err := acquireSessionLock(name)
 	if err != nil {
 		return readyMessage{}, err
-	}
-	lf, err := os.OpenFile(lp, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return readyMessage{}, fmt.Errorf("open lock: %w", err)
-	}
-	if err := syscall.Flock(int(lf.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = lf.Close()
-		if err == syscall.EWOULDBLOCK {
-			return readyMessage{}, fmt.Errorf("daemon %q already running", name)
-		}
-		return readyMessage{}, fmt.Errorf("flock: %w", err)
 	}
 	_ = lf.Truncate(0)
 	_, _ = lf.Seek(0, 0)
@@ -209,12 +247,14 @@ func daemonize(name, dir string, cmd []string, cols, rows int, envOverrides map[
 
 	pr, pw, err := os.Pipe()
 	if err != nil {
+		removeLockFile(name)
 		_ = lf.Close()
 		return readyMessage{}, fmt.Errorf("pipe: %w", err)
 	}
 
 	exe, err := os.Executable()
 	if err != nil {
+		removeLockFile(name)
 		_ = lf.Close()
 		_ = pr.Close()
 		_ = pw.Close()
@@ -240,6 +280,7 @@ func daemonize(name, dir string, cmd []string, cols, rows int, envOverrides map[
 	child.ExtraFiles = []*os.File{pw, lf}
 	child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := child.Start(); err != nil {
+		removeLockFile(name)
 		_ = lf.Close()
 		_ = pr.Close()
 		_ = pw.Close()
