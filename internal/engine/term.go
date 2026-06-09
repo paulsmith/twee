@@ -35,6 +35,7 @@ type Term struct {
 	finalizeErr   error
 	artifactsDone chan struct{}
 
+	finalized          bool   // guarded by cfgMu; set once FinalizeArtifacts ran
 	finalizedTracePath string // guarded by cfgMu
 
 	startedAt time.Time
@@ -141,6 +142,7 @@ func (t *Term) FinalizeArtifacts() error {
 	t.finalizeOnce.Do(func() {
 		t.DrainOutput()
 		t.cfgMu.Lock()
+		t.finalized = true
 		var err error
 		if t.tr != nil {
 			err = t.closeTraceLocked()
@@ -208,6 +210,9 @@ func (t *Term) StartedAt() time.Time { return t.startedAt }
 func (t *Term) EnableRecording(path string) error {
 	t.cfgMu.Lock()
 	defer t.cfgMu.Unlock()
+	if t.finalized {
+		return errors.New("EnableRecording: artifacts already finalized")
+	}
 	if t.rec != nil {
 		t.rec.WriteExit(t.runner.ExitCode())
 		_ = t.rec.Close()
@@ -254,6 +259,9 @@ func (t *Term) TracePath() string {
 func (t *Term) EnableTrace(path string) error {
 	t.cfgMu.Lock()
 	defer t.cfgMu.Unlock()
+	if t.finalized {
+		return errors.New("EnableTrace: artifacts already finalized")
+	}
 	if t.tr != nil {
 		if err := t.closeTraceLocked(); err != nil {
 			return err

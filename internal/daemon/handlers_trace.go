@@ -20,6 +20,18 @@ func init() {
 	})
 }
 
+// FinalizeArtifacts makes the session's artifacts durable: it drains the
+// remaining output, captures a final screenshot into the active trace (if
+// any), and finalizes the trace and recording. Idempotent. Used at daemon
+// teardown so a trace survives the child exiting before `trace stop`.
+func FinalizeArtifacts(t *engine.Term) error {
+	t.DrainOutput()
+	if png, err := renderScreenshot(t); err == nil {
+		t.TraceAddScreenshot(png)
+	}
+	return t.FinalizeArtifacts()
+}
+
 func handleTraceStart(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	var a rpc.TraceStartArgs
 	if err := json.Unmarshal(raw, &a); err != nil && len(raw) > 0 {

@@ -113,6 +113,69 @@ func TestVimTraceEndToEnd(t *testing.T) {
 	}
 }
 
+// TestTraceFinalizedWhenChildExits records a session whose child exits on
+// its own, without an explicit `trace stop`. The bundle must be durable —
+// complete with the final screenshot — by the moment `wait exit` returns.
+func TestTraceFinalizedWhenChildExits(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+
+	tracePath := filepath.Join(t.TempDir(), "session.twee")
+	const sessionName = "trace-child-exit"
+	defer exec.Command(bin, "stop", "--name", sessionName).Run()
+
+	mustOK(t, bin, env, "start",
+		"--name", sessionName,
+		"--",
+		"/bin/sh", "-c", "echo tracing; sleep 2",
+	)
+	mustOK(t, bin, env, "trace", "start",
+		"--name", sessionName,
+		"--out", tracePath,
+	)
+
+	resp, out, err := runCLI(t, bin, env, "wait", "exit", "--name", sessionName)
+	if err != nil {
+		t.Fatalf("wait exit: %v\n%s", err, out)
+	}
+	if resp["ok"] != true {
+		t.Fatalf("wait exit not ok: %s", out)
+	}
+
+	// No sleeping, no retries: the contract is that the bundle already
+	// exists when wait exit returns.
+	if _, err := os.Stat(tracePath); err != nil {
+		t.Fatalf("trace bundle missing when wait exit returned: %v", err)
+	}
+	zr, err := zip.OpenReader(tracePath)
+	if err != nil {
+		t.Fatalf("open trace zip: %v", err)
+	}
+	defer zr.Close()
+
+	man := readManifest(t, &zr.Reader)
+	if man.StoppedAt.IsZero() {
+		t.Error("manifest stopped_at is zero")
+	}
+	if len(man.Screenshots) < 2 {
+		t.Errorf("screenshots = %v, want initial + final frames", man.Screenshots)
+	}
+	for _, p := range man.Screenshots {
+		sf, err := zr.Open(p)
+		if err != nil {
+			t.Errorf("screenshot %q missing: %v", p, err)
+			continue
+		}
+		if _, err := png.Decode(sf); err != nil {
+			t.Errorf("screenshot %q not a valid PNG: %v", p, err)
+		}
+		sf.Close()
+	}
+	if nOut, _, _ := scanEvents(t, &zr.Reader); nOut == 0 {
+		t.Error("trace recorded no output events")
+	}
+}
+
 type traceManifest struct {
 	Version     int       `json:"version"`
 	Command     []string  `json:"command"`

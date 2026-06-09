@@ -119,6 +119,9 @@ func handleWaitExit(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	if err != nil {
 		return nil, waitErr(t, err)
 	}
+	// The child is gone; make its artifacts durable before answering so
+	// the caller can rely on the trace bundle existing when this returns.
+	_ = FinalizeArtifacts(t)
 	return rpc.WaitExitData{ExitCode: code}, nil
 }
 

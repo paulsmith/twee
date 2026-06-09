@@ -124,6 +124,23 @@ func TestFinalizeArtifactsWithoutTrace(t *testing.T) {
 	}
 }
 
+func TestEnableTraceAndRecordingRefusedAfterFinalize(t *testing.T) {
+	te := startEngineTerm(t, []string{"/bin/sh", "-c", "echo done"}, 40, 5)
+	if _, err := te.WaitForExit(WithTimeout(5 * time.Second)); err != nil {
+		t.Fatalf("WaitForExit: %v", err)
+	}
+	if err := te.FinalizeArtifacts(); err != nil {
+		t.Fatalf("FinalizeArtifacts: %v", err)
+	}
+	out := filepath.Join(t.TempDir(), "late.twee")
+	if err := te.EnableTrace(out); err == nil {
+		t.Fatal("EnableTrace after FinalizeArtifacts succeeded; want error (the trace could never be written)")
+	}
+	if err := te.EnableRecording(filepath.Join(t.TempDir(), "late.rec")); err == nil {
+		t.Fatal("EnableRecording after FinalizeArtifacts succeeded; want error")
+	}
+}
+
 func TestDrainOutputIdempotentAndPreservesScreen(t *testing.T) {
 	te := startEngineTerm(t, []string{"/bin/sh", "-c", "echo final-line; sleep 30"}, 40, 5)
 	if err := te.WaitForText("final-line", WithTimeout(5*time.Second)); err != nil {

@@ -134,6 +134,11 @@ func runDaemonChildReal() {
 	srv := daemon.NewServer(te)
 	go func() {
 		<-te.ExitedCh()
+		// Make artifacts durable while the socket still answers, so a
+		// trace is never left unwritten once clients can no longer ask
+		// for it. wait-exit handlers finalize too; both calls are
+		// idempotent and this one covers sessions nobody is waiting on.
+		_ = daemon.FinalizeArtifacts(te)
 		time.Sleep(100 * time.Millisecond)
 		srv.Stop()
 		_ = l.Close()
