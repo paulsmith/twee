@@ -118,7 +118,7 @@
           inherit version;
 
           src = self;
-          vendorHash = "sha256-c8/NUkGpIs+miqPtawbiGIbtuf56oIWux+a1pGrb/80=";
+          vendorHash = "sha256-aF6WFeX8X6BajVzS5h+dwFujs/api/EcK/WgrRVxgHw=";
 
           subPackages = [ "cmd/twee" ];
 
