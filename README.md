@@ -236,6 +236,18 @@ $ twee trace stop
 If `--out` is omitted, `trace start` chooses a temporary `.twee` path
 and returns it in the JSON response.
 
+A trace left active when the child exits is finalized automatically
+before the daemon tears down, and `twee wait exit` blocks until the
+bundle is durable, reporting it as `{"trace_path": ...}`. To record an
+entire session from spawn to teardown in one step:
+
+```
+$ twee start --trace /tmp/run.twee -- ./myapp
+$ twee key Enter
+$ twee wait exit
+{"ok":true,"data":{"exit_code":0,"trace_path":"/tmp/run.twee"}}
+```
+
 ## Playback
 
 `twee play` replays a `.twee` bundle in your terminal as an animated

@@ -17,7 +17,12 @@ Trace bundles are .twee zip files containing:
   screenshots/*.png      initial and final viewport screenshots
 
 If --out is omitted, trace start writes to a temporary path and prints it in the
-JSON response. Trace stop finalizes the bundle and prints the saved path.`)
+JSON response. Trace stop finalizes the bundle and prints the saved path.
+
+A trace left active when the child exits is finalized automatically: the
+daemon writes the bundle before tearing down, and "twee wait exit" blocks
+until it is durable and reports it as {"trace_path": ...}. To record an
+entire session from spawn to teardown, use "twee start --trace <path.twee>".`)
 	registerUsage("trace start", `twee trace start [--out <path.twee>] [--name <name>]
 Start a trace recording on the running session.
 

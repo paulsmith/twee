@@ -39,7 +39,11 @@ Wait for the cursor to land at (x, y).`)
 	registerUsage("wait exit", `twee wait exit [--timeout <dur>] [--name <name>]
 Wait for the child process to exit. Default --timeout is 30s. If the
 daemon socket is already gone, returns success with
-{exit_code: null, daemon_already_gone: true}.`)
+{exit_code: null, daemon_already_gone: true}.
+
+wait exit returns only after the session's artifacts are durable: an
+active trace is finalized to its bundle first, and the response carries
+its path as {"trace_path": ...}.`)
 }
 
 func runWait(args []string) {
