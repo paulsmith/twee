@@ -35,7 +35,7 @@ func TestPlayFakeKittyEmitsAPC(t *testing.T) {
 }
 
 func TestParsePlayArgsAcceptsFlagsAfterBundle(t *testing.T) {
-	path, opts := parsePlayArgs([]string{"demo.twee", "--speed", "2.5", "--step", "--max-idle=500ms", "-v"})
+	path, opts := parsePlayArgs([]string{"demo.twee", "--speed", "2.5", "--step", "--max-idle=500ms", "--verbose"})
 	if path != "demo.twee" {
 		t.Fatalf("path = %q, want demo.twee", path)
 	}

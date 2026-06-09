@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/paulsmith/research/twee/internal/play"
@@ -23,10 +22,11 @@ Controls:
   q       quit
 
 Flags:
-  -speed <float>       playback speed multiplier (default 1.0)
-  -step                start paused; use . to advance one event
-  -max-idle <duration> cap long gaps between events (default 2s; 0 disables)
-  -v                   print a summary to stderr after exit`)
+  --speed <float>      playback speed multiplier (default 1.0)
+  --step               start paused; use . to advance one event
+  --max-idle <duration>
+                       cap long gaps between events (default 2s; 0 disables)
+  --verbose            print a summary to stderr after exit`)
 }
 
 func runPlay(args []string) {
@@ -54,44 +54,28 @@ func runPlay(args []string) {
 
 func parsePlayArgs(args []string) (string, play.Options) {
 	opts := play.Options{Speed: 1, MaxIdle: 2 * time.Second}
-	var path string
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch {
-		case arg == "-speed" || arg == "--speed":
-			i++
-			if i >= len(args) {
-				fatalUsage("play: %s requires a value", arg)
-			}
-			opts.Speed = parsePlaySpeed(args[i])
-		case strings.HasPrefix(arg, "-speed="):
-			opts.Speed = parsePlaySpeed(strings.TrimPrefix(arg, "-speed="))
-		case strings.HasPrefix(arg, "--speed="):
-			opts.Speed = parsePlaySpeed(strings.TrimPrefix(arg, "--speed="))
-		case arg == "-step" || arg == "--step":
-			opts.Step = true
-		case arg == "-max-idle" || arg == "--max-idle":
-			i++
-			if i >= len(args) {
-				fatalUsage("play: %s requires a value", arg)
-			}
-			opts.MaxIdle = parsePlayDuration(args[i])
-		case strings.HasPrefix(arg, "-max-idle="):
-			opts.MaxIdle = parsePlayDuration(strings.TrimPrefix(arg, "-max-idle="))
-		case strings.HasPrefix(arg, "--max-idle="):
-			opts.MaxIdle = parsePlayDuration(strings.TrimPrefix(arg, "--max-idle="))
-		case arg == "-v" || arg == "--v":
-			opts.Verbose = true
-		case strings.HasPrefix(arg, "-"):
-			fatalUsage("play: unknown flag %s", arg)
-		default:
-			if path != "" {
-				fatalUsage("play: expected one bundle path")
-			}
-			path = arg
-		}
+	var parsed struct {
+		Speed   *float64 `arg:"--speed"`
+		Step    bool     `arg:"--step"`
+		MaxIdle string   `arg:"--max-idle"`
+		Verbose bool     `arg:"--verbose"`
+		Path    string   `arg:"positional,required"`
 	}
-	return path, opts
+	if err := parseArg("play", &parsed, args); err != nil {
+		fatalUsage("play: %v", err)
+	}
+	if parsed.Speed != nil {
+		opts.Speed = *parsed.Speed
+	}
+	if !play.ValidSpeed(opts.Speed) {
+		fatalUsage("play: bad --speed value %q", fmt.Sprint(opts.Speed))
+	}
+	if parsed.MaxIdle != "" {
+		opts.MaxIdle = parsePlayDuration(parsed.MaxIdle)
+	}
+	opts.Step = parsed.Step
+	opts.Verbose = parsed.Verbose
+	return parsed.Path, opts
 }
 
 func parsePlaySpeed(s string) float64 {

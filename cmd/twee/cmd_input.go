@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"strings"
 
@@ -16,15 +15,15 @@ func init() {
 	register("paste", runPaste)
 	register("signal", runSignal)
 
-	registerUsage("type", `twee type <text...>
+	registerUsage("type", `twee type [client options] -- <text...>
 Write literal text to the PTY. Multiple positional arguments are
 joined with single spaces. Use this for ALL printable characters
 including single letters; "twee key i" will not work.
 
 Flags:
-  -name <name>     session name (default "default")`)
+  --name <name>    session name (default: TWEE_SESSION or "default")`)
 
-	registerUsage("key", `twee key <name>
+	registerUsage("key", `twee key <name> [--name <session>]
 Send one named key. Valid names:
   Enter, Escape (Esc), Tab, Backspace, Delete (Del),
   Up, Down, Left, Right, Home, End, PageUp (PgUp), PageDown (PgDn),
@@ -33,59 +32,57 @@ Send one named key. Valid names:
 For literal characters or strings, use "twee type" instead.
 
 Flags:
-  -name <name>     session name (default "default")`)
+  --name <name>    session name (default: TWEE_SESSION or "default")`)
 
-	registerUsage("keys", `twee keys <name> [<name>...]
+	registerUsage("keys", `twee keys <name> [<name>...] [--name <session>]
 Convenience for sending multiple named keys in sequence. Equivalent
 to N successive "twee key" calls. Same naming rules as "twee key".
 
 Flags:
-  -name <name>     session name (default "default")`)
+  --name <name>    session name (default: TWEE_SESSION or "default")`)
 
-	registerUsage("paste", `twee paste <text...>
+	registerUsage("paste", `twee paste [client options] -- <text...>
 Send text wrapped in bracketed-paste markers (DEC mode 2004). If the
 TUI hasn't enabled mode 2004, the markers will appear as literal
 input. Multiple args are joined with single spaces.
 
 Flags:
-  -name <name>     session name (default "default")`)
+  --name <name>    session name (default: TWEE_SESSION or "default")`)
 
-	registerUsage("signal", `twee signal <name>
+	registerUsage("signal", `twee signal <name> [--name <session>]
 Send a POSIX signal to the child process (not the daemon). Examples:
 SIGINT, SIGTERM, SIGWINCH, SIGUSR1.
 
 Flags:
-  -name <name>     session name (default "default")`)
+  --name <name>    session name (default: TWEE_SESSION or "default")`)
 }
 
 func runType(args []string) {
-	fs := flag.NewFlagSet("type", flag.ExitOnError)
-	name := fs.String("name", "default", "session name")
-	if err := fs.Parse(args); err != nil {
+	before, payload, err := splitExplicitBoundary("type", args)
+	if err != nil {
 		fatalUsage("type: %v", err)
 	}
-	rest := fs.Args()
-	if len(rest) == 0 {
-		fatalUsage("type: missing text")
+	var opts struct {
+		Name *string `arg:"--name"`
 	}
-	text := strings.Join(rest, " ")
-	callAndEmit(*name, rpc.OpType, rpc.TypeArgs{Text: text})
+	if err := parseArg("type", &opts, before); err != nil {
+		fatalUsage("type: %v", err)
+	}
+	callAndEmit(mustCurrentSessionName("type", nameOptFromPtr(opts.Name)), rpc.OpType, rpc.TypeArgs{Text: strings.Join(payload, " ")})
 }
 
 func runKey(args []string) {
-	fs := flag.NewFlagSet("key", flag.ExitOnError)
-	name := fs.String("name", "default", "session name")
-	if err := fs.Parse(args); err != nil {
+	var opts struct {
+		Name *string `arg:"--name"`
+		Key  string  `arg:"positional,required"`
+	}
+	if err := parseArg("key", &opts, args); err != nil {
 		fatalUsage("key: %v", err)
 	}
-	rest := fs.Args()
-	if len(rest) != 1 {
-		fatalUsage("key: expected exactly one key name")
+	if _, err := input.Parse(opts.Key); err != nil {
+		fatalUsage("%s", keyErrorHint(opts.Key))
 	}
-	if _, err := input.Parse(rest[0]); err != nil {
-		fatalUsage("%s", keyErrorHint(rest[0]))
-	}
-	callAndEmit(*name, rpc.OpKey, rpc.KeyArgs{Key: rest[0]})
+	callAndEmit(mustCurrentSessionName("key", nameOptFromPtr(opts.Name)), rpc.OpKey, rpc.KeyArgs{Key: opts.Key})
 }
 
 // keyErrorHint produces a useful message when a "key" argument doesn't
@@ -102,48 +99,46 @@ func keyErrorHint(arg string) string {
 }
 
 func runKeys(args []string) {
-	fs := flag.NewFlagSet("keys", flag.ExitOnError)
-	name := fs.String("name", "default", "session name")
-	if err := fs.Parse(args); err != nil {
+	var opts struct {
+		Name *string  `arg:"--name"`
+		Keys []string `arg:"positional,required"`
+	}
+	if err := parseArg("keys", &opts, args); err != nil {
 		fatalUsage("keys: %v", err)
 	}
-	rest := fs.Args()
-	if len(rest) == 0 {
-		fatalUsage("keys: missing keys")
-	}
-	for _, k := range rest {
+	for _, k := range opts.Keys {
 		if _, err := input.Parse(k); err != nil {
 			fatalUsage("keys: %s", keyErrorHint(k))
 		}
 	}
-	for _, k := range rest {
-		callOnly(*name, rpc.OpKey, rpc.KeyArgs{Key: k})
+	name := mustCurrentSessionName("keys", nameOptFromPtr(opts.Name))
+	for _, k := range opts.Keys {
+		callOnly(name, rpc.OpKey, rpc.KeyArgs{Key: k})
 	}
-	emitOK(map[string]int{"sent": len(rest)})
+	emitOK(map[string]int{"sent": len(opts.Keys)})
 }
 
 func runPaste(args []string) {
-	fs := flag.NewFlagSet("paste", flag.ExitOnError)
-	name := fs.String("name", "default", "session name")
-	if err := fs.Parse(args); err != nil {
+	before, payload, err := splitExplicitBoundary("paste", args)
+	if err != nil {
 		fatalUsage("paste: %v", err)
 	}
-	rest := fs.Args()
-	if len(rest) == 0 {
-		fatalUsage("paste: missing text")
+	var opts struct {
+		Name *string `arg:"--name"`
 	}
-	callAndEmit(*name, rpc.OpPaste, rpc.PasteArgs{Text: strings.Join(rest, " ")})
+	if err := parseArg("paste", &opts, before); err != nil {
+		fatalUsage("paste: %v", err)
+	}
+	callAndEmit(mustCurrentSessionName("paste", nameOptFromPtr(opts.Name)), rpc.OpPaste, rpc.PasteArgs{Text: strings.Join(payload, " ")})
 }
 
 func runSignal(args []string) {
-	fs := flag.NewFlagSet("signal", flag.ExitOnError)
-	name := fs.String("name", "default", "session name")
-	if err := fs.Parse(args); err != nil {
+	var opts struct {
+		Name   *string `arg:"--name"`
+		Signal string  `arg:"positional,required"`
+	}
+	if err := parseArg("signal", &opts, args); err != nil {
 		fatalUsage("signal: %v", err)
 	}
-	rest := fs.Args()
-	if len(rest) != 1 {
-		fatalUsage("signal: expected exactly one signal name")
-	}
-	callAndEmit(*name, rpc.OpSignal, rpc.SignalArgs{Name: rest[0]})
+	callAndEmit(mustCurrentSessionName("signal", nameOptFromPtr(opts.Name)), rpc.OpSignal, rpc.SignalArgs{Name: opts.Signal})
 }

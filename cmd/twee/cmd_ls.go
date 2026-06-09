@@ -19,6 +19,10 @@ Entries whose socket cannot be reached are silently omitted.`)
 }
 
 func runLs(args []string) {
+	var opts struct{}
+	if err := parseArg("ls", &opts, args); err != nil {
+		fatalUsage("ls: %v", err)
+	}
 	dir, err := stateDir()
 	if err != nil {
 		emitError(rpc.CodeIO, err.Error(), nil, 1)

@@ -35,7 +35,7 @@ func TestFlake200Menu(t *testing.T) {
 	}
 
 	for i := 0; i < 200; i++ {
-		cmd := exec.Command(bin, "run", "--script", scriptPath, menuBin)
+		cmd := exec.Command(bin, "run", "--script", scriptPath, "--", menuBin)
 		cmd.Env = append(os.Environ(), env...)
 		out, err := cmd.CombinedOutput()
 		if err != nil {

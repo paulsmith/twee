@@ -16,15 +16,17 @@ func TestParseRunArgsErrors(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"script missing", []string{"--script"}, "requires a value"},
-		{"cols missing", []string{"--cols"}, "requires a value"},
-		{"cols bad", []string{"--cols", "zero"}, "positive integer"},
-		{"cols zero", []string{"--cols=0"}, "positive integer"},
-		{"rows missing", []string{"--rows"}, "requires a value"},
-		{"rows bad", []string{"--rows", "-1"}, "positive integer"},
-		{"dir missing", []string{"--dir"}, "requires a value"},
-		{"emit missing", []string{"--emit"}, "requires a value"},
-		{"trace missing", []string{"--trace-out"}, "requires a value"},
+		{"missing boundary", []string{"/bin/echo"}, "missing --"},
+		{"script missing", []string{"--script"}, "missing --"},
+		{"script value missing", []string{"--script", "--", "/bin/echo"}, "missing value"},
+		{"cols missing", []string{"--cols", "--", "/bin/echo"}, "missing value"},
+		{"cols bad", []string{"--cols", "zero", "--", "/bin/echo"}, "positive integer"},
+		{"cols zero", []string{"--cols=0", "--", "/bin/echo"}, "positive integer"},
+		{"rows missing", []string{"--rows", "--", "/bin/echo"}, "missing value"},
+		{"rows bad", []string{"--rows", "-1", "--", "/bin/echo"}, "short options"},
+		{"dir missing", []string{"--dir", "--", "/bin/echo"}, "missing value"},
+		{"emit missing", []string{"--emit", "--", "/bin/echo"}, "missing value"},
+		{"trace missing", []string{"--trace-out", "--", "/bin/echo"}, "missing value"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -107,7 +109,7 @@ func TestParsePlayArgs(t *testing.T) {
 		"--speed=2.5",
 		"--step",
 		"--max-idle", "150ms",
-		"-v",
+		"--verbose",
 		"trace.twee",
 	})
 	if path != "trace.twee" {
@@ -157,17 +159,17 @@ func TestParseCodegenArgsErrors(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"missing command", []string{"--out", "ops.json"}, "missing command"},
-		{"missing out", []string{"vim"}, "missing --out"},
-		{"out value", []string{"--out"}, "requires a value"},
-		{"trace value", []string{"--trace-out"}, "requires a value"},
-		{"cols value", []string{"--cols"}, "requires a value"},
-		{"cols bad", []string{"--out", "ops.json", "--cols", "bad", "vim"}, "positive integer"},
-		{"rows value", []string{"--rows"}, "requires a value"},
-		{"rows bad", []string{"--out", "ops.json", "--rows", "0", "vim"}, "positive integer"},
-		{"dir value", []string{"--dir"}, "requires a value"},
-		{"env value", []string{"--env"}, "requires a value"},
-		{"env bad", []string{"--out", "ops.json", "--env", "NOPE", "vim"}, "bad --env"},
+		{"missing command", []string{"--out", "ops.json"}, "missing --"},
+		{"missing out", []string{"--", "vim"}, "missing --out"},
+		{"out value", []string{"--out", "--", "vim"}, "missing value"},
+		{"trace value", []string{"--trace-out", "--", "vim"}, "missing value"},
+		{"cols value", []string{"--cols", "--", "vim"}, "missing value"},
+		{"cols bad", []string{"--out", "ops.json", "--cols", "bad", "--", "vim"}, "positive integer"},
+		{"rows value", []string{"--rows", "--", "vim"}, "missing value"},
+		{"rows bad", []string{"--out", "ops.json", "--rows", "0", "--", "vim"}, "positive integer"},
+		{"dir value", []string{"--dir", "--", "vim"}, "missing value"},
+		{"env value", []string{"--env", "--", "vim"}, "missing value"},
+		{"env bad", []string{"--out", "ops.json", "--env", "NOPE", "--", "vim"}, "bad --env"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

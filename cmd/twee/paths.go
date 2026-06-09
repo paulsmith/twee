@@ -85,10 +85,13 @@ func lockPath(name string) (string, error) {
 }
 
 // validateName rejects names that are empty, contain path separators or
-// NUL, or look like traversal.
+// NUL, look like traversal, or begin with "-".
 func validateName(name string) error {
 	if name == "" {
 		return fmt.Errorf("name must be non-empty")
+	}
+	if strings.HasPrefix(name, "-") {
+		return fmt.Errorf("name must not begin with '-'")
 	}
 	if strings.ContainsAny(name, "/\\\x00") {
 		return fmt.Errorf("name must not contain path separators or NUL")

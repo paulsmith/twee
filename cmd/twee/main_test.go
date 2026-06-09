@@ -60,6 +60,55 @@ func TestHelp(t *testing.T) {
 	}
 }
 
+func TestRootHelpUsesLongOnlyHelp(t *testing.T) {
+	bin := buildBinary(t)
+	out, err := exec.Command(bin, "--help").Output()
+	if err != nil {
+		t.Fatalf("--help: %v", err)
+	}
+	if !bytes.Contains(out, []byte("Usage: twee")) {
+		t.Fatalf("--help output missing usage:\n%s", out)
+	}
+
+	cmd := exec.Command(bin, "-h")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	exit, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected -h to fail with ExitError, got %v", err)
+	}
+	if exit.ExitCode() != 2 {
+		t.Fatalf("-h exit code = %d, want 2", exit.ExitCode())
+	}
+	if !bytes.Contains(stderr.Bytes(), []byte("short options are not supported")) {
+		t.Fatalf("-h stderr = %s", stderr.String())
+	}
+}
+
+func TestStaticHelpBeforeBoundaryOnly(t *testing.T) {
+	bin := buildBinary(t)
+	out, err := exec.Command(bin, "wait", "text", "--help").Output()
+	if err != nil {
+		t.Fatalf("wait text --help: %v", err)
+	}
+	if !bytes.Contains(out, []byte("twee wait text --pattern TEXT")) {
+		t.Fatalf("wait text help did not use static help:\n%s", out)
+	}
+
+	cmd := exec.Command(bin, "type", "--", "--help")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	exit, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("type -- --help should reach command handling and fail without daemon, got %v", err)
+	}
+	if exit.ExitCode() == 2 {
+		t.Fatalf("post-boundary --help was treated as usage help; stderr=%s", stderr.String())
+	}
+}
+
 func TestTraceHelp(t *testing.T) {
 	bin := buildBinary(t)
 	out, err := exec.Command(bin, "help", "trace").Output()

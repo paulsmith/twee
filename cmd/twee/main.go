@@ -27,12 +27,25 @@ func main() {
 		runDaemonChild()
 		return // unreachable
 	}
-	if len(os.Args) < 2 {
+	root, err := parseRootArgs(os.Args[1:])
+	if err != nil {
+		fatalUsage("%v", err)
+	}
+	rootGlobalName = root.GlobalName
+	if root.Help {
+		if root.HelpKey == "" {
+			printUsage(os.Stdout)
+			return
+		}
+		printVerbHelp(os.Stdout, strings.Split(root.HelpKey, " "))
+		return
+	}
+	if root.Verb == "" {
 		printUsage(os.Stderr)
 		os.Exit(2)
 	}
-	verb := os.Args[1]
-	args := os.Args[2:]
+	verb := root.Verb
+	args := root.Args
 
 	if h := dispatch[verb]; h != nil {
 		h(args)
@@ -42,7 +55,7 @@ func main() {
 	switch verb {
 	case "version":
 		fmt.Println(Version)
-	case "help", "-h", "--help":
+	case "help":
 		if len(args) > 0 {
 			printVerbHelp(os.Stdout, args)
 			return
@@ -89,7 +102,7 @@ func printVerbHelp(w io.Writer, args []string) {
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, `twee - drive TUIs from the shell.
 
-Usage: twee <verb> [positional args...] [-flag value ...]
+Usage: twee [--name <session>] <verb> [args...]
 
 Commands:`)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
@@ -105,16 +118,20 @@ Wait commands:
   wait stable     Wait for the screen to stop changing
   wait text       Wait for text or a regex to appear
 
-Common flags (per verb; both -name and --name are accepted):
-  -name <name>      Target a named daemon (default: "default")
-  -timeout <dur>    Override timeout for wait verbs
+Common flags:
+  --name <name>     Target a named daemon (default: TWEE_SESSION or "default")
+  --timeout <dur>   Override timeout for wait verbs
 
-Flags must appear AFTER the verb (they're parsed by each verb's flag
-set, not globally). "twee --name foo status" fails; write
-"twee status -name foo".
+Only long options are accepted. Global --name may appear before
+name-aware daemon commands, for example "twee --name foo status".
 
-For literal characters use "twee type"; "twee key" only accepts named
-keys (Enter, Down, Ctrl+C, ...). "twee key i" fails — use "twee type i".
+Use "--" before child argv or literal payloads:
+  twee start -- vim file
+  twee run --script ops.json -- ./myapp
+  twee type -- literal text
+
+For literal characters use "twee type --"; "twee key" only accepts named
+keys (Enter, Down, Ctrl+C, ...). "twee key i" fails — use "twee type -- i".
 
 Output is JSON by default:
   {"ok": true, "data": {...}}            on success

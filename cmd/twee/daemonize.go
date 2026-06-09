@@ -12,6 +12,7 @@ import (
 
 	"github.com/paulsmith/research/twee/internal/daemon"
 	"github.com/paulsmith/research/twee/internal/engine"
+	"github.com/paulsmith/research/twee/internal/rpc"
 )
 
 const (
@@ -28,10 +29,19 @@ const (
 
 // readyMessage is what the child writes to the parent over the pipe.
 type readyMessage struct {
-	Name   string `json:"name"`
-	Socket string `json:"socket"`
-	PID    int    `json:"pid"`
-	Error  string `json:"error,omitempty"`
+	Name         string          `json:"name"`
+	Socket       string          `json:"socket"`
+	PID          int             `json:"pid"`
+	Error        string          `json:"error,omitempty"`
+	ErrorCode    string          `json:"error_code,omitempty"`
+	ErrorDetails json.RawMessage `json:"error_details,omitempty"`
+}
+
+type quickExitDetails struct {
+	Name          string   `json:"name"`
+	ChildArgv     []string `json:"child_argv"`
+	ExitCode      *int     `json:"exit_code"`
+	SocketCreated bool     `json:"socket_created"`
 }
 
 // inDaemonModeReal returns true when this process was invoked as a daemon child.
@@ -92,10 +102,26 @@ func runDaemonChildReal() {
 		os.Exit(1)
 	}
 
-	// Send ready handshake.
-	msg := readyMessage{Name: name, Socket: sock, PID: os.Getpid()}
-	_ = json.NewEncoder(readyW).Encode(msg)
-	_ = readyW.Close()
+	select {
+	case <-te.ExitedCh():
+		code := te.ExitCode()
+		details, _ := json.Marshal(quickExitDetails{
+			Name:          name,
+			ChildArgv:     append([]string(nil), cmdv...),
+			ExitCode:      &code,
+			SocketCreated: true,
+		})
+		_ = l.Close()
+		_ = te.Close()
+		_ = os.Remove(sock)
+		writeReadyErrCode(readyW, name, rpc.CodeChildExited, "child exited during startup", details)
+		os.Exit(0)
+	case <-time.After(100 * time.Millisecond):
+		// Send ready handshake.
+		msg := readyMessage{Name: name, Socket: sock, PID: os.Getpid()}
+		_ = json.NewEncoder(readyW).Encode(msg)
+		_ = readyW.Close()
+	}
 
 	// Detach stdio.
 	if devNull, err := os.OpenFile("/dev/null", os.O_RDWR, 0); err == nil {
@@ -120,7 +146,11 @@ func runDaemonChildReal() {
 }
 
 func writeReadyErr(w *os.File, name string, err error) {
-	_ = json.NewEncoder(w).Encode(readyMessage{Name: name, Error: err.Error()})
+	writeReadyErrCode(w, name, "", err.Error(), nil)
+}
+
+func writeReadyErrCode(w *os.File, name, code, msg string, details json.RawMessage) {
+	_ = json.NewEncoder(w).Encode(readyMessage{Name: name, Error: msg, ErrorCode: code, ErrorDetails: details})
 	_ = w.Close()
 }
 

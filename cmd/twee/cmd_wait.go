@@ -2,11 +2,9 @@ package main
 
 import (
 	"errors"
-	"flag"
 	"io/fs"
 	"net"
 	"os"
-	"strconv"
 
 	"github.com/paulsmith/research/twee/internal/rpc"
 )
@@ -16,30 +14,30 @@ func init() {
 
 	registerUsage("wait", `twee wait <subverb> ...
 Subverbs:
-  wait text <substr> [-regex] [-timeout <dur>] [-name <name>]
-  wait no-text <substr> [-timeout <dur>] [-name <name>]
-  wait stable [-quiet <dur>] [-timeout <dur>] [-name <name>]
-  wait cursor <x> <y> [-timeout <dur>] [-name <name>]
-  wait exit [-timeout <dur>] [-name <name>]
+  wait text --pattern TEXT [--regex] [--timeout <dur>] [--name <name>]
+  wait no-text --pattern TEXT [--timeout <dur>] [--name <name>]
+  wait stable [--quiet <dur>] [--timeout <dur>] [--name <name>]
+  wait cursor <x> <y> [--timeout <dur>] [--name <name>]
+  wait exit [--timeout <dur>] [--name <name>]
 
-Default -timeout is 5s for text/no-text/stable/cursor, 30s for exit.
+Default --timeout is 5s for text/no-text/stable/cursor, 30s for exit.
 On timeout the verb exits non-zero with code TIMEOUT.
 
 "wait exit" treats a missing daemon as success (the child has already
 exited and the daemon torn down its socket). data.daemon_already_gone
 is true in that case.`)
-	registerUsage("wait text", `twee wait text <substr> [-regex] [-timeout <dur>] [-name <name>]
-Wait for substr (or regex with -regex) to appear in the viewport.`)
-	registerUsage("wait no-text", `twee wait no-text <substr> [-timeout <dur>] [-name <name>]
+	registerUsage("wait text", `twee wait text --pattern TEXT [--regex] [--timeout <dur>] [--name <name>]
+Wait for substr (or regex with --regex) to appear in the viewport.`)
+	registerUsage("wait no-text", `twee wait no-text --pattern TEXT [--timeout <dur>] [--name <name>]
 Wait for substr to disappear from the viewport.`)
-	registerUsage("wait stable", `twee wait stable [-quiet <dur>] [-timeout <dur>] [-name <name>]
-Wait for the screen to stop changing for -quiet (default 100ms).
+	registerUsage("wait stable", `twee wait stable [--quiet <dur>] [--timeout <dur>] [--name <name>]
+Wait for the screen to stop changing for --quiet (default 100ms).
 Will hang on apps with always-running spinners; use "wait text"
 instead for those.`)
-	registerUsage("wait cursor", `twee wait cursor <x> <y> [-timeout <dur>] [-name <name>]
+	registerUsage("wait cursor", `twee wait cursor <x> <y> [--timeout <dur>] [--name <name>]
 Wait for the cursor to land at (x, y).`)
-	registerUsage("wait exit", `twee wait exit [-timeout <dur>] [-name <name>]
-Wait for the child process to exit. Default -timeout is 30s. If the
+	registerUsage("wait exit", `twee wait exit [--timeout <dur>] [--name <name>]
+Wait for the child process to exit. Default --timeout is 30s. If the
 daemon socket is already gone, returns success with
 {exit_code: null, daemon_already_gone: true}.`)
 }
@@ -67,76 +65,69 @@ func runWait(args []string) {
 }
 
 func runWaitText(args []string) {
-	fs := flag.NewFlagSet("wait text", flag.ExitOnError)
-	name := fs.String("name", "default", "session name")
-	timeout := fs.String("timeout", "", "duration; default = engine default")
-	regex := fs.Bool("regex", false, "treat text as regex")
-	if err := fs.Parse(args); err != nil {
+	var opts struct {
+		Name    *string `arg:"--name"`
+		Timeout string  `arg:"--timeout"`
+		Regex   bool    `arg:"--regex"`
+		Pattern string  `arg:"--pattern,required"`
+	}
+	if err := parseArg("wait text", &opts, args); err != nil {
 		fatalUsage("wait text: %v", err)
 	}
-	rest := fs.Args()
-	if len(rest) != 1 {
-		fatalUsage("wait text: expected one text argument")
-	}
-	callAndEmit(*name, rpc.OpWaitText, rpc.WaitTextArgs{Text: rest[0], Regex: *regex, Timeout: *timeout})
+	callAndEmit(mustCurrentSessionName("wait text", nameOptFromPtr(opts.Name)), rpc.OpWaitText, rpc.WaitTextArgs{Text: opts.Pattern, Regex: opts.Regex, Timeout: opts.Timeout})
 }
 
 func runWaitNoText(args []string) {
-	fs := flag.NewFlagSet("wait no-text", flag.ExitOnError)
-	name := fs.String("name", "default", "session name")
-	timeout := fs.String("timeout", "", "duration")
-	if err := fs.Parse(args); err != nil {
+	var opts struct {
+		Name    *string `arg:"--name"`
+		Timeout string  `arg:"--timeout"`
+		Pattern string  `arg:"--pattern,required"`
+	}
+	if err := parseArg("wait no-text", &opts, args); err != nil {
 		fatalUsage("wait no-text: %v", err)
 	}
-	rest := fs.Args()
-	if len(rest) != 1 {
-		fatalUsage("wait no-text: expected one text argument")
-	}
-	callAndEmit(*name, rpc.OpWaitNoText, rpc.WaitNoTextArgs{Text: rest[0], Timeout: *timeout})
+	callAndEmit(mustCurrentSessionName("wait no-text", nameOptFromPtr(opts.Name)), rpc.OpWaitNoText, rpc.WaitNoTextArgs{Text: opts.Pattern, Timeout: opts.Timeout})
 }
 
 func runWaitStable(args []string) {
-	fs := flag.NewFlagSet("wait stable", flag.ExitOnError)
-	name := fs.String("name", "default", "session name")
-	quiet := fs.String("quiet", "", "quiet window")
-	timeout := fs.String("timeout", "", "overall timeout")
-	if err := fs.Parse(args); err != nil {
+	var opts struct {
+		Name    *string `arg:"--name"`
+		Quiet   string  `arg:"--quiet"`
+		Timeout string  `arg:"--timeout"`
+	}
+	if err := parseArg("wait stable", &opts, args); err != nil {
 		fatalUsage("wait stable: %v", err)
 	}
-	callAndEmit(*name, rpc.OpWaitStable, rpc.WaitStableArgs{Quiet: *quiet, Timeout: *timeout})
+	callAndEmit(mustCurrentSessionName("wait stable", nameOptFromPtr(opts.Name)), rpc.OpWaitStable, rpc.WaitStableArgs{Quiet: opts.Quiet, Timeout: opts.Timeout})
 }
 
 func runWaitCursor(args []string) {
-	fs := flag.NewFlagSet("wait cursor", flag.ExitOnError)
-	name := fs.String("name", "default", "session name")
-	timeout := fs.String("timeout", "", "duration")
-	if err := fs.Parse(args); err != nil {
+	var opts struct {
+		Name    *string `arg:"--name"`
+		Timeout string  `arg:"--timeout"`
+		X       int     `arg:"positional,required"`
+		Y       int     `arg:"positional,required"`
+	}
+	if err := parseArg("wait cursor", &opts, args); err != nil {
 		fatalUsage("wait cursor: %v", err)
 	}
-	rest := fs.Args()
-	if len(rest) != 2 {
-		fatalUsage("wait cursor: expected x y")
-	}
-	x, err1 := strconv.Atoi(rest[0])
-	y, err2 := strconv.Atoi(rest[1])
-	if err1 != nil || err2 != nil {
-		fatalUsage("wait cursor: x and y must be integers")
-	}
-	callAndEmit(*name, rpc.OpWaitCursor, rpc.WaitCursorArgs{X: x, Y: y, Timeout: *timeout})
+	callAndEmit(mustCurrentSessionName("wait cursor", nameOptFromPtr(opts.Name)), rpc.OpWaitCursor, rpc.WaitCursorArgs{X: opts.X, Y: opts.Y, Timeout: opts.Timeout})
 }
 
 func runWaitExit(args []string) {
-	flags := flag.NewFlagSet("wait exit", flag.ExitOnError)
-	name := flags.String("name", "default", "session name")
-	timeout := flags.String("timeout", "30s", "duration; default 30s")
-	if err := flags.Parse(args); err != nil {
+	var opts struct {
+		Name    *string `arg:"--name"`
+		Timeout string  `arg:"--timeout" default:"30s"`
+	}
+	if err := parseArg("wait exit", &opts, args); err != nil {
 		fatalUsage("wait exit: %v", err)
 	}
-	if !daemonReachable(*name) {
+	name := mustCurrentSessionName("wait exit", nameOptFromPtr(opts.Name))
+	if !daemonReachable(name) {
 		emitOK(map[string]any{"exit_code": nil, "daemon_already_gone": true})
 		return
 	}
-	resp, err := callDaemon(*name, rpc.OpWaitExit, rpc.WaitExitArgs{Timeout: *timeout})
+	resp, err := callDaemon(name, rpc.OpWaitExit, rpc.WaitExitArgs{Timeout: opts.Timeout})
 	if err != nil {
 		// Race: daemon torn down between the reachability probe and the RPC.
 		if isDaemonGone(err) {

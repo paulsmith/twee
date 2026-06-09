@@ -37,21 +37,22 @@ func TestVimTraceEndToEnd(t *testing.T) {
 		"--name", sessionName,
 		"--cols", "80", "--rows", "24",
 		"--env", "TERM=xterm-256color",
+		"--",
 		"vim", "-u", "NONE", "-N", "-n", bufFile,
 	)
 
 	// Vim's empty-buffer screen has tilde markers down the left edge.
-	mustOK(t, bin, env, "wait", "text", "--name", sessionName, "~")
+	mustOK(t, bin, env, "wait", "text", "--name", sessionName, "--pattern", "~")
 
 	mustOK(t, bin, env, "trace", "start",
 		"--name", sessionName,
 		"--out", tracePath,
 	)
 
-	mustOK(t, bin, env, "type", "--name", sessionName, "i")
-	mustOK(t, bin, env, "type", "--name", sessionName, typed)
+	mustOK(t, bin, env, "type", "--name", sessionName, "--", "i")
+	mustOK(t, bin, env, "type", "--name", sessionName, "--", typed)
 	mustOK(t, bin, env, "key", "--name", sessionName, "Escape")
-	mustOK(t, bin, env, "wait", "text", "--name", sessionName, typed)
+	mustOK(t, bin, env, "wait", "text", "--name", sessionName, "--pattern", typed)
 
 	mustOK(t, bin, env, "trace", "stop", "--name", sessionName)
 	mustOK(t, bin, env, "stop", "--name", sessionName)

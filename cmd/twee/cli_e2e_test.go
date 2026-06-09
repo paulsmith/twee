@@ -100,12 +100,12 @@ func TestMenuFixtureViaCLI(t *testing.T) {
 	}
 	defer exec.Command(bin, "stop", "--name", "menu-test").Run()
 
-	mustOK(t, bin, env, "start", "--name", "menu-test", menuBin)
-	mustOK(t, bin, env, "wait", "text", "--name", "menu-test", "Choose an option")
+	mustOK(t, bin, env, "start", "--name", "menu-test", "--", menuBin)
+	mustOK(t, bin, env, "wait", "text", "--name", "menu-test", "--pattern", "Choose an option")
 	mustOK(t, bin, env, "key", "--name", "menu-test", "Down")
-	mustOK(t, bin, env, "wait", "text", "--name", "menu-test", "> second")
+	mustOK(t, bin, env, "wait", "text", "--name", "menu-test", "--pattern", "> second")
 	mustOK(t, bin, env, "key", "--name", "menu-test", "Enter")
-	mustOK(t, bin, env, "wait", "text", "--name", "menu-test", "selected: second")
+	mustOK(t, bin, env, "wait", "text", "--name", "menu-test", "--pattern", "selected: second")
 	mustOK(t, bin, env, "stop", "--name", "menu-test")
 }
 
@@ -131,7 +131,7 @@ func TestStartStatusStopRoundTrip(t *testing.T) {
 	env := testEnv(t)
 	defer exec.Command(bin, "stop", "--name", "rt").Run()
 
-	startOut, raw, err := runCLI(t, bin, env, "start", "--name", "rt", "/bin/sh", "-c", "sleep 30")
+	startOut, raw, err := runCLI(t, bin, env, "start", "--name", "rt", "--", "/bin/sh", "-c", "sleep 30")
 	if err != nil {
 		t.Fatalf("start: %v\n%s", err, raw)
 	}
@@ -173,14 +173,82 @@ func TestStartStatusStopRoundTrip(t *testing.T) {
 	}
 }
 
+func TestStartReportsImmediateChildExitAndCleansSocket(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+	stateDir := envValue(t, env, "TWEE_STATE_DIR")
+	name := "quick-exit"
+
+	cmd := exec.Command(bin, "start", "--name", name, "--", "/usr/bin/false")
+	cmd.Env = append(os.Environ(), env...)
+	out, err := cmd.CombinedOutput()
+	exit, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected /bin/false start to fail, got %v\n%s", err, out)
+	}
+	if exit.ExitCode() == 0 {
+		t.Fatalf("exit code = 0, want non-zero\n%s", out)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(out, &resp); err != nil {
+		t.Fatalf("decode %s: %v", out, err)
+	}
+	if resp["ok"] != false {
+		t.Fatalf("response = %s", out)
+	}
+	errObj, _ := resp["error"].(map[string]any)
+	if errObj["code"] != "CHILD_EXITED" {
+		t.Fatalf("error = %#v, want CHILD_EXITED", errObj)
+	}
+	details, _ := errObj["details"].(map[string]any)
+	if details["name"] != name || details["exit_code"] != float64(1) || details["socket_created"] != true {
+		t.Fatalf("details = %#v", details)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, name+".sock")); !os.IsNotExist(err) {
+		t.Fatalf("socket still exists or stat failed unexpectedly: %v", err)
+	}
+
+	defer exec.Command(bin, "stop", "--name", name).Run()
+	startOut, raw, err := runCLI(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
+	if err != nil {
+		t.Fatalf("restart after quick exit: %v\n%s", err, raw)
+	}
+	if startOut["ok"] != true {
+		t.Fatalf("restart response = %s", raw)
+	}
+}
+
+func TestSessionNamePrecedenceViaCLI(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+	name := "session-precedence"
+	defer exec.Command(bin, "stop", "--name", name).Run()
+
+	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
+	mustOK(t, bin, env, "--name", name, "status")
+	mustOK(t, bin, append(env, "TWEE_SESSION="+name), "status")
+	mustOK(t, bin, env, "--name", "missing", "status", "--name", name)
+
+	cmd := exec.Command(bin, "--name", name, "sleep", "1ms")
+	cmd.Env = append(os.Environ(), env...)
+	out, err := cmd.CombinedOutput()
+	exit, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected global --name sleep failure, got %v\n%s", err, out)
+	}
+	if exit.ExitCode() != 2 {
+		t.Fatalf("exit = %d, want 2\n%s", exit.ExitCode(), out)
+	}
+}
+
 func TestScreenshotUsesPTYPixelSizeViaCLI(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "shot-pixels"
 	defer exec.Command(bin, "stop", "--name", name).Run()
 
-	mustOK(t, bin, env, "start", "--name", name, "/bin/sh", "-c", "printf 'hi\\r\\n'; sleep 30")
-	mustOK(t, bin, env, "wait", "text", "--name", name, "hi")
+	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "printf 'hi\\r\\n'; sleep 30")
+	mustOK(t, bin, env, "wait", "text", "--name", name, "--pattern", "hi")
 
 	outPath := filepath.Join(t.TempDir(), "screen.png")
 	resp, raw, err := runCLIOnPTY(t, bin, env, &pty.Winsize{
@@ -212,4 +280,16 @@ func TestScreenshotUsesPTYPixelSizeViaCLI(t *testing.T) {
 	if cfg.Width != 333 || cfg.Height != 222 {
 		t.Fatalf("png size = %dx%d, want 333x222", cfg.Width, cfg.Height)
 	}
+}
+
+func envValue(t *testing.T, env []string, key string) string {
+	t.Helper()
+	prefix := key + "="
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			return strings.TrimPrefix(item, prefix)
+		}
+	}
+	t.Fatalf("env missing %s", key)
+	return ""
 }

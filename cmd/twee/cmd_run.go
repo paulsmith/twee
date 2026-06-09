@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -19,18 +18,18 @@ import (
 
 func init() {
 	register("run", runRun)
-	registerUsage("run", `twee run <cmd> [args...] [flags]
+	registerUsage("run", `twee run [run options] -- <cmd> [args...]
 Single-shot: spin up an ephemeral daemon, execute a JSON script of
 RPC ops, exit. The daemon's socket is removed on exit.
 
 Flags:
-  -script <path>   path to script JSON; "-" or empty reads stdin
-  -cols <int>      initial cols (default 80)
-  -rows <int>      initial rows (default 24)
-  -dir <path>      child working directory
-  -trace-out <path.twee>
+  --script <path>  path to script JSON; "-" or empty reads stdin
+  --cols <int>     initial cols (default 80)
+  --rows <int>     initial rows (default 24)
+  --dir <path>     child working directory
+  --trace-out <path.twee>
                   record a .twee trace bundle for the whole run
-  -emit results    stream NDJSON op responses instead of one summary
+  --emit results   stream NDJSON op responses instead of one summary
 
 The script is a JSON array of RPC bodies (op + args). Use the wire
 op names (e.g. "wait_text", not "wait text").`)
@@ -187,70 +186,38 @@ type runOptions struct {
 
 func parseRunArgs(args []string) (runOptions, error) {
 	opts := runOptions{cols: 80, rows: 24}
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if arg == "--" {
-			opts.cmd = append(opts.cmd, args[i+1:]...)
-			break
-		}
-		name, val, hasValue := splitFlagValue(arg)
-		switch name {
-		case "-script", "--script":
-			v, next, err := flagValue(name, val, hasValue, args, i)
-			if err != nil {
-				return opts, err
-			}
-			opts.scriptPath = v
-			i = next
-		case "-cols", "--cols":
-			v, next, err := flagValue(name, val, hasValue, args, i)
-			if err != nil {
-				return opts, err
-			}
-			n, err := strconv.Atoi(v)
-			if err != nil || n <= 0 {
-				return opts, fmt.Errorf("%s must be a positive integer", name)
-			}
-			opts.cols = n
-			opts.colsSet = true
-			i = next
-		case "-rows", "--rows":
-			v, next, err := flagValue(name, val, hasValue, args, i)
-			if err != nil {
-				return opts, err
-			}
-			n, err := strconv.Atoi(v)
-			if err != nil || n <= 0 {
-				return opts, fmt.Errorf("%s must be a positive integer", name)
-			}
-			opts.rows = n
-			opts.rowsSet = true
-			i = next
-		case "-dir", "--dir":
-			v, next, err := flagValue(name, val, hasValue, args, i)
-			if err != nil {
-				return opts, err
-			}
-			opts.dir = v
-			i = next
-		case "-emit", "--emit":
-			v, next, err := flagValue(name, val, hasValue, args, i)
-			if err != nil {
-				return opts, err
-			}
-			opts.emit = v
-			i = next
-		case "-trace-out", "--trace-out":
-			v, next, err := flagValue(name, val, hasValue, args, i)
-			if err != nil {
-				return opts, err
-			}
-			opts.tracePath = v
-			i = next
-		default:
-			opts.cmd = append(opts.cmd, arg)
-		}
+	before, cmd, err := splitExplicitBoundary("run", args)
+	if err != nil {
+		return opts, err
 	}
+	var parsed struct {
+		ScriptPath string  `arg:"--script"`
+		Cols       *string `arg:"--cols"`
+		Rows       *string `arg:"--rows"`
+		Dir        string  `arg:"--dir"`
+		Emit       string  `arg:"--emit"`
+		TracePath  string  `arg:"--trace-out"`
+	}
+	if err := parseArg("run", &parsed, before); err != nil {
+		return opts, err
+	}
+	if n, ok, err := positiveIntFlag("--cols", parsed.Cols); err != nil {
+		return opts, err
+	} else if ok {
+		opts.cols = n
+		opts.colsSet = true
+	}
+	if n, ok, err := positiveIntFlag("--rows", parsed.Rows); err != nil {
+		return opts, err
+	} else if ok {
+		opts.rows = n
+		opts.rowsSet = true
+	}
+	opts.scriptPath = parsed.ScriptPath
+	opts.dir = parsed.Dir
+	opts.emit = parsed.Emit
+	opts.tracePath = parsed.TracePath
+	opts.cmd = cmd
 	return opts, nil
 }
 

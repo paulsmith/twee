@@ -1,9 +1,6 @@
 package main
 
 import (
-	"flag"
-	"strconv"
-
 	"github.com/paulsmith/research/twee/internal/rpc"
 )
 
@@ -20,90 +17,76 @@ func init() {
 	register("region", runRegion)
 	register("find", runFind)
 
-	registerUsage("text", `twee text [-name <name>]
+	registerUsage("text", `twee text [--name <name>]
 Print the visible viewport as one string under data.text. Pipe through
 "jq -r .data.text" to render the rendered screen.`)
-	registerUsage("lines", `twee lines [-name <name>]
+	registerUsage("lines", `twee lines [--name <name>]
 Visible viewport as a string array under data.lines.`)
-	registerUsage("cursor", `twee cursor [-name <name>]
+	registerUsage("cursor", `twee cursor [--name <name>]
 Cursor state: {x, y, visible, shape}.`)
-	registerUsage("size", `twee size [-name <name>]
+	registerUsage("size", `twee size [--name <name>]
 Terminal dimensions: {cols, rows}.`)
-	registerUsage("title", `twee title [-name <name>]
+	registerUsage("title", `twee title [--name <name>]
 Window title (OSC 0/2): {title}.`)
-	registerUsage("mode", `twee mode [-name <name>]
+	registerUsage("mode", `twee mode [--name <name>]
 Active VT modes: {decckm, bracketed_paste, alt_screen, mouse, ...}.`)
-	registerUsage("scrollback", `twee scrollback [-name <name>]
+	registerUsage("scrollback", `twee scrollback [--name <name>]
 Scrollback lines (only if retention is enabled at start).`)
-	registerUsage("snapshot", `twee snapshot [-name <name>]
+	registerUsage("snapshot", `twee snapshot [--name <name>]
 Full snapshot: {size, cursor, lines: [{cells: [Cell]}]}.`)
-	registerUsage("cell", `twee cell <x> <y> [-name <name>]
+	registerUsage("cell", `twee cell <x> <y> [--name <name>]
 Single cell at (x, y) with style.`)
-	registerUsage("region", `twee region <x> <y> <w> <h> [-name <name>]
+	registerUsage("region", `twee region <x> <y> <w> <h> [--name <name>]
 Rectangle of cells at (x, y) with width w and height h.`)
-	registerUsage("find", `twee find <text> [-regex] [-name <name>]
+	registerUsage("find", `twee find --pattern TEXT [--regex] [--name <name>]
 Find matches in the visible viewport. Returns an array of
 {x, y, w, h, line, text} matches.`)
 }
 
 func runQuery(verb, op string, args []string) {
-	fs := flag.NewFlagSet(verb, flag.ExitOnError)
-	name := fs.String("name", "default", "session name")
-	if err := fs.Parse(args); err != nil {
+	var opts struct {
+		Name *string `arg:"--name"`
+	}
+	if err := parseArg(verb, &opts, args); err != nil {
 		fatalUsage("%s: %v", verb, err)
 	}
-	callAndEmit(*name, op, nil)
+	callAndEmit(mustCurrentSessionName(verb, nameOptFromPtr(opts.Name)), op, nil)
 }
 
 func runCell(args []string) {
-	fs := flag.NewFlagSet("cell", flag.ExitOnError)
-	name := fs.String("name", "default", "session name")
-	if err := fs.Parse(args); err != nil {
+	var opts struct {
+		Name *string `arg:"--name"`
+		X    int     `arg:"positional,required"`
+		Y    int     `arg:"positional,required"`
+	}
+	if err := parseArg("cell", &opts, args); err != nil {
 		fatalUsage("cell: %v", err)
 	}
-	rest := fs.Args()
-	if len(rest) != 2 {
-		fatalUsage("cell: expected x y")
-	}
-	x, err1 := strconv.Atoi(rest[0])
-	y, err2 := strconv.Atoi(rest[1])
-	if err1 != nil || err2 != nil {
-		fatalUsage("cell: x and y must be integers")
-	}
-	callAndEmit(*name, rpc.OpCell, rpc.CellArgs{X: x, Y: y})
+	callAndEmit(mustCurrentSessionName("cell", nameOptFromPtr(opts.Name)), rpc.OpCell, rpc.CellArgs{X: opts.X, Y: opts.Y})
 }
 
 func runRegion(args []string) {
-	fs := flag.NewFlagSet("region", flag.ExitOnError)
-	name := fs.String("name", "default", "session name")
-	if err := fs.Parse(args); err != nil {
+	var opts struct {
+		Name *string `arg:"--name"`
+		X    int     `arg:"positional,required"`
+		Y    int     `arg:"positional,required"`
+		W    int     `arg:"positional,required"`
+		H    int     `arg:"positional,required"`
+	}
+	if err := parseArg("region", &opts, args); err != nil {
 		fatalUsage("region: %v", err)
 	}
-	rest := fs.Args()
-	if len(rest) != 4 {
-		fatalUsage("region: expected x y w h")
-	}
-	vals := make([]int, 4)
-	for i := range vals {
-		v, err := strconv.Atoi(rest[i])
-		if err != nil {
-			fatalUsage("region: arg %d is not an integer", i)
-		}
-		vals[i] = v
-	}
-	callAndEmit(*name, rpc.OpRegion, rpc.RegionArgs{X: vals[0], Y: vals[1], W: vals[2], H: vals[3]})
+	callAndEmit(mustCurrentSessionName("region", nameOptFromPtr(opts.Name)), rpc.OpRegion, rpc.RegionArgs{X: opts.X, Y: opts.Y, W: opts.W, H: opts.H})
 }
 
 func runFind(args []string) {
-	fs := flag.NewFlagSet("find", flag.ExitOnError)
-	name := fs.String("name", "default", "session name")
-	regex := fs.Bool("regex", false, "treat text as a regular expression")
-	if err := fs.Parse(args); err != nil {
+	var opts struct {
+		Name    *string `arg:"--name"`
+		Pattern string  `arg:"--pattern,required"`
+		Regex   bool    `arg:"--regex"`
+	}
+	if err := parseArg("find", &opts, args); err != nil {
 		fatalUsage("find: %v", err)
 	}
-	rest := fs.Args()
-	if len(rest) != 1 {
-		fatalUsage("find: expected one text argument")
-	}
-	callAndEmit(*name, rpc.OpFind, rpc.FindArgs{Text: rest[0], Regex: *regex})
+	callAndEmit(mustCurrentSessionName("find", nameOptFromPtr(opts.Name)), rpc.OpFind, rpc.FindArgs{Text: opts.Pattern, Regex: opts.Regex})
 }

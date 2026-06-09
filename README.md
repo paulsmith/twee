@@ -12,10 +12,10 @@ formats yet; any of them may change without notice before a stable release.
 **Demo:** [Watch the 2-minute walkthrough on YouTube](https://www.youtube.com/watch?v=5TVU-ACDD1A).
 
 ```
-$ twee start ./myapp
+$ twee start -- ./myapp
 {"ok":true,"data":{"name":"default","socket":"...","pid":12345}}
 
-$ twee wait text "Choose an option"
+$ twee wait text --pattern "Choose an option"
 {"ok":true,"data":null}
 
 $ twee key Down
@@ -75,9 +75,10 @@ package needs `libghostty-vt` on the pkg-config path.
 ## Model
 
 One TUI per daemon. Multiple daemons run in parallel via `--name`.
-The default name is `default`; sockets live under `$XDG_STATE_HOME/twee`
-on Linux and `~/Library/Application Support/twee` on macOS, with
-`0700` on the directory and `0600` on the socket.
+The default name is `TWEE_SESSION` when set, otherwise `default`;
+sockets live under `$XDG_STATE_HOME/twee` on Linux and
+`~/Library/Application Support/twee` on macOS, with `0700` on the
+directory and `0600` on the socket.
 
 `twee start` forks a daemon in the background, prints `{name, socket,
 pid}`, and exits. Subsequent commands (`type`, `key`, `wait`, `text`,
@@ -186,7 +187,7 @@ $ cat ops.json
   {"op": "screenshot", "args": {"out": "out.png"}}
 ]
 
-$ twee run ./myapp --script ops.json
+$ twee run --script ops.json -- ./myapp
 {"ok":true,"data":{"ops":5}}
 ```
 
@@ -204,7 +205,7 @@ take as a replayable JSON operations script. It can also record `.twee`
 trace bundles for `twee play`.
 
 ```
-$ twee codegen ./myapp --out ops.json --trace-out session.twee
+$ twee codegen --out ops.json --trace-out session.twee -- ./myapp
 $ twee play session.twee
 ```
 
@@ -224,9 +225,9 @@ input, and terminal resizes; screenshots capture the initial and final
 viewports.
 
 ```
-$ twee start ./myapp
+$ twee start -- ./myapp
 $ twee trace start --out /tmp/myapp.twee
-$ twee wait text "Choose an option"
+$ twee wait text --pattern "Choose an option"
 $ twee key Down
 $ twee trace stop
 {"ok":true,"data":{"path":"/tmp/myapp.twee"}}
@@ -263,7 +264,7 @@ Flags:
 | `--speed N` | Playback speed multiplier. `0.5` is half-speed, `4` is 4x. |
 | `--step` | Start paused and advance with `.`. |
 | `--max-idle <dur>` | Cap long idle gaps between events. `0` disables compression. |
-| `-v` | Print a one-line summary to stderr after exit. |
+| `--verbose` | Print a one-line summary to stderr after exit. |
 
 Playback owns the terminal for its lifetime: it switches to the alt
 screen, enters raw mode, and writes frames with the Kitty graphics
@@ -275,8 +276,8 @@ backend yet.
 ## Parallel sessions
 
 ```
-$ twee start --name a ./app-a
-$ twee start --name b ./app-b
+$ twee start --name a -- ./app-a
+$ twee start --name b -- ./app-b
 $ twee ls
 $ twee text --name a
 $ twee stop --name a
@@ -292,7 +293,7 @@ Every verb that talks to a daemon accepts `--name`.
 - One TUI per daemon. Use multiple daemons via `--name` for parallel
   sessions.
 - `wait stable` will hang on apps with always-running spinners. Use
-  `wait text` instead. Region-exclusion is a future feature.
+  `wait text --pattern ...` instead. Region-exclusion is a future feature.
 - No Kitty keyboard protocol, no DECCKM-aware cursor keys, no
   scrollback retention by default.
 - Title and mode reporting beyond `alt_screen` return defaults until

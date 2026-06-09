@@ -1,16 +1,14 @@
 package main
 
 import (
-	"flag"
-
 	"github.com/paulsmith/research/twee/internal/rpc"
 )
 
 func init() {
 	register("trace", runTrace)
 
-	registerUsage("trace", `twee trace start [-out <path.twee>] [-name <name>]
-twee trace stop [-name <name>]
+	registerUsage("trace", `twee trace start [--out <path.twee>] [--name <name>]
+twee trace stop [--name <name>]
 Start/stop a trace recording on the running session.
 
 Trace bundles are .twee zip files containing:
@@ -18,20 +16,20 @@ Trace bundles are .twee zip files containing:
   events.jsonl           timestamped PTY output, input, and resize events
   screenshots/*.png      initial and final viewport screenshots
 
-If -out is omitted, trace start writes to a temporary path and prints it in the
+If --out is omitted, trace start writes to a temporary path and prints it in the
 JSON response. Trace stop finalizes the bundle and prints the saved path.`)
-	registerUsage("trace start", `twee trace start [-out <path.twee>] [-name <name>]
+	registerUsage("trace start", `twee trace start [--out <path.twee>] [--name <name>]
 Start a trace recording on the running session.
 
 While tracing is active, twee records PTY output bytes, input events, resize
-events, and an initial screenshot. If -out is omitted, twee creates a temporary
+events, and an initial screenshot. If --out is omitted, twee creates a temporary
 .twee path and returns it as {"out": "..."}.
 
 Example:
-  twee trace start -out /tmp/session.twee
+  twee trace start --out /tmp/session.twee
   twee key Enter
   twee trace stop`)
-	registerUsage("trace stop", `twee trace stop [-name <name>]
+	registerUsage("trace stop", `twee trace stop [--name <name>]
 Stop a trace recording and write the .twee bundle.
 
 Trace stop captures a final screenshot, closes the trace, and returns the saved
@@ -46,20 +44,22 @@ func runTrace(args []string) {
 	rest := args[1:]
 	switch sub {
 	case "start":
-		fs := flag.NewFlagSet("trace start", flag.ExitOnError)
-		name := fs.String("name", "default", "session name")
-		out := fs.String("out", "", "output path (.twee)")
-		if err := fs.Parse(rest); err != nil {
+		var opts struct {
+			Name *string `arg:"--name"`
+			Out  string  `arg:"--out"`
+		}
+		if err := parseArg("trace start", &opts, rest); err != nil {
 			fatalUsage("trace start: %v", err)
 		}
-		callAndEmit(*name, rpc.OpTraceStart, rpc.TraceStartArgs{Out: *out})
+		callAndEmit(mustCurrentSessionName("trace start", nameOptFromPtr(opts.Name)), rpc.OpTraceStart, rpc.TraceStartArgs{Out: opts.Out})
 	case "stop":
-		fs := flag.NewFlagSet("trace stop", flag.ExitOnError)
-		name := fs.String("name", "default", "session name")
-		if err := fs.Parse(rest); err != nil {
+		var opts struct {
+			Name *string `arg:"--name"`
+		}
+		if err := parseArg("trace stop", &opts, rest); err != nil {
 			fatalUsage("trace stop: %v", err)
 		}
-		callAndEmit(*name, rpc.OpTraceStop, nil)
+		callAndEmit(mustCurrentSessionName("trace stop", nameOptFromPtr(opts.Name)), rpc.OpTraceStop, nil)
 	default:
 		fatalUsage("trace: unknown subverb %q", sub)
 	}

@@ -1,52 +1,92 @@
 package main
 
 import (
-	"flag"
 	"fmt"
+
+	"github.com/paulsmith/research/twee/internal/rpc"
 )
 
 func init() {
 	register("start", runStart)
-	registerUsage("start", `twee start <cmd> [args...] [flags]
+	registerUsage("start", `twee start [daemon options] -- <cmd> [args...]
 Spawn a TUI in a new daemon and fork into the background. Prints
 {"name": ..., "socket": ..., "pid": ...} on success.
 
 Flags:
-  -name <name>     session name (default "default")
-  -cols <int>      initial columns (default 80)
-  -rows <int>      initial rows (default 24)
-  -dir <path>      child working directory (default: inherit)
-  -env KEY=VALUE   environment override (repeatable)`)
+  --name <name>    session name (default: TWEE_SESSION or "default")
+  --cols <int>     initial columns (default 80)
+  --rows <int>     initial rows (default 24)
+  --dir <path>     child working directory (default: inherit)
+  --env KEY=VALUE  environment override (repeatable)`)
 }
 
 func runStart(args []string) {
-	fs := flag.NewFlagSet("start", flag.ExitOnError)
-	name := fs.String("name", "default", "session name")
-	cols := fs.Int("cols", 80, "initial columns")
-	rows := fs.Int("rows", 24, "initial rows")
-	dir := fs.String("dir", "", "working directory of child (empty = inherit)")
-	var envFlags multiFlag
-	fs.Var(&envFlags, "env", "environment override KEY=VALUE (repeatable)")
-	if err := fs.Parse(args); err != nil {
+	opts, err := parseStartArgs(args)
+	if err != nil {
 		fatalUsage("start: %v", err)
 	}
-	cmd := fs.Args()
-	if len(cmd) == 0 {
-		fatalUsage("start: missing command")
+	msg, err := daemonize(opts.name, opts.dir, opts.cmd, opts.cols, opts.rows, opts.env)
+	if err != nil {
+		code := rpc.CodeIO
+		details := msg.ErrorDetails
+		message := err.Error()
+		if msg.ErrorCode != "" {
+			code = msg.ErrorCode
+			message = msg.Error
+		}
+		emitError(code, message, details, 1)
+	}
+	emitOK(msg)
+}
+
+type startOptions struct {
+	name string
+	cmd  []string
+	cols int
+	rows int
+	dir  string
+	env  map[string]string
+}
+
+func parseStartArgs(args []string) (startOptions, error) {
+	before, cmd, err := splitExplicitBoundary("start", args)
+	if err != nil {
+		return startOptions{}, err
+	}
+	var parsed struct {
+		Name *string  `arg:"--name"`
+		Cols *string  `arg:"--cols"`
+		Rows *string  `arg:"--rows"`
+		Dir  string   `arg:"--dir"`
+		Env  []string `arg:"--env,separate"`
+	}
+	if err := requireSeparateValues(before, "--env"); err != nil {
+		return startOptions{}, err
+	}
+	if err := parseArg("start", &parsed, before); err != nil {
+		return startOptions{}, err
+	}
+	cols, err := positiveIntFlagOrDefault("--cols", parsed.Cols, 80)
+	if err != nil {
+		return startOptions{}, err
+	}
+	rows, err := positiveIntFlagOrDefault("--rows", parsed.Rows, 24)
+	if err != nil {
+		return startOptions{}, err
+	}
+	name, err := currentSessionName(nameOptFromPtr(parsed.Name))
+	if err != nil {
+		return startOptions{}, err
 	}
 	envOverrides := map[string]string{}
-	for _, kv := range envFlags {
+	for _, kv := range parsed.Env {
 		k, v, ok := splitKV(kv)
 		if !ok {
-			fatalUsage("start: bad --env value %q (want KEY=VALUE)", kv)
+			return startOptions{}, fmt.Errorf("bad --env value %q (want KEY=VALUE)", kv)
 		}
 		envOverrides[k] = v
 	}
-	msg, err := daemonize(*name, *dir, cmd, *cols, *rows, envOverrides)
-	if err != nil {
-		emitError("IO", err.Error(), nil, 1)
-	}
-	emitOK(msg)
+	return startOptions{name: name, cmd: cmd, cols: cols, rows: rows, dir: parsed.Dir, env: envOverrides}, nil
 }
 
 // multiFlag collects repeated string flags.

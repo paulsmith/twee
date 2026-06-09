@@ -18,16 +18,12 @@ func TestParseRunArgsInterspersedFlags(t *testing.T) {
 		args []string
 	}{
 		{
-			name: "script before command",
-			args: []string{"-script", "ops.json", "vim"},
+			name: "script before boundary",
+			args: []string{"--script", "ops.json", "--", "vim"},
 		},
 		{
-			name: "script after command",
-			args: []string{"vim", "--script", "ops.json"},
-		},
-		{
-			name: "equals form",
-			args: []string{"vim", "--script=ops.json"},
+			name: "equals form before boundary",
+			args: []string{"--script=ops.json", "--", "vim"},
 		},
 	}
 	for _, tt := range tests {
@@ -48,13 +44,14 @@ func TestParseRunArgsInterspersedFlags(t *testing.T) {
 
 func TestParseRunArgsRunFlagsAndCommandFlags(t *testing.T) {
 	opts, err := parseRunArgs([]string{
-		"-script", "ops.json",
-		"-cols", "100",
-		"cmd",
-		"-child-flag",
+		"--script", "ops.json",
+		"--cols", "100",
 		"--rows=40",
 		"--trace-out", "session.twee",
 		"--emit", "results",
+		"--",
+		"cmd",
+		"-child-flag",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -89,9 +86,11 @@ func TestRunTraceOutWritesBundle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin,
-		"run", "/bin/cat",
+		"run",
 		"--script", script,
 		"--trace-out", tracePath,
+		"--",
+		"/bin/cat",
 	)
 	cmd.Env = append(os.Environ(), testEnv(t)...)
 	out, err := cmd.CombinedOutput()
@@ -138,12 +137,8 @@ func TestRunScriptFlagOrdersViaCLI(t *testing.T) {
 		args []string
 	}{
 		{
-			name: "script before command",
-			args: []string{"run", "-script", script, "/bin/sh", "-c", "exit 0"},
-		},
-		{
-			name: "script after command",
-			args: []string{"run", "/bin/sh", "-c", "exit 0", "--script", script},
+			name: "script before boundary",
+			args: []string{"run", "--script", script, "--", "/bin/sh", "-c", "exit 0"},
 		},
 	}
 	for _, tt := range tests {
@@ -167,5 +162,23 @@ func TestRunScriptFlagOrdersViaCLI(t *testing.T) {
 				t.Fatalf("response = %s", out)
 			}
 		})
+	}
+}
+
+func TestRunRequiresExplicitBoundaryViaCLI(t *testing.T) {
+	bin := buildBinary(t)
+	script := filepath.Join(t.TempDir(), "ops.json")
+	if err := os.WriteFile(script, []byte("[]"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "run", "--script", script, "/bin/echo", "ok")
+	cmd.Env = append(os.Environ(), testEnv(t)...)
+	out, err := cmd.CombinedOutput()
+	exit, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected missing-boundary failure, got %v\n%s", err, out)
+	}
+	if exit.ExitCode() != 2 {
+		t.Fatalf("exit = %d, want 2\n%s", exit.ExitCode(), out)
 	}
 }
