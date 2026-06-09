@@ -10,7 +10,7 @@ import (
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 
-	"github.com/paulsmith/research/twee/internal/engine"
+	"github.com/paulsmith/twee/internal/engine"
 )
 
 // Options controls a render pass.

@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/paulsmith/research/twee/internal/input"
+	"github.com/paulsmith/twee/internal/input"
 )
 
 const controlPrefix = 0x1d // Ctrl+]

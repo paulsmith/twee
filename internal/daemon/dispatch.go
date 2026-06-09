@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/paulsmith/research/twee/internal/engine"
-	"github.com/paulsmith/research/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/engine"
+	"github.com/paulsmith/twee/internal/rpc"
 )
 
 // Dispatcher maps op names to handler functions.

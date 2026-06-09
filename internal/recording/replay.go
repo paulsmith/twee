@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/paulsmith/research/twee/internal/vt"
+	"github.com/paulsmith/twee/internal/vt"
 )
 
 // ReplayInto reads a recording from path and feeds output and resize

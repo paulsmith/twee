@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/paulsmith/research/twee/internal/input"
+	"github.com/paulsmith/twee/internal/input"
 )
 
 func TestTermInputQueryAndWaitAPIs(t *testing.T) {

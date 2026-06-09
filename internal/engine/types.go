@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/paulsmith/research/twee/internal/vt"
+import "github.com/paulsmith/twee/internal/vt"
 
 // Snapshot is an immutable view of terminal state at a moment in time.
 type Snapshot struct {

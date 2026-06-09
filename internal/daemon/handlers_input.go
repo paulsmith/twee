@@ -6,9 +6,9 @@ import (
 	"os"
 	"syscall"
 
-	"github.com/paulsmith/research/twee/internal/engine"
-	tinput "github.com/paulsmith/research/twee/internal/input"
-	"github.com/paulsmith/research/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/engine"
+	tinput "github.com/paulsmith/twee/internal/input"
+	"github.com/paulsmith/twee/internal/rpc"
 )
 
 func init() {

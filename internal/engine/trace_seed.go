@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/paulsmith/research/twee/internal/vt"
+	"github.com/paulsmith/twee/internal/vt"
 )
 
 // TraceSeedOutput returns terminal output that reconstructs the visible

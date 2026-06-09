@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/paulsmith/research/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/rpc"
 )
 
 func TestTraceStartStopOps(t *testing.T) {

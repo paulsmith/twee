@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/paulsmith/research/twee/internal/trace"
+	"github.com/paulsmith/twee/internal/trace"
 )
 
 // Bundle is the decoded contents needed for playback.

@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"os"
 
-	"github.com/paulsmith/research/twee/internal/engine"
-	"github.com/paulsmith/research/twee/internal/rpc"
-	"github.com/paulsmith/research/twee/internal/snapshot"
+	"github.com/paulsmith/twee/internal/engine"
+	"github.com/paulsmith/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/snapshot"
 )
 
 func init() {

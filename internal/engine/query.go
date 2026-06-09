@@ -3,7 +3,7 @@ package engine
 import (
 	"fmt"
 
-	"github.com/paulsmith/research/twee/internal/vt"
+	"github.com/paulsmith/twee/internal/vt"
 )
 
 // Snapshot returns the current terminal state.

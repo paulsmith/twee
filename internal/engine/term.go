@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/paulsmith/research/twee/internal/ptyrunner"
-	"github.com/paulsmith/research/twee/internal/pump"
-	"github.com/paulsmith/research/twee/internal/recording"
-	"github.com/paulsmith/research/twee/internal/trace"
-	"github.com/paulsmith/research/twee/internal/vt"
+	"github.com/paulsmith/twee/internal/ptyrunner"
+	"github.com/paulsmith/twee/internal/pump"
+	"github.com/paulsmith/twee/internal/recording"
+	"github.com/paulsmith/twee/internal/trace"
+	"github.com/paulsmith/twee/internal/vt"
 )
 
 // Term is a running TUI under PTY.

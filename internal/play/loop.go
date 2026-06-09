@@ -8,9 +8,9 @@ import (
 	"math"
 	"time"
 
-	"github.com/paulsmith/research/twee/internal/engine"
-	"github.com/paulsmith/research/twee/internal/render"
-	"github.com/paulsmith/research/twee/internal/vt"
+	"github.com/paulsmith/twee/internal/engine"
+	"github.com/paulsmith/twee/internal/render"
+	"github.com/paulsmith/twee/internal/vt"
 )
 
 type command int

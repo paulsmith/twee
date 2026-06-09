@@ -15,9 +15,9 @@ import (
 	"time"
 
 	"github.com/creack/pty"
-	"github.com/paulsmith/research/twee/internal/play"
-	"github.com/paulsmith/research/twee/internal/rpc"
-	"github.com/paulsmith/research/twee/internal/vt"
+	"github.com/paulsmith/twee/internal/play"
+	"github.com/paulsmith/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/vt"
 	"golang.org/x/term"
 )
 

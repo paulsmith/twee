@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/paulsmith/research/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/rpc"
 )
 
 func TestParseRunArgsErrors(t *testing.T) {

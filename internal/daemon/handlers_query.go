@@ -5,8 +5,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/paulsmith/research/twee/internal/engine"
-	"github.com/paulsmith/research/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/engine"
+	"github.com/paulsmith/twee/internal/rpc"
 )
 
 func init() {

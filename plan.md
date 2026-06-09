@@ -8,7 +8,7 @@ This plan operationalizes `design.md`. It also resolves or sequences the
 critical issues flagged in the design review so they don't block work
 mid-milestone.
 
-Module path: `github.com/paulsmith/research/twee`. Public package: `tuitest`.
+Module path: `github.com/paulsmith/twee`. Public package: `tuitest`.
 The directory `twee/` is the repo location; `tuitest` is the import name.
 
 ## Up-front decisions
@@ -46,7 +46,7 @@ These are committed now so milestones don't stall on them.
 
 Goal: a repo skeleton that builds and runs a trivial test in CI.
 
-- Create `twee/` Go module: `go mod init github.com/paulsmith/research/twee`.
+- Create `twee/` Go module: `go mod init github.com/paulsmith/twee`.
 - Add directory layout from design doc: `tuitest/` (public),
   `internal/{vt,ptyrunner,pump,input,snapshot,recording}/`.
 - Add `go-libghostty` as a dependency. Vendor it. Pin the C

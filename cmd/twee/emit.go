@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/paulsmith/research/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/rpc"
 )
 
 // stdoutFile returns the output writer for envelope JSON. Indirection
