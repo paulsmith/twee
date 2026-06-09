@@ -190,10 +190,32 @@ func requireSeparateValues(args []string, names ...string) error {
 			continue
 		}
 		if i+1 >= len(args) || args[i+1] == "--" || strings.HasPrefix(args[i+1], "--") {
-			return fmt.Errorf("missing value for %s", a)
+			return hintDashValue(fmt.Errorf("missing value for %s", a), args)
 		}
 	}
 	return nil
+}
+
+// hintDashValue augments a missing-value error when the token after the
+// flag begins with a dash: the parser refused it as a value, and the
+// equals form is how to pass it.
+func hintDashValue(err error, args []string) error {
+	msg := err.Error()
+	const prefix = "missing value for "
+	idx := strings.LastIndex(msg, prefix)
+	if idx < 0 {
+		return err
+	}
+	flag := strings.TrimSpace(msg[idx+len(prefix):])
+	for i, a := range args {
+		if a != flag || i+1 >= len(args) {
+			continue
+		}
+		if next := args[i+1]; strings.HasPrefix(next, "-") {
+			return fmt.Errorf("%s (the next token %q begins with '-'; pass dash-leading values as %s=VALUE)", msg, next, flag)
+		}
+	}
+	return err
 }
 
 func positiveIntFlag(flag string, value *string) (int, bool, error) {
@@ -234,7 +256,7 @@ func parseArg(program string, dest any, args []string) error {
 		if errors.Is(err, arg.ErrHelp) {
 			return fmt.Errorf("%s: use --help before -- to show static help", program)
 		}
-		return err
+		return hintDashValue(err, args)
 	}
 	return nil
 }

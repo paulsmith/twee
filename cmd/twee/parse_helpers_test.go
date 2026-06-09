@@ -221,3 +221,32 @@ func mustJSONMain(t *testing.T, v any) json.RawMessage {
 	}
 	return b
 }
+
+func TestMissingValueHintsDashLeadingValues(t *testing.T) {
+	var waitOpts struct {
+		Pattern string `arg:"--pattern"`
+		Timeout string `arg:"--timeout"`
+	}
+	err := parseArg("wait text", &waitOpts, []string{"--pattern", "-- INSERT --", "--timeout", "3s"})
+	if err == nil || !strings.Contains(err.Error(), `--pattern=VALUE`) {
+		t.Errorf("dash-leading --pattern value: err = %v, want --pattern=VALUE hint", err)
+	}
+
+	var bareOpts struct {
+		Pattern string `arg:"--pattern"`
+	}
+	err = parseArg("wait text", &bareOpts, []string{"--pattern"})
+	if err == nil || strings.Contains(err.Error(), "=VALUE") {
+		t.Errorf("trailing bare --pattern: err = %v, want plain missing-value error", err)
+	}
+
+	err = requireSeparateValues([]string{"--env", "--literal"}, "--env")
+	if err == nil || !strings.Contains(err.Error(), `--env=VALUE`) {
+		t.Errorf("dash-leading --env value: err = %v, want --env=VALUE hint", err)
+	}
+
+	err = requireSeparateValues([]string{"--env"}, "--env")
+	if err == nil || strings.Contains(err.Error(), "=VALUE") {
+		t.Errorf("trailing bare --env: err = %v, want plain missing-value error", err)
+	}
+}
