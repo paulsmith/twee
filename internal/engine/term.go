@@ -28,6 +28,15 @@ type Term struct {
 	closeErr  error
 	pumpDone  chan struct{}
 
+	drainOnce sync.Once
+	drainErr  error
+
+	finalizeOnce  sync.Once
+	finalizeErr   error
+	artifactsDone chan struct{}
+
+	finalizedTracePath string // guarded by cfgMu
+
 	startedAt time.Time
 
 	inputsMu sync.Mutex
@@ -78,12 +87,13 @@ func Start(ctx context.Context, cfg Config) (*Term, error) {
 	}
 
 	t := &Term{
-		cfg:       cfg,
-		runner:    runner,
-		pump:      p,
-		rec:       rec,
-		pumpDone:  make(chan struct{}),
-		startedAt: time.Now(),
+		cfg:           cfg,
+		runner:        runner,
+		pump:          p,
+		rec:           rec,
+		pumpDone:      make(chan struct{}),
+		artifactsDone: make(chan struct{}),
+		startedAt:     time.Now(),
 	}
 	if cfg.TracePath != "" {
 		if err := t.EnableTrace(cfg.TracePath); err != nil {
@@ -103,15 +113,37 @@ func Start(ctx context.Context, cfg Config) (*Term, error) {
 	return t, nil
 }
 
-// Close terminates the child and the pump.
+// Close terminates the child and the pump, then finalizes artifacts.
 func (t *Term) Close() error {
 	t.closeOnce.Do(func() {
-		err := t.runner.Close()
+		ferr := t.FinalizeArtifacts()
+		t.closeErr = errors.Join(t.drainErr, ferr)
+	})
+	return t.closeErr
+}
+
+// DrainOutput terminates the child if it is still running, closes the
+// PTY, and waits for the output pump to deliver everything it read.
+// Idempotent. After it returns, Snapshot reflects the final terminal
+// state. The runner shutdown error is reported by Close.
+func (t *Term) DrainOutput() {
+	t.drainOnce.Do(func() {
+		t.drainErr = t.runner.Close()
 		<-t.pumpDone
+	})
+}
+
+// FinalizeArtifacts drains output, then closes the active trace and
+// recording so their files are durable on disk. Idempotent; ArtifactsDone
+// is closed once finalization completes. The returned error covers only
+// artifact closing; runner shutdown errors are reported by Close.
+func (t *Term) FinalizeArtifacts() error {
+	t.finalizeOnce.Do(func() {
+		t.DrainOutput()
 		t.cfgMu.Lock()
+		var err error
 		if t.tr != nil {
-			err = errors.Join(err, t.tr.Close())
-			t.tr = nil
+			err = t.closeTraceLocked()
 		}
 		if t.rec != nil {
 			t.rec.WriteExit(t.runner.ExitCode())
@@ -119,9 +151,37 @@ func (t *Term) Close() error {
 			t.rec = nil
 		}
 		t.cfgMu.Unlock()
-		t.closeErr = err
+		t.finalizeErr = err
+		close(t.artifactsDone)
 	})
-	return t.closeErr
+	return t.finalizeErr
+}
+
+// ArtifactsDone is closed once FinalizeArtifacts (or Close) has finished
+// writing artifacts.
+func (t *Term) ArtifactsDone() <-chan struct{} { return t.artifactsDone }
+
+// FinalizedTracePath returns the path of the last trace bundle written
+// (by DisableTrace or FinalizeArtifacts), or "" if none was written.
+func (t *Term) FinalizedTracePath() string {
+	t.cfgMu.Lock()
+	defer t.cfgMu.Unlock()
+	return t.finalizedTracePath
+}
+
+// closeTraceLocked closes the active trace, records the finalized bundle
+// path on success, and clears trace state. Caller must hold cfgMu and
+// have checked t.tr != nil.
+func (t *Term) closeTraceLocked() error {
+	path := t.cfg.TracePath
+	err := t.tr.Close()
+	t.tr = nil
+	t.cfg.TracePath = ""
+	t.updateOutputHookLocked()
+	if err == nil {
+		t.finalizedTracePath = path
+	}
+	return err
 }
 
 // Cmd returns the command line the child was spawned with.
@@ -195,11 +255,7 @@ func (t *Term) EnableTrace(path string) error {
 	t.cfgMu.Lock()
 	defer t.cfgMu.Unlock()
 	if t.tr != nil {
-		err := t.tr.Close()
-		t.tr = nil
-		t.cfg.TracePath = ""
-		t.updateOutputHookLocked()
-		if err != nil {
+		if err := t.closeTraceLocked(); err != nil {
 			return err
 		}
 	}
@@ -229,11 +285,7 @@ func (t *Term) DisableTrace() error {
 	if t.tr == nil {
 		return nil
 	}
-	err := t.tr.Close()
-	t.tr = nil
-	t.cfg.TracePath = ""
-	t.updateOutputHookLocked()
-	return err
+	return t.closeTraceLocked()
 }
 
 // TraceAddScreenshot adds a pre-encoded PNG screenshot to the active trace.
