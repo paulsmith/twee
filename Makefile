@@ -48,5 +48,9 @@ smoke: $(STAMP)
 	LD_LIBRARY_PATH=$(LD_LIBRARY_PATH) \
 	go run ./cmd/libghostty-smoke
 
+install:
+	nix build
+	install -m 0755 ./result/bin/twee $(HOME)/.local/bin
+
 clean:
 	rm -rf $(BUILD_DIR)
