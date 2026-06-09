@@ -25,6 +25,7 @@ const (
 	envDaemonRows    = "TWEE_DAEMON_ROWS"
 	envDaemonDir     = "TWEE_DAEMON_DIR"
 	envDaemonEnv     = "TWEE_DAEMON_ENV"
+	envDaemonTrace   = "TWEE_DAEMON_TRACE"
 )
 
 // readyMessage is what the child writes to the parent over the pipe.
@@ -32,6 +33,7 @@ type readyMessage struct {
 	Name         string          `json:"name"`
 	Socket       string          `json:"socket"`
 	PID          int             `json:"pid"`
+	Trace        string          `json:"trace,omitempty"`
 	Error        string          `json:"error,omitempty"`
 	ErrorCode    string          `json:"error_code,omitempty"`
 	ErrorDetails json.RawMessage `json:"error_details,omitempty"`
@@ -42,6 +44,7 @@ type quickExitDetails struct {
 	ChildArgv     []string `json:"child_argv"`
 	ExitCode      *int     `json:"exit_code"`
 	SocketCreated bool     `json:"socket_created"`
+	TracePath     string   `json:"trace_path,omitempty"`
 }
 
 // inDaemonModeReal returns true when this process was invoked as a daemon child.
@@ -88,6 +91,21 @@ func runDaemonChildReal() {
 		os.Exit(1)
 	}
 
+	tracePath := os.Getenv(envDaemonTrace)
+	if tracePath != "" {
+		// Reuse the trace_start handler so `start --trace` and the trace
+		// verb produce identical bundles (initial screenshot included).
+		resp, err := dispatchRunControl(te, rpc.OpTraceStart, rpc.TraceStartArgs{Out: tracePath})
+		if err == nil && !resp.OK {
+			err = fmt.Errorf("%s", resp.Error.Message)
+		}
+		if err != nil {
+			_ = te.Close()
+			writeReadyErr(readyW, name, fmt.Errorf("trace start: %w", err))
+			os.Exit(1)
+		}
+	}
+
 	l, err := listenUnixSocket(sock)
 	if err != nil {
 		_ = te.Close()
@@ -104,12 +122,16 @@ func runDaemonChildReal() {
 
 	select {
 	case <-te.ExitedCh():
+		// Finalize first so a requested trace bundle survives even a
+		// child that died inside the observation window.
+		_ = daemon.FinalizeArtifacts(te)
 		code := te.ExitCode()
 		details, _ := json.Marshal(quickExitDetails{
 			Name:          name,
 			ChildArgv:     append([]string(nil), cmdv...),
 			ExitCode:      &code,
 			SocketCreated: true,
+			TracePath:     te.FinalizedTracePath(),
 		})
 		_ = l.Close()
 		_ = te.Close()
@@ -118,7 +140,7 @@ func runDaemonChildReal() {
 		os.Exit(0)
 	case <-time.After(100 * time.Millisecond):
 		// Send ready handshake.
-		msg := readyMessage{Name: name, Socket: sock, PID: os.Getpid()}
+		msg := readyMessage{Name: name, Socket: sock, PID: os.Getpid(), Trace: te.TracePath()}
 		_ = json.NewEncoder(readyW).Encode(msg)
 		_ = readyW.Close()
 	}
@@ -162,7 +184,7 @@ func writeReadyErrCode(w *os.File, name, code, msg string, details json.RawMessa
 // daemonize re-execs into daemon mode with the given config, holding
 // the named lock file. Returns the ready message read back from the
 // child.
-func daemonize(name, dir string, cmd []string, cols, rows int, envOverrides map[string]string) (readyMessage, error) {
+func daemonize(name, dir string, cmd []string, cols, rows int, envOverrides map[string]string, tracePath string) (readyMessage, error) {
 	if err := validateName(name); err != nil {
 		return readyMessage{}, err
 	}
@@ -213,6 +235,7 @@ func daemonize(name, dir string, cmd []string, cols, rows int, envOverrides map[
 		envDaemonCmd+"="+string(cmdJSON),
 		envDaemonEnv+"="+string(envJSON),
 		envDaemonDir+"="+dir,
+		envDaemonTrace+"="+tracePath,
 	)
 	child.ExtraFiles = []*os.File{pw, lf}
 	child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

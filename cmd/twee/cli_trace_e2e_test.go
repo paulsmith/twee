@@ -180,6 +180,101 @@ func TestTraceFinalizedWhenChildExits(t *testing.T) {
 	}
 }
 
+// TestStartTraceFullSession records a session from spawn to teardown via
+// `start --trace`, with no trace verbs at all.
+func TestStartTraceFullSession(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+
+	tracePath := filepath.Join(t.TempDir(), "run.twee")
+	const sessionName = "start-trace"
+	defer exec.Command(bin, "stop", "--name", sessionName).Run()
+
+	resp, out, err := runCLI(t, bin, env, "start",
+		"--name", sessionName,
+		"--trace", tracePath,
+		"--",
+		"/bin/sh", "-c", "echo start-trace-output; sleep 2",
+	)
+	if err != nil {
+		t.Fatalf("start --trace: %v\n%s", err, out)
+	}
+	data, _ := resp["data"].(map[string]any)
+	if got, _ := data["trace"].(string); got != tracePath {
+		t.Errorf("start response trace = %q, want %q", got, tracePath)
+	}
+
+	resp, out, err = runCLI(t, bin, env, "wait", "exit", "--name", sessionName)
+	if err != nil {
+		t.Fatalf("wait exit: %v\n%s", err, out)
+	}
+	data, _ = resp["data"].(map[string]any)
+	if got, _ := data["trace_path"].(string); got != tracePath {
+		t.Errorf("wait exit trace_path = %q, want %q", got, tracePath)
+	}
+
+	zr, err := zip.OpenReader(tracePath)
+	if err != nil {
+		t.Fatalf("open trace zip: %v", err)
+	}
+	defer zr.Close()
+	man := readManifest(t, &zr.Reader)
+	if man.StoppedAt.IsZero() {
+		t.Error("manifest stopped_at is zero")
+	}
+	if len(man.Screenshots) < 2 {
+		t.Errorf("screenshots = %v, want initial + final frames", man.Screenshots)
+	}
+	nOut, _, _ := scanEvents(t, &zr.Reader)
+	if nOut == 0 {
+		t.Error("trace recorded no output events")
+	}
+}
+
+// TestStartTraceQuickExit: even when the child dies inside start's
+// observation window, the requested trace bundle is written and the
+// CHILD_EXITED error points at it.
+func TestStartTraceQuickExit(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+
+	tracePath := filepath.Join(t.TempDir(), "quick.twee")
+	const sessionName = "start-trace-qe"
+	defer exec.Command(bin, "stop", "--name", sessionName).Run()
+
+	stdout := cliStdout(t, bin, env, "start",
+		"--name", sessionName,
+		"--trace", tracePath,
+		"--",
+		"/bin/sh", "-c", "exit 3",
+	)
+	var resp struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Details struct {
+				ExitCode  *int   `json:"exit_code"`
+				TracePath string `json:"trace_path"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(stdout, &resp); err != nil {
+		t.Fatalf("decode start envelope %s: %v", stdout, err)
+	}
+	if resp.OK || resp.Error.Code != "CHILD_EXITED" {
+		t.Fatalf("start envelope = %s, want CHILD_EXITED error", stdout)
+	}
+	if resp.Error.Details.ExitCode == nil || *resp.Error.Details.ExitCode != 3 {
+		t.Errorf("details exit_code = %v, want 3", resp.Error.Details.ExitCode)
+	}
+	if resp.Error.Details.TracePath != tracePath {
+		t.Errorf("details trace_path = %q, want %q", resp.Error.Details.TracePath, tracePath)
+	}
+	if _, err := zip.OpenReader(tracePath); err != nil {
+		t.Errorf("quick-exit trace bundle not written: %v", err)
+	}
+}
+
 // TestTraceStopAfterDaemonGone pins the failure mode of `trace stop` once
 // the session has torn down: a NOT_FOUND error that tells the user the
 // trace was already finalized, instead of a bare dial error.

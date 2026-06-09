@@ -17,7 +17,10 @@ Flags:
   --cols <int>     initial columns (default 80)
   --rows <int>     initial rows (default 24)
   --dir <path>     child working directory (default: inherit)
-  --env KEY=VALUE  environment override (repeatable)`)
+  --env KEY=VALUE  environment override (repeatable)
+  --trace <path.twee>
+                  record the whole session, spawn to teardown, to a
+                  trace bundle; finalized automatically at child exit`)
 }
 
 func runStart(args []string) {
@@ -25,7 +28,7 @@ func runStart(args []string) {
 	if err != nil {
 		fatalUsage("start: %v", err)
 	}
-	msg, err := daemonize(opts.name, opts.dir, opts.cmd, opts.cols, opts.rows, opts.env)
+	msg, err := daemonize(opts.name, opts.dir, opts.cmd, opts.cols, opts.rows, opts.env, opts.trace)
 	if err != nil {
 		code := rpc.CodeIO
 		details := msg.ErrorDetails
@@ -40,12 +43,13 @@ func runStart(args []string) {
 }
 
 type startOptions struct {
-	name string
-	cmd  []string
-	cols int
-	rows int
-	dir  string
-	env  map[string]string
+	name  string
+	cmd   []string
+	cols  int
+	rows  int
+	dir   string
+	env   map[string]string
+	trace string
 }
 
 func parseStartArgs(args []string) (startOptions, error) {
@@ -54,11 +58,12 @@ func parseStartArgs(args []string) (startOptions, error) {
 		return startOptions{}, err
 	}
 	var parsed struct {
-		Name *string  `arg:"--name"`
-		Cols *string  `arg:"--cols"`
-		Rows *string  `arg:"--rows"`
-		Dir  string   `arg:"--dir"`
-		Env  []string `arg:"--env,separate"`
+		Name  *string  `arg:"--name"`
+		Cols  *string  `arg:"--cols"`
+		Rows  *string  `arg:"--rows"`
+		Dir   string   `arg:"--dir"`
+		Env   []string `arg:"--env,separate"`
+		Trace string   `arg:"--trace"`
 	}
 	if err := requireSeparateValues(before, "--env"); err != nil {
 		return startOptions{}, err
@@ -86,7 +91,7 @@ func parseStartArgs(args []string) (startOptions, error) {
 		}
 		envOverrides[k] = v
 	}
-	return startOptions{name: name, cmd: cmd, cols: cols, rows: rows, dir: parsed.Dir, env: envOverrides}, nil
+	return startOptions{name: name, cmd: cmd, cols: cols, rows: rows, dir: parsed.Dir, env: envOverrides, trace: parsed.Trace}, nil
 }
 
 // multiFlag collects repeated string flags.
