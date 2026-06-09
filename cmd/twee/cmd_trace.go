@@ -59,7 +59,20 @@ func runTrace(args []string) {
 		if err := parseArg("trace stop", &opts, rest); err != nil {
 			fatalUsage("trace stop: %v", err)
 		}
-		callAndEmit(mustCurrentSessionName("trace stop", nameOptFromPtr(opts.Name)), rpc.OpTraceStop, nil)
+		name := mustCurrentSessionName("trace stop", nameOptFromPtr(opts.Name))
+		resp, err := callDaemon(name, rpc.OpTraceStop, nil)
+		if err != nil {
+			msg := err.Error()
+			code := transportErrorCode(err)
+			if code == rpc.CodeNotFound {
+				msg += "; if the child already exited, an active trace was finalized automatically to its --out path (see 'twee help trace')"
+			}
+			emitError(code, msg, nil, 1)
+		}
+		if !resp.OK {
+			emitError(resp.Error.Code, resp.Error.Message, resp.Error.Details, 1)
+		}
+		emitOKRaw(resp.Data)
 	default:
 		fatalUsage("trace: unknown subverb %q", sub)
 	}

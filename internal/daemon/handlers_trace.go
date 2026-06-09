@@ -56,6 +56,14 @@ func handleTraceStart(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 
 func handleTraceStop(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
 	path := t.TracePath()
+	if path == "" {
+		// No active trace: either it was already finalized (report the
+		// bundle rather than failing) or there was never one to stop.
+		if p := t.FinalizedTracePath(); p != "" {
+			return map[string]any{"path": p, "already_finalized": true}, nil
+		}
+		return nil, &rpc.Error{Code: rpc.CodeNotFound, Message: "no active trace"}
+	}
 	// Capture final screenshot before closing the trace.
 	if png, err := renderScreenshot(t); err == nil {
 		t.TraceAddScreenshot(png)

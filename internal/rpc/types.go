@@ -189,6 +189,9 @@ type DiffData struct {
 
 type WaitExitData struct {
 	ExitCode int `json:"exit_code"`
+	// TracePath is the bundle written when the session's artifacts were
+	// finalized at child exit; empty if no trace was active.
+	TracePath string `json:"trace_path,omitempty"`
 }
 
 type ScreenshotData struct {

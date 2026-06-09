@@ -19,12 +19,5 @@ func runStatus(args []string) {
 	if err := parseArg("status", &opts, args); err != nil {
 		fatalUsage("status: %v", err)
 	}
-	resp, err := callDaemon(mustCurrentSessionName("status", nameOptFromPtr(opts.Name)), rpc.OpStatus, nil)
-	if err != nil {
-		emitError(rpc.CodeNotFound, err.Error(), nil, 1)
-	}
-	if !resp.OK {
-		emitError(resp.Error.Code, resp.Error.Message, resp.Error.Details, 1)
-	}
-	emitOKRaw(resp.Data)
+	callAndEmit(mustCurrentSessionName("status", nameOptFromPtr(opts.Name)), rpc.OpStatus, nil)
 }

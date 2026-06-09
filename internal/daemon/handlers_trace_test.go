@@ -3,12 +3,14 @@ package daemon
 import (
 	"archive/zip"
 	"bufio"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/paulsmith/twee/internal/engine"
 	"github.com/paulsmith/twee/internal/rpc"
 )
 
@@ -96,6 +98,78 @@ func TestTraceStartInvalidPathFails(t *testing.T) {
 	}
 	if got := te.TracePath(); got != "" {
 		t.Fatalf("TracePath = %q, want empty", got)
+	}
+}
+
+func TestWaitExitReportsTracePath(t *testing.T) {
+	te, err := engine.Start(context.Background(), engine.Config{
+		Cmd:  []string{"/bin/sh", "-c", "printf 'hello\\r\\n'; sleep 0.3"},
+		Cols: 40, Rows: 5,
+	})
+	if err != nil {
+		t.Fatalf("engine.Start: %v", err)
+	}
+	t.Cleanup(func() { _ = te.Close() })
+	if err := te.WaitForText("hello"); err != nil {
+		t.Fatalf("WaitForText: %v", err)
+	}
+	sock, _ := startTestServer(t, te)
+	tracePath := filepath.Join(t.TempDir(), "session.twee")
+
+	resp := dialAndCall(t, sock, rpc.Request{
+		ID:   "1",
+		Op:   rpc.OpTraceStart,
+		Args: mustJSON(t, rpc.TraceStartArgs{Out: tracePath}),
+	})
+	if !resp.OK {
+		t.Fatalf("trace_start: %+v", resp.Error)
+	}
+
+	resp = dialAndCall(t, sock, rpc.Request{ID: "2", Op: rpc.OpWaitExit})
+	if !resp.OK {
+		t.Fatalf("wait_exit: %+v", resp.Error)
+	}
+	var exitData struct {
+		ExitCode  int    `json:"exit_code"`
+		TracePath string `json:"trace_path"`
+	}
+	if err := json.Unmarshal(resp.Data, &exitData); err != nil {
+		t.Fatalf("decode wait_exit data: %v", err)
+	}
+	if exitData.TracePath != tracePath {
+		t.Fatalf("wait_exit trace_path = %q, want %q", exitData.TracePath, tracePath)
+	}
+	if _, err := zip.OpenReader(tracePath); err != nil {
+		t.Fatalf("bundle not durable when wait_exit answered: %v", err)
+	}
+
+	// A trace stop arriving after auto-finalization reports the bundle
+	// instead of silently re-answering with a stale or empty path.
+	resp = dialAndCall(t, sock, rpc.Request{ID: "3", Op: rpc.OpTraceStop})
+	if !resp.OK {
+		t.Fatalf("trace_stop after finalize: %+v", resp.Error)
+	}
+	var stopData struct {
+		Path             string `json:"path"`
+		AlreadyFinalized bool   `json:"already_finalized"`
+	}
+	if err := json.Unmarshal(resp.Data, &stopData); err != nil {
+		t.Fatalf("decode trace_stop data: %v", err)
+	}
+	if stopData.Path != tracePath || !stopData.AlreadyFinalized {
+		t.Fatalf("trace_stop after finalize = %+v, want path %q and already_finalized", stopData, tracePath)
+	}
+}
+
+func TestTraceStopNoTrace(t *testing.T) {
+	te := startTestTerm(t)
+	sock, _ := startTestServer(t, te)
+	resp := dialAndCall(t, sock, rpc.Request{ID: "1", Op: rpc.OpTraceStop})
+	if resp.OK {
+		t.Fatalf("trace_stop with no trace succeeded: %+v", resp)
+	}
+	if resp.Error.Code != rpc.CodeNotFound {
+		t.Fatalf("trace_stop error code = %q, want %q", resp.Error.Code, rpc.CodeNotFound)
 	}
 }
 

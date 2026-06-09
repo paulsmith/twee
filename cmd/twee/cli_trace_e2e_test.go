@@ -141,6 +141,10 @@ func TestTraceFinalizedWhenChildExits(t *testing.T) {
 	if resp["ok"] != true {
 		t.Fatalf("wait exit not ok: %s", out)
 	}
+	data, _ := resp["data"].(map[string]any)
+	if got, _ := data["trace_path"].(string); got != tracePath {
+		t.Errorf("wait exit trace_path = %q, want %q", got, tracePath)
+	}
 
 	// No sleeping, no retries: the contract is that the bundle already
 	// exists when wait exit returns.
@@ -174,6 +178,46 @@ func TestTraceFinalizedWhenChildExits(t *testing.T) {
 	if nOut, _, _ := scanEvents(t, &zr.Reader); nOut == 0 {
 		t.Error("trace recorded no output events")
 	}
+}
+
+// TestTraceStopAfterDaemonGone pins the failure mode of `trace stop` once
+// the session has torn down: a NOT_FOUND error that tells the user the
+// trace was already finalized, instead of a bare dial error.
+func TestTraceStopAfterDaemonGone(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+
+	_, out, err := runCLI(t, bin, env, "trace", "stop", "--name", "no-such-session")
+	if err == nil {
+		t.Fatalf("trace stop on missing session succeeded: %s", out)
+	}
+	var resp struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	stdout := cliStdout(t, bin, env, "trace", "stop", "--name", "no-such-session")
+	if err := json.Unmarshal(stdout, &resp); err != nil {
+		t.Fatalf("decode error envelope %s: %v", stdout, err)
+	}
+	if resp.Error.Code != "NOT_FOUND" {
+		t.Errorf("error code = %q, want NOT_FOUND", resp.Error.Code)
+	}
+	if !strings.Contains(resp.Error.Message, "finalized automatically") {
+		t.Errorf("error message lacks finalization hint: %q", resp.Error.Message)
+	}
+}
+
+// cliStdout runs the CLI expecting a non-zero exit and returns its stdout,
+// where twee prints its JSON error envelope.
+func cliStdout(t *testing.T, bin string, env []string, args ...string) []byte {
+	t.Helper()
+	cmd := exec.Command(bin, args...)
+	cmd.Env = append(os.Environ(), env...)
+	out, _ := cmd.Output()
+	return out
 }
 
 type traceManifest struct {

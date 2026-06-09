@@ -2,12 +2,24 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
 
 	"github.com/paulsmith/twee/internal/rpc"
 )
+
+// dialError marks a failure to reach the session's socket at all, as
+// opposed to an I/O error on an established connection. Clients map it
+// to NOT_FOUND: the session is gone (or never existed).
+type dialError struct {
+	sock string
+	err  error
+}
+
+func (e *dialError) Error() string { return fmt.Sprintf("dial %s: %v", e.sock, e.err) }
+func (e *dialError) Unwrap() error { return e.err }
 
 // callDaemon dials the named session's socket and runs one op.
 func callDaemon(name, op string, args any) (rpc.Response, error) {
@@ -17,7 +29,7 @@ func callDaemon(name, op string, args any) (rpc.Response, error) {
 	}
 	c, err := dialUnixSocketTimeout(sock, 2*time.Second)
 	if err != nil {
-		return rpc.Response{}, fmt.Errorf("dial %s: %w", sock, err)
+		return rpc.Response{}, &dialError{sock: sock, err: err}
 	}
 	defer c.Close()
 	req := rpc.Request{ID: nextID(), Op: op}
@@ -44,11 +56,21 @@ func nextID() string {
 	return fmt.Sprintf("%d", idCounter.Add(1))
 }
 
+// transportErrorCode classifies a callDaemon error: unreachable socket
+// means the session is gone (NOT_FOUND); anything else is an I/O fault.
+func transportErrorCode(err error) string {
+	var de *dialError
+	if errors.As(err, &de) {
+		return rpc.CodeNotFound
+	}
+	return rpc.CodeIO
+}
+
 // callAndEmit calls one op and prints the JSON envelope, exiting on error.
 func callAndEmit(name, op string, args any) {
 	resp, err := callDaemon(name, op, args)
 	if err != nil {
-		emitError(rpc.CodeIO, err.Error(), nil, 1)
+		emitError(transportErrorCode(err), err.Error(), nil, 1)
 	}
 	if !resp.OK {
 		emitError(resp.Error.Code, resp.Error.Message, resp.Error.Details, 1)
@@ -60,7 +82,7 @@ func callAndEmit(name, op string, args any) {
 func callOnly(name, op string, args any) {
 	resp, err := callDaemon(name, op, args)
 	if err != nil {
-		emitError(rpc.CodeIO, err.Error(), nil, 1)
+		emitError(transportErrorCode(err), err.Error(), nil, 1)
 	}
 	if !resp.OK {
 		emitError(resp.Error.Code, resp.Error.Message, resp.Error.Details, 1)
