@@ -136,26 +136,23 @@
 
         formatter = pkgs.nixfmt-tree;
 
-        # mkShellNoCC: do not pin a Nix C compiler. libghostty-vt's zig build
-        # invokes xcodebuild on macOS to assemble the xcframework, which
-        # needs the host's Xcode/Command Line Tools — letting the system
-        # toolchain win avoids a clash with Nix's clang wrapper.
+        # mkShellNoCC: do not pin a Nix C compiler. cgo links against the
+        # flake-built libghostty-vt with the host toolchain, which avoids
+        # a clash with Nix's clang wrapper on macOS.
         devShells.default = pkgs.mkShellNoCC {
           packages = [
-            pkgs.cmake
             pkgs.go
             pkgs.goreleaser
             pkgs.gnumake
             pkgs.pkg-config
-            zigPkg
           ];
 
           shellHook = ''
-            # libghostty-vt is built via CMake's FetchContent (see CMakeLists.txt)
-            # and emits a pkgconfig under build/_deps/ghostty-src/zig-out.
-            export PKG_CONFIG_PATH="$PWD/build/_deps/ghostty-src/zig-out/share/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-            export DYLD_LIBRARY_PATH="$PWD/build/_deps/ghostty-src/zig-out/lib''${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
-            export LD_LIBRARY_PATH="$PWD/build/_deps/ghostty-src/zig-out/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            # libghostty-vt comes prebuilt from this flake's ghostty-vt
+            # package; ordinary go build / go test work in this shell.
+            export PKG_CONFIG_PATH="${ghostty-vt}/share/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+            export DYLD_LIBRARY_PATH="${ghostty-vt}/lib''${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+            export LD_LIBRARY_PATH="${ghostty-vt}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           '';
         };
       }

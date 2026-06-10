@@ -5,7 +5,6 @@ on:
     paths:
       - ".github/workflows/release.yml"
       - ".goreleaser.yaml"
-      - "CMakeLists.txt"
       - "flake.lock"
       - "flake.nix"
       - "Makefile"

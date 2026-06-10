@@ -52,25 +52,33 @@ tar -xzf twee_0.1.0_darwin_arm64.tar.gz
 ./twee version
 ```
 
-To build locally with Nix:
+### Building from source
+
+All source builds go through the Nix flake. `twee` uses `libghostty-vt`
+(a CGO library built from the [Ghostty](https://ghostty.org) source
+tree) for VT parsing; the flake pins that source tree and the Zig
+toolchain it needs, and builds the library as the `ghostty-vt` package.
+A vanilla `go build` outside the dev shell fails because cgo needs
+`libghostty-vt` on the pkg-config path.
+
+To build and install:
 
 ```sh
-nix build
-./result/bin/twee version
+make install                        # nix build + copy to ~/.local/bin
 ```
 
-For contributor builds, use the development shell:
+Note that `nix build` builds the *committed* tree — uncommitted changes
+only show up in dev-shell builds like `make twee`.
+
+For development, enter the dev shell (or `direnv allow` once) and use
+ordinary Go commands; `libghostty-vt` comes prebuilt from the flake:
 
 ```sh
-nix develop                         # enter the dev shell
-make twee                           # builds libghostty-vt + ./bin/twee
+nix develop
+go test ./...
+make twee                           # ./bin/twee from the working copy
 ./bin/twee version
 ```
-
-`twee` uses `libghostty-vt` (a CGO library built from the
-[Ghostty](https://ghostty.org) source tree) for VT parsing. A vanilla
-`go build` outside the Nix build or dev shell will fail because the cgo
-package needs `libghostty-vt` on the pkg-config path.
 
 ## Model
 

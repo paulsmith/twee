@@ -1,6 +1,10 @@
 Use `go doc` and `gopls` liberally when writing, reading, understanding, and
 debugging Go code.
 
+Build and test inside the Nix dev shell, which provides pkg-config and the
+prebuilt libghostty-vt: `nix develop -c go test ./...`. A plain `go build`
+outside the shell fails because cgo cannot find libghostty-vt.
+
 `twee` is pre-release experimental software. There are no compatibility
 guarantees for its CLI, Go API, JSON output, daemon protocol, or trace formats
 yet; they may change without notice before a stable release.

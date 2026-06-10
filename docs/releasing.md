@@ -12,8 +12,9 @@ checksum file.
    git push origin v0.1.0
    ```
 
-2. The release workflow installs Nix, enters the repo's Nix dev shell, builds
-   `libghostty-vt`, then packages release archives.
+2. The release workflow installs Nix and enters the repo's Nix dev shell,
+   which provides `libghostty-vt` prebuilt from the flake, then packages
+   release archives.
 
 3. The downloadable assets are Linux x86_64 and macOS arm64 archives. The
    binaries are built with go-libghostty's `static` build tag so users do not

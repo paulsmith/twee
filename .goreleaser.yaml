@@ -3,9 +3,8 @@ version: 2
 
 project_name: twee
 
-before:
-  hooks:
-    - make libghostty
+# Runs inside `nix develop`, which provides the prebuilt libghostty-vt
+# on the pkg-config path; no pre-build hook is needed.
 
 builds:
   - id: twee
