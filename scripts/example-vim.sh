@@ -2,17 +2,20 @@
 set -euo pipefail
 
 session=twee-$$
+out=$session.twee
 
-exec >/dev/null
-twee start -name $session vim
-trap 'twee stop -name $session >/dev/null' EXIT
-twee wait text -name $session VIM
-twee trace start -name $session -out $session.twee
-twee type -name $session "iHello, world"
-twee key -name $session Enter
-twee type -name $session "The quick brown fox jumps over the lazy dog."
-twee key -name $session Escape
-twee type -name $session ":q!"
-twee trace stop -name $session
-exec >/dev/tty
-echo "Recording is $session.twee"
+export TWEE_SESSION=$session
+
+exec 3>&1 >/dev/null
+twee start --trace "$out" -- vim
+trap 'twee stop >/dev/null 2>&1 || true' EXIT
+twee wait text --pattern VIM
+twee type -- "iHello, world"
+twee key Enter
+twee type -- "The quick brown fox jumps over the lazy dog."
+twee key Escape
+twee type -- ":q!"
+twee key Enter
+twee wait exit
+exec >&3 3>&-
+echo "Recording is $out"
