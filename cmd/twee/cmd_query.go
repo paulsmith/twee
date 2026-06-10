@@ -31,7 +31,8 @@ Window title (OSC 0/2): {title}.`)
 	registerUsage("mode", `twee mode [--name <name>]
 Active VT modes: {decckm, bracketed_paste, alt_screen, mouse, ...}.`)
 	registerUsage("scrollback", `twee scrollback [--name <name>]
-Scrollback lines (only if retention is enabled at start).`)
+Scrollback lines. Retention is not yet implemented; this currently
+always returns an empty list.`)
 	registerUsage("snapshot", `twee snapshot [--name <name>]
 Full snapshot: {size, cursor, lines: [{cells: [Cell]}]}.`)
 	registerUsage("cell", `twee cell <x> <y> [--name <name>]

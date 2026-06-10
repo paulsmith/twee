@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/paulsmith/twee/internal/rpc"
@@ -31,6 +32,10 @@ func runStart(args []string) {
 	msg, err := daemonize(opts.name, opts.dir, opts.cmd, opts.cols, opts.rows, opts.env, opts.trace)
 	if err != nil {
 		code := rpc.CodeIO
+		var collision *alreadyRunningError
+		if errors.As(err, &collision) {
+			code = rpc.CodeAlreadyRunning
+		}
 		details := msg.ErrorDetails
 		message := err.Error()
 		if msg.ErrorCode != "" {

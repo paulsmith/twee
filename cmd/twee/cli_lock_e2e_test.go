@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,5 +94,31 @@ func TestStopCleansStaleLock(t *testing.T) {
 	}
 	if _, err := os.Stat(lock); !os.IsNotExist(err) {
 		t.Errorf("stale lock remains after stop: stat err = %v", err)
+	}
+}
+
+func TestStartNameCollisionReportsAlreadyRunning(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+	const sessionName = "lock-collide"
+	defer exec.Command(bin, "stop", "--name", sessionName).Run()
+
+	mustOK(t, bin, env, "start", "--name", sessionName, "--", "/bin/sh", "-c", "sleep 30")
+	out := cliStdout(t, bin, env, "start", "--name", sessionName, "--", "/bin/sh", "-c", "sleep 30")
+	var resp struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		t.Fatalf("decode envelope %s: %v", out, err)
+	}
+	if resp.OK || resp.Error.Code != "ALREADY_RUNNING" {
+		t.Fatalf("second start envelope = %s, want ALREADY_RUNNING error", out)
+	}
+	if !strings.Contains(resp.Error.Message, sessionName) {
+		t.Errorf("collision message %q does not name the session", resp.Error.Message)
 	}
 }

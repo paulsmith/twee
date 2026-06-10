@@ -196,9 +196,14 @@ func writeReadyErrCode(w *os.File, name, code, msg string, details json.RawMessa
 	_ = w.Close()
 }
 
-// daemonize re-execs into daemon mode with the given config, holding
-// the named lock file. Returns the ready message read back from the
-// child.
+// alreadyRunningError reports a start collision: the session lock is
+// held by a live daemon of the same name.
+type alreadyRunningError struct{ name string }
+
+func (e *alreadyRunningError) Error() string {
+	return fmt.Sprintf("daemon %q already running", e.name)
+}
+
 // acquireSessionLock creates and flocks the session lock file. After
 // locking it verifies the file at the lock path is still the inode it
 // locked — a daemon removing its lock at exit can unlink the path between
@@ -216,7 +221,7 @@ func acquireSessionLock(name string) (*os.File, error) {
 		if err := syscall.Flock(int(lf.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 			_ = lf.Close()
 			if err == syscall.EWOULDBLOCK {
-				return nil, fmt.Errorf("daemon %q already running", name)
+				return nil, &alreadyRunningError{name: name}
 			}
 			return nil, fmt.Errorf("flock: %w", err)
 		}
@@ -233,6 +238,9 @@ func acquireSessionLock(name string) (*os.File, error) {
 	return nil, fmt.Errorf("lock %s: path kept changing during acquisition", lp)
 }
 
+// daemonize re-execs into daemon mode with the given config, holding
+// the named lock file. Returns the ready message read back from the
+// child.
 func daemonize(name, dir string, cmd []string, cols, rows int, envOverrides map[string]string, tracePath string) (readyMessage, error) {
 	if err := validateName(name); err != nil {
 		return readyMessage{}, err

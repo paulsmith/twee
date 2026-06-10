@@ -7,7 +7,7 @@ import (
 func init() {
 	register("status", runStatus)
 	registerUsage("status", `twee status [--name <name>]
-Returns {name, socket, pid, cmd, size, started_at, running, exit_code}.
+Returns {cmd, cols, rows, started_at, running, exit_code}.
 "running" is true while the child is alive; once it exits, "running"
 becomes false and "exit_code" is populated.`)
 }
