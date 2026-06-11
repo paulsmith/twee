@@ -1,6 +1,7 @@
 package play
 
 import (
+	"bytes"
 	"image"
 	"strings"
 	"testing"
@@ -52,6 +53,7 @@ type frameRecord struct {
 	toast  string
 	status string
 	size   image.Rectangle
+	img    *image.RGBA
 }
 
 type fakeSink struct {
@@ -60,7 +62,7 @@ type fakeSink struct {
 
 func (s *fakeSink) Emit(img *image.RGBA, cols, rows int, toast, status string) error {
 	s.frames = append(s.frames, frameRecord{
-		cols: cols, rows: rows, toast: toast, status: status, size: img.Bounds(),
+		cols: cols, rows: rows, toast: toast, status: status, size: img.Bounds(), img: img,
 	})
 	return nil
 }
@@ -203,6 +205,153 @@ func TestLoopClosedCommandChannelEmitsCurrentFrameThenDone(t *testing.T) {
 	if len(sink.frames) == 0 {
 		t.Fatal("closed command channel exited before emitting current frame")
 	}
+}
+
+func TestLoopEmitsEndScreenWhenPlaybackEnds(t *testing.T) {
+	cmds := make(chan command, 1)
+	sink := &fakeSink{}
+	l := testLoop(loopConfig{
+		Events: []Event{
+			{TMS: 0, Type: "output", Bytes: []byte("A")},
+			// Exit is metadata: it ends playback without changing the screen,
+			// so any difference between the two frames is the end screen.
+			{TMS: 1000, Type: "exit", Code: 0},
+		},
+		Cmds: cmds,
+		Sink: sink,
+	})
+	now := time.Unix(0, 0)
+	l.tick(now)
+	if l.atEnd {
+		t.Fatal("playback ended before final event")
+	}
+	l.tick(now.Add(2 * time.Second))
+	if !l.atEnd {
+		t.Fatal("playback did not end")
+	}
+
+	if len(sink.frames) != 2 {
+		t.Fatalf("emitted %d frames, want 2", len(sink.frames))
+	}
+	before, after := sink.frames[0].img, sink.frames[1].img
+	if !bytes.Equal(renderedFrame(t, l, false).Pix, before.Pix) {
+		t.Fatal("frame before end does not match plain render of the model")
+	}
+	if !bytes.Equal(renderedFrame(t, l, true).Pix, after.Pix) {
+		t.Fatal("frame at end does not match end-screen render of the model")
+	}
+}
+
+func TestLoopRestartAtEndResumesPlaybackWithoutEndScreen(t *testing.T) {
+	cmds := make(chan command, 1)
+	sink := &fakeSink{}
+	l := testLoop(loopConfig{
+		Events: []Event{
+			{TMS: 0, Type: "output", Bytes: []byte("A")},
+			{TMS: 1000, Type: "exit", Code: 0},
+		},
+		Cmds: cmds,
+		Sink: sink,
+	})
+	now := time.Unix(0, 0)
+	l.tick(now)
+	l.tick(now.Add(2 * time.Second))
+	if !l.atEnd {
+		t.Fatal("playback did not end")
+	}
+
+	cmds <- cmdRestart
+	l.tick(now.Add(3 * time.Second))
+	if l.atEnd {
+		t.Fatal("restart did not clear end state")
+	}
+	if !bytes.Equal(renderedFrame(t, l, false).Pix, lastFrame(t, sink).img.Pix) {
+		t.Fatal("frame after restart still carries the end screen")
+	}
+
+	l.tick(now.Add(5 * time.Second))
+	if l.cursor == 0 || l.model.(*fakeModel).text != "A" {
+		t.Fatalf("playback did not resume after restart: cursor=%d text=%q",
+			l.cursor, l.model.(*fakeModel).text)
+	}
+}
+
+func TestLoopRestartHonorsStepMode(t *testing.T) {
+	cmds := make(chan command, 8)
+	sink := &fakeSink{}
+	l := testLoop(loopConfig{
+		Events: []Event{
+			{TMS: 0, Type: "output", Bytes: []byte("A")},
+			{TMS: 100, Type: "output", Bytes: []byte("B")},
+		},
+		Step: true,
+		Cmds: cmds,
+		Sink: sink,
+	})
+	now := time.Unix(0, 0)
+	l.tick(now)
+
+	cmds <- cmdStep
+	l.tick(now.Add(time.Millisecond))
+	cmds <- cmdStep
+	l.tick(now.Add(2 * time.Millisecond))
+	if !l.atEnd {
+		t.Fatal("stepping through all events did not reach the end")
+	}
+
+	cmds <- cmdRestart
+	l.tick(now.Add(3 * time.Millisecond))
+	if !l.paused || !l.stepMode {
+		t.Fatalf("restart dropped step mode: paused=%v stepMode=%v", l.paused, l.stepMode)
+	}
+	if got := lastFrame(t, sink).status; !strings.Contains(got, "step 1.0") {
+		t.Fatalf("status after restart = %q, want step mode", got)
+	}
+
+	l.tick(now.Add(10 * time.Second))
+	if l.cursor != 0 || l.model.(*fakeModel).text != "" {
+		t.Fatalf("playback advanced after restart in step mode: cursor=%d text=%q",
+			l.cursor, l.model.(*fakeModel).text)
+	}
+
+	cmds <- cmdStep
+	l.tick(now.Add(11 * time.Second))
+	if l.cursor != 1 || l.model.(*fakeModel).text != "A" {
+		t.Fatalf("step after restart: cursor=%d text=%q, want 1/A",
+			l.cursor, l.model.(*fakeModel).text)
+	}
+}
+
+func TestLoopEndScreenWhenLastEventIsOutput(t *testing.T) {
+	cmds := make(chan command, 1)
+	sink := &fakeSink{}
+	l := testLoop(loopConfig{
+		Events: []Event{{TMS: 0, Type: "output", Bytes: []byte("A")}},
+		Cmds:   cmds,
+		Sink:   sink,
+	})
+	l.tick(time.Unix(0, 0))
+	if !l.atEnd {
+		t.Fatal("playback did not end after final output event")
+	}
+	if !bytes.Equal(renderedFrame(t, l, true).Pix, lastFrame(t, sink).img.Pix) {
+		t.Fatal("frame at end does not match end-screen render of the model")
+	}
+}
+
+// renderedFrame renders the loop's current model the way emitFrame does,
+// with or without the end screen, for comparison against emitted frames.
+func renderedFrame(t *testing.T, l *loop, end bool) *image.RGBA {
+	t.Helper()
+	es := engineSnapshot(l.model.Snapshot())
+	if end {
+		overlayEndScreen(&es)
+	}
+	img, err := render.Render(es, render.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return img
 }
 
 func TestLoopUsesStaticRenderOptions(t *testing.T) {

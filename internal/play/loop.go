@@ -50,6 +50,7 @@ type loop struct {
 
 	cols, rows         int
 	initCols, initRows int
+	initStep           bool
 	newModel           func(int, int) vt.Model
 	renderOptions      render.Options
 	displayPixels      displayPixels
@@ -108,6 +109,7 @@ func newLoop(cfg loopConfig) *loop {
 		rows:          cfg.Rows,
 		initCols:      cfg.Cols,
 		initRows:      cfg.Rows,
+		initStep:      cfg.Step,
 		newModel:      cfg.NewModel,
 		renderOptions: cfg.RenderOptions,
 		displayPixels: cfg.DisplayPixels,
@@ -187,8 +189,8 @@ func (l *loop) drainCommands(now time.Time) (skipAdvance, dispatchReady, done bo
 				l.cursor = 0
 				l.playT = 0
 				l.wallPrev = now
-				l.paused = false
-				l.stepMode = false
+				l.paused = l.initStep
+				l.stepMode = l.initStep
 				l.atEnd = false
 				l.toast = toast{}
 				l.snapHash = nil
@@ -254,7 +256,11 @@ func (l *loop) emitFrame(time.Time) {
 		return
 	}
 	placement := l.placementForSnapshot(snap)
-	img, err := render.Render(engineSnapshot(snap), l.renderOptionsForPlacement(placement))
+	es := engineSnapshot(snap)
+	if l.atEnd {
+		overlayEndScreen(&es)
+	}
+	img, err := render.Render(es, l.renderOptionsForPlacement(placement))
 	if err != nil {
 		l.err = err
 		return

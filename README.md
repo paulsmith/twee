@@ -375,6 +375,10 @@ Interactive controls during playback:
 | `r` | Restart from the beginning |
 | `q` | Quit |
 
+When playback reaches the end of the trace, the final frame dims and a
+centered "End of playback" banner appears; press `r` to restart or `q`
+to quit.
+
 Flags:
 
 | Flag | Purpose |
