@@ -20,8 +20,7 @@ type Config struct {
 	DefaultTimeout    time.Duration
 	StableQuietWindow time.Duration
 
-	RecordPath string
-	TracePath  string
+	TracePath string
 }
 
 // applyDefaults fills in zero fields with sensible values.

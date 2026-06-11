@@ -46,7 +46,7 @@ func TestHelp(t *testing.T) {
 		t.Errorf("help output should not link to markdown docs:\n%s", out)
 	}
 	last := -1
-	for _, verb := range []string{"cell", "codegen", "completion", "cursor", "diff", "find", "help", "key", "keys", "lines", "ls", "mode", "paste", "play", "record", "region", "resize", "run", "screenshot", "scrollback", "signal", "size", "sleep", "snapshot", "start", "status", "stop", "text", "title", "trace", "type", "version", "wait"} {
+	for _, verb := range []string{"cell", "codegen", "completion", "cursor", "diff", "find", "help", "key", "keys", "lines", "ls", "mode", "paste", "play", "region", "resize", "run", "screenshot", "scrollback", "signal", "size", "sleep", "snapshot", "start", "status", "stop", "text", "title", "trace", "type", "version", "wait"} {
 		needle := []byte("  " + verb + "  ")
 		idx := bytes.Index(out, needle)
 		if idx < 0 {
@@ -141,6 +141,24 @@ func TestRunHelpDoesNotLinkMarkdownSpec(t *testing.T) {
 func TestUnknownVerbExits2(t *testing.T) {
 	bin := buildBinary(t)
 	cmd := exec.Command(bin, "bogus")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	exit, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected ExitError, got %v", err)
+	}
+	if exit.ExitCode() != 2 {
+		t.Errorf("exit code %d, want 2", exit.ExitCode())
+	}
+	if !bytes.Contains(stderr.Bytes(), []byte("unknown subcommand")) {
+		t.Errorf("stderr missing 'unknown subcommand':\n%s", stderr.String())
+	}
+}
+
+func TestRecordVerbRemoved(t *testing.T) {
+	bin := buildBinary(t)
+	cmd := exec.Command(bin, "record")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	err := cmd.Run()

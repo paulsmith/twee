@@ -8,14 +8,10 @@ the Vibium recording format.
 
 ## Context
 
-`twee` currently has two related formats:
-
-- `internal/recording`: a JSONL file with one header line followed by terminal
-  events. It records PTY output bytes, input events, resize events, and process
-  exit.
-- `internal/trace`: a `.twee` zip bundle containing `manifest.json`,
-  `events.jsonl`, and `screenshots/*.png`. It records the same core terminal
-  event stream with sidecar screenshots for debugging and playback.
+`twee` currently uses one terminal recording format: a `.twee` zip bundle
+containing `manifest.json`, `events.jsonl`, and `screenshots/*.png`. It records
+PTY output bytes, input events, resize events, process exit, and sidecar
+screenshots for debugging and playback.
 
 Vibium uses a richer browser-oriented zip recording:
 

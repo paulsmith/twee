@@ -36,7 +36,7 @@ of the harness. Everything outside `internal/vt/` is unaffected.
 | `tuitest/*` (public API) | None |
 | `internal/pump` | None — already serializes model access under `mu`, exactly what libghostty's single-goroutine constraint requires |
 | `internal/ptyrunner` | None |
-| `internal/recording` | None — replay calls `Model.Feed(bytes)`; backend-agnostic |
+| `internal/trace` | None — trace writing stores raw event bytes; backend-agnostic |
 | `internal/input/keys.go` | None for the swap. M4 (optional) adds DECCKM awareness |
 | `internal/snapshot` | None |
 | `internal/vt/types.go` | Drop `ColorIndexed`; add `Italic` + `Strikethrough` to `Cell` |
@@ -147,9 +147,9 @@ expectations only where libghostty is more correct.
    - **Verify**: `TestResize` — libghostty reflows on resize. Existing
      test asserts only that "hello" / "world" survive; should still
      pass, but document the behavior change.
-2. Run `go test ./internal/pump/ ./internal/recording/`. Recording's
-   `TestRecordAndReplay` exercises `Model.Feed` directly and should
-   pass unchanged — replay is backend-agnostic.
+2. Run `go test ./internal/pump/ ./internal/trace/ ./internal/play/`. Trace
+   writing stores raw event bytes, and playback bundle parsing should pass
+   unchanged.
 3. Run `go test ./tuitest/ -run TestMenu` (the real e2e). This is the
    primary proof. Failures here indicate libghostty's parsing of
    Bubble Tea output diverges from the hand-rolled parser; investigate

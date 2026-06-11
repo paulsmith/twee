@@ -118,37 +118,6 @@ func TestTermWaitWithContextCancellation(t *testing.T) {
 	}
 }
 
-func TestTermRecordingLifecycle(t *testing.T) {
-	te := startEngineTerm(t, []string{"/bin/cat"}, 20, 4)
-	path := filepath.Join(t.TempDir(), "session.jsonl")
-
-	if err := te.EnableRecording(path); err != nil {
-		t.Fatalf("EnableRecording: %v", err)
-	}
-	if got := te.RecordPath(); got != path {
-		t.Fatalf("RecordPath = %q, want %q", got, path)
-	}
-	if err := te.Type("recorded"); err != nil {
-		t.Fatalf("Type: %v", err)
-	}
-	if err := te.DisableRecording(); err != nil {
-		t.Fatalf("DisableRecording: %v", err)
-	}
-	if got := te.RecordPath(); got != "" {
-		t.Fatalf("RecordPath after disable = %q, want empty", got)
-	}
-	if err := te.DisableRecording(); err != nil {
-		t.Fatalf("second DisableRecording: %v", err)
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if !strings.Contains(string(b), `"type":"input"`) || !strings.Contains(string(b), `"kind":"type"`) {
-		t.Fatalf("recording missing input event:\n%s", b)
-	}
-}
-
 func TestTermTraceLifecycle(t *testing.T) {
 	te := startEngineTerm(t, []string{"/bin/cat"}, 20, 4)
 	path := filepath.Join(t.TempDir(), "session.twee")

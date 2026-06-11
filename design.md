@@ -112,8 +112,8 @@ Suggested module layout:
 /internal/snapshot
   text and cell snapshot serialization
 
-/internal/recording
-  session recording and replay
+/internal/trace
+  .twee session recording and replay artifacts
 ```
 
 ## Public API sketch
@@ -184,7 +184,7 @@ Important: document that tests are for a declared terminal compatibility profile
 The harness needs a continuously running read loop:
 
 ```text
-PTY read -> append to recording -> feed VT model -> notify waiters
+PTY read -> append to trace recording -> feed VT model -> notify waiters
 ```
 
 Requirements:
@@ -349,7 +349,7 @@ On failure, print:
 - Recent raw output bytes, escaped.
 - Recent input events.
 - Snapshot diff if relevant.
-- Path to recording file if enabled.
+- Path to `.twee` trace bundle if enabled.
 
 ## Snapshots
 
@@ -390,26 +390,33 @@ Recording should be in v0.
 
 A recording enables:
 
-- Replaying a terminal session into the VT backend.
+- Replaying a terminal session from a `.twee` bundle.
 - Debugging flakes.
 - Creating harness golden tests.
 - Comparing behavior across backend versions.
 
-Suggested recording format:
+Suggested recording format: a `.twee` zip bundle with a manifest, JSONL event
+stream, and sidecar resources.
+
+Manifest:
 
 ```json
 {
   "version": 1,
   "command": ["./myapp"],
   "env": {"TERM": "xterm-256color"},
-  "initial_size": {"cols": 100, "rows": 30},
-  "events": [
-    {"t_ms": 0, "type": "output", "bytes_b64": "..."},
-    {"t_ms": 42, "type": "input", "kind": "key", "key": "Enter"},
-    {"t_ms": 77, "type": "resize", "cols": 120, "rows": 40},
-    {"t_ms": 100, "type": "exit", "code": 0}
-  ]
+  "cols": 100,
+  "rows": 30
 }
+```
+
+Events live in `events.jsonl`:
+
+```jsonl
+{"t_ms":0,"type":"output","bytes_b64":"..."}
+{"t_ms":42,"type":"input","kind":"key","key":"Enter"}
+{"t_ms":77,"type":"resize","cols":120,"rows":40}
+{"t_ms":100,"type":"exit","code":0}
 ```
 
 The replay path should feed only output and resize events into the model. Input events are diagnostic metadata unless replaying against a live process.
@@ -494,7 +501,7 @@ Recommendations:
 ### Milestone 4: snapshots and recordings
 
 - Text snapshots.
-- Raw session recording.
+- `.twee` session recording.
 - Replay recorded output into VT backend.
 - Failure artifact output.
 

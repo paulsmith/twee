@@ -35,15 +35,14 @@ sequence after child exit is:
    stops the server and closes the listener.
 2. `Server.Serve` drains in-flight connections and returns.
 3. `Term.Close` runs: closes the PTY runner, waits for the output pump to
-   drain, then finalizes the trace (zip + atomic rename to the `--out` path)
-   and the recording.
+   drain, then finalizes the trace (zip + atomic rename to the `--out` path).
 4. The socket file is removed and the daemon exits.
 
 `wait exit` responds in step 1; the bundle appears in step 3. Measured on
 this machine: `wait exit; ls out.twee` reports *no such file*, and the bundle
 exists ~100–200ms later. The notes' recipe (`twee wait exit` then `ls -l
 probe.twee`) lands squarely in that window, observes nothing, and reasonably
-concludes the recording was discarded. Nothing ever reports otherwise.
+concludes the trace was discarded. Nothing ever reports otherwise.
 
 ### The real gaps
 
@@ -68,7 +67,7 @@ concludes the recording was discarded. Nothing ever reports otherwise.
 Make this contract hold, and make it observable:
 
 > When `wait exit` returns, every artifact the session promised — trace
-> bundle, recording — is durable on disk, complete, and the response says
+> bundle — is durable on disk, complete, and the response says
 > where it is.
 
 Secondary goals: failed paths stay loud (per the field notes' meta-ask, "fail
@@ -84,9 +83,9 @@ parse-time trap guides the user to the fix.
 - `DrainOutput()` — close the PTY runner, wait for the output pump to drain.
   After it returns, `Snapshot()` reflects the final terminal state, including
   any output emitted between the last client call and child exit.
-- `FinalizeArtifacts() error` — close the active trace and recording (the
-  current `Close` body after the pump wait), record the finalized trace path,
-  and close a `done` channel exposed as `ArtifactsDone() <-chan struct{}`.
+- `FinalizeArtifacts() error` — close the active trace (the current `Close`
+  body after the pump wait), record the finalized trace path, and close a `done`
+  channel exposed as `ArtifactsDone() <-chan struct{}`.
   A `FinalizedTracePath() string` getter returns the bundle path once written
   (empty before finalization or when no trace was active). This replaces
   reliance on `TracePath()` after close, which currently returns a stale
@@ -130,8 +129,7 @@ TracePath string `json:"trace_path,omitempty"`
 
 The bounded wait means a pathological finalization failure degrades to the
 current behavior (exit code, no path) rather than failing the wait. For
-sessions with no trace, the gate adds only the finalization cost of closing
-the recording, i.e. effectively nothing.
+sessions with no trace, the gate adds only the no-op finalization cost.
 
 This supersedes the field notes' ask for a `wait exit --trace-out` flag: no
 flag is needed when `wait exit` synchronizes implicitly.
@@ -175,7 +173,7 @@ it without `codegen`'s event loop.
 If the child exits during the 100ms quick-exit observation window with
 `--trace` active, `Term.Close` on that path already finalizes the bundle;
 add `trace_path` to the `CHILD_EXITED` error details so even a failed start
-points at its recording.
+points at its trace bundle.
 
 ### Remove lock files on daemon exit
 
@@ -219,8 +217,8 @@ session.
   [go-arg-cli-proposal.md](go-arg-cli-proposal.md) ("Repeated `--env`",
   "Text Search Grammar").
 - Persisting session metadata past daemon death (`ls` showing exited
-  sessions, exit codes on disk). The recording file already persists the exit
-  code when recording is enabled; a general session journal is a separate
+  sessions, exit codes on disk). A `.twee` bundle already persists the exit
+  code when tracing is enabled; a general session journal is a separate
   design.
 - Changing the 100ms grace window or quick-exit observation window.
 
@@ -268,5 +266,3 @@ Steps 1–3 deliver the contract and can land alone; 4–7 are independent.
   equals-form hint; `--pattern="-- INSERT --"` still parses;
   `--env -- vim` and bare trailing `--env` keep their `missing value`
   errors (now with hint where the next token is dash-leading).
-- Recording parity: `record start` followed by child exit produces a durable
-  recording (with `WriteExit`) by the time `wait exit` returns.

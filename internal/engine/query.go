@@ -81,9 +81,6 @@ func (t *Term) Diagnostic() string {
 		r = r[len(r)-1024:]
 	}
 	sb.printf("%q\n", string(r))
-	if t.cfg.RecordPath != "" {
-		sb.printf("recording: %s\n", t.cfg.RecordPath)
-	}
 	if t.cfg.TracePath != "" {
 		sb.printf("trace: %s\n", t.cfg.TracePath)
 	}

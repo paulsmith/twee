@@ -161,7 +161,6 @@ var commandSummaries = []commandSummary{
 	{"mode", "Show active terminal modes"},
 	{"paste", "Send bracketed paste text"},
 	{"play", "Play a .twee trace bundle"},
-	{"record", "Start or stop JSONL recording"},
 	{"region", "Show cells in a rectangular region"},
 	{"resize", "Resize the terminal"},
 	{"run", "Run a one-shot ephemeral session"},

@@ -2,7 +2,9 @@ package engine
 
 import (
 	"archive/zip"
+	"bufio"
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -51,6 +53,9 @@ func TestFinalizeArtifactsWritesTraceBundleAndSignalsDone(t *testing.T) {
 		t.Fatalf("bundle is not a valid zip: %v", err)
 	}
 	_ = zr.Close()
+	if !traceBundleHasExitCode(t, out, 0) {
+		t.Fatal("bundle missing exit event with code 0")
+	}
 }
 
 func TestFinalizeArtifactsIdempotent(t *testing.T) {
@@ -124,7 +129,7 @@ func TestFinalizeArtifactsWithoutTrace(t *testing.T) {
 	}
 }
 
-func TestEnableTraceAndRecordingRefusedAfterFinalize(t *testing.T) {
+func TestEnableTraceRefusedAfterFinalize(t *testing.T) {
 	te := startEngineTerm(t, []string{"/bin/sh", "-c", "echo done"}, 40, 5)
 	if _, err := te.WaitForExit(WithTimeout(5 * time.Second)); err != nil {
 		t.Fatalf("WaitForExit: %v", err)
@@ -135,9 +140,6 @@ func TestEnableTraceAndRecordingRefusedAfterFinalize(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "late.twee")
 	if err := te.EnableTrace(out); err == nil {
 		t.Fatal("EnableTrace after FinalizeArtifacts succeeded; want error (the trace could never be written)")
-	}
-	if err := te.EnableRecording(filepath.Join(t.TempDir(), "late.rec")); err == nil {
-		t.Fatal("EnableRecording after FinalizeArtifacts succeeded; want error")
 	}
 }
 
@@ -154,4 +156,35 @@ func TestDrainOutputIdempotentAndPreservesScreen(t *testing.T) {
 	if err := te.Close(); err != nil {
 		t.Fatalf("Close after DrainOutput: %v", err)
 	}
+}
+
+func traceBundleHasExitCode(t *testing.T, path string, want int) bool {
+	t.Helper()
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		t.Fatalf("open trace zip: %v", err)
+	}
+	defer zr.Close()
+	ef, err := zr.Open("events.jsonl")
+	if err != nil {
+		t.Fatalf("events.jsonl: %v", err)
+	}
+	defer ef.Close()
+	sc := bufio.NewScanner(ef)
+	for sc.Scan() {
+		var ev struct {
+			Type string `json:"type"`
+			Code int    `json:"code"`
+		}
+		if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
+			t.Fatalf("decode event: %v", err)
+		}
+		if ev.Type == "exit" && ev.Code == want {
+			return true
+		}
+	}
+	if err := sc.Err(); err != nil {
+		t.Fatalf("scan events: %v", err)
+	}
+	return false
 }

@@ -9,7 +9,6 @@ import (
 
 	"github.com/paulsmith/twee/internal/ptyrunner"
 	"github.com/paulsmith/twee/internal/pump"
-	"github.com/paulsmith/twee/internal/recording"
 	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/vt"
 )
@@ -21,7 +20,6 @@ type Term struct {
 	cfgMu  sync.Mutex
 	runner *ptyrunner.Runner
 	pump   *pump.Pump
-	rec    *recording.Recorder
 	tr     *trace.Trace
 
 	closeOnce sync.Once
@@ -51,7 +49,7 @@ type InputEvent struct {
 }
 
 // Start spawns the command in cfg under a PTY, attaches the VT model
-// and pump, optionally enables recording, and returns a Term ready for
+// and pump, optionally enables tracing, and returns a Term ready for
 // queries and input.
 func Start(ctx context.Context, cfg Config) (*Term, error) {
 	cfg.applyDefaults()
@@ -73,39 +71,19 @@ func Start(ctx context.Context, cfg Config) (*Term, error) {
 	model := vt.New(cfg.Cols, cfg.Rows)
 	p := pump.New(model, runner.Master())
 
-	var rec *recording.Recorder
-	if cfg.RecordPath != "" {
-		rec, err = recording.New(cfg.RecordPath, recording.Header{
-			Command: cfg.Cmd,
-			Cols:    cfg.Cols,
-			Rows:    cfg.Rows,
-			Env:     cfg.Env,
-		})
-		if err != nil {
-			_ = runner.Close()
-			return nil, fmt.Errorf("recording: %w", err)
-		}
-	}
-
 	t := &Term{
 		cfg:           cfg,
 		runner:        runner,
 		pump:          p,
-		rec:           rec,
 		pumpDone:      make(chan struct{}),
 		artifactsDone: make(chan struct{}),
 		startedAt:     time.Now(),
 	}
 	if cfg.TracePath != "" {
 		if err := t.EnableTrace(cfg.TracePath); err != nil {
-			if rec != nil {
-				_ = rec.Close()
-			}
 			_ = runner.Close()
 			return nil, fmt.Errorf("trace: %w", err)
 		}
-	} else if rec != nil {
-		t.updateOutputHookLocked() // safe: no other goroutines access t yet
 	}
 	go func() {
 		_ = p.Run()
@@ -134,8 +112,8 @@ func (t *Term) DrainOutput() {
 	})
 }
 
-// FinalizeArtifacts drains output, then closes the active trace and
-// recording so their files are durable on disk. Idempotent; ArtifactsDone
+// FinalizeArtifacts drains output, then closes the active trace so its
+// file is durable on disk. Idempotent; ArtifactsDone
 // is closed once finalization completes. The returned error covers only
 // artifact closing; runner shutdown errors are reported by Close.
 func (t *Term) FinalizeArtifacts() error {
@@ -145,12 +123,8 @@ func (t *Term) FinalizeArtifacts() error {
 		t.finalized = true
 		var err error
 		if t.tr != nil {
+			t.tr.WriteExit(t.runner.ExitCode())
 			err = t.closeTraceLocked()
-		}
-		if t.rec != nil {
-			t.rec.WriteExit(t.runner.ExitCode())
-			err = errors.Join(err, t.rec.Close())
-			t.rec = nil
 		}
 		t.cfgMu.Unlock()
 		t.finalizeErr = err
@@ -195,58 +169,8 @@ func (t *Term) DefaultTimeout() time.Duration { return t.cfg.DefaultTimeout }
 // StableQuietWindow returns the default quiet window for WaitForStableScreen.
 func (t *Term) StableQuietWindow() time.Duration { return t.cfg.StableQuietWindow }
 
-// RecordPath returns the recording path used at Start (or "" if recording
-// was not enabled).
-func (t *Term) RecordPath() string {
-	t.cfgMu.Lock()
-	defer t.cfgMu.Unlock()
-	return t.cfg.RecordPath
-}
-
 // StartedAt returns the wall-clock time when Start completed.
 func (t *Term) StartedAt() time.Time { return t.startedAt }
-
-// EnableRecording starts recording to path. Replaces any current recorder.
-func (t *Term) EnableRecording(path string) error {
-	t.cfgMu.Lock()
-	defer t.cfgMu.Unlock()
-	if t.finalized {
-		return errors.New("EnableRecording: artifacts already finalized")
-	}
-	if t.rec != nil {
-		t.rec.WriteExit(t.runner.ExitCode())
-		_ = t.rec.Close()
-		t.rec = nil
-	}
-	rec, err := recording.New(path, recording.Header{
-		Command: t.cfg.Cmd,
-		Cols:    t.cfg.Cols,
-		Rows:    t.cfg.Rows,
-		Env:     t.cfg.Env,
-	})
-	if err != nil {
-		return err
-	}
-	t.rec = rec
-	t.cfg.RecordPath = path
-	t.updateOutputHookLocked()
-	return nil
-}
-
-// DisableRecording stops recording and closes the file.
-func (t *Term) DisableRecording() error {
-	t.cfgMu.Lock()
-	defer t.cfgMu.Unlock()
-	if t.rec == nil {
-		return nil
-	}
-	t.rec.WriteExit(t.runner.ExitCode())
-	err := t.rec.Close()
-	t.rec = nil
-	t.cfg.RecordPath = ""
-	t.updateOutputHookLocked()
-	return err
-}
 
 // TracePath returns the trace path (or "" if not tracing).
 func (t *Term) TracePath() string {
@@ -307,28 +231,17 @@ func (t *Term) TraceAddScreenshot(pngData []byte) {
 	}
 }
 
-// updateOutputHookLocked sets the pump's output hook to fan out to
-// whichever recorders are active. Must be called with cfgMu held.
+// updateOutputHookLocked sets the pump's output hook to the active trace.
+// Must be called with cfgMu held.
 func (t *Term) updateOutputHookLocked() {
-	rec := t.rec
 	tr := t.tr
-	switch {
-	case rec != nil && tr != nil:
-		t.pump.SetOutputHook(func(b []byte, ts time.Time) {
-			rec.WriteOutput(b, ts)
-			tr.WriteOutput(b, ts)
-		})
-	case rec != nil:
-		t.pump.SetOutputHook(func(b []byte, ts time.Time) {
-			rec.WriteOutput(b, ts)
-		})
-	case tr != nil:
+	if tr != nil {
 		t.pump.SetOutputHook(func(b []byte, ts time.Time) {
 			tr.WriteOutput(b, ts)
 		})
-	default:
-		t.pump.SetOutputHook(nil)
+		return
 	}
+	t.pump.SetOutputHook(nil)
 }
 
 // recordInput appends a description to the bounded ring buffer.

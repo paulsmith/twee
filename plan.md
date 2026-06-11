@@ -48,7 +48,7 @@ Goal: a repo skeleton that builds and runs a trivial test in CI.
 
 - Create `twee/` Go module: `go mod init github.com/paulsmith/twee`.
 - Add directory layout from design doc: `tuitest/` (public),
-  `internal/{vt,ptyrunner,pump,input,snapshot,recording}/`.
+  `internal/{vt,ptyrunner,pump,input,snapshot,trace}/`.
 - Add `go-libghostty` as a dependency. Vendor it. Pin the C
   `libghostty-vt` build to a known commit; commit a build script under
   `scripts/build-libghostty.sh`.
@@ -131,8 +131,8 @@ Tasks:
 1. `Runner.Start` — open PTY, set initial winsize via `TIOCSWINSZ`,
    apply env (defaults: `TERM=xterm-256color`, `COLORTERM=truecolor`,
    `LANG=C.UTF-8`), `cmd.Start()`.
-2. `Pump.Loop` — read into a 32KB buffer, append to recording (no-op
-   for now), feed model under `mu`, broadcast.
+2. `Pump.Loop` — read into a 32KB buffer, append to trace recording
+   (no-op for now), feed model under `mu`, broadcast.
 3. `Term` — orchestrates Runner + Pump + Model. `Run(t, ...)` registers
    `t.Cleanup(term.Close)`.
 4. Integration test: spawn `printf 'hello\n'` (or a tiny Go fixture that
@@ -192,8 +192,8 @@ Files:
 
 - `internal/snapshot/text.go` — Tier 1 text snapshots.
 - `internal/snapshot/cell.go` — Tier 2 cell snapshots.
-- `internal/recording/recorder.go` — write recordings.
-- `internal/recording/replay.go` — replay output+resize into a Model.
+- `internal/trace/trace.go` — write `.twee` recordings.
+- `internal/play/bundle.go` — read `.twee` recordings for replay tooling.
 - `tuitest/snapshot.go` — `ExpectTextSnapshot`, `ExpectCellSnapshot`.
 
 Tasks:
@@ -203,13 +203,12 @@ Tasks:
    (standard Go pattern).
 2. Recording: pump appends each output chunk with a monotonic ms
    timestamp; input layer appends key/paste/resize events; runner
-   appends exit. Format = JSON Lines, one event per line, with a
-   header line. (Switching from the design doc's single JSON document
-   — JSONL streams better for huge sessions.)
+   appends exit. Format = `.twee`: a zip bundle with `manifest.json`,
+   `events.jsonl`, and sidecar resources.
 3. Recording is **off by default**, enabled via `tuitest.Record(path)`
    option or `TUITEST_RECORD=1` env var. When a test fails, the
-   harness writes the recording to `t.TempDir()` and prints the path.
-4. Replay: read JSONL, feed output bytes into a fresh `Model`,
+   harness writes a `.twee` bundle to `t.TempDir()` and prints the path.
+4. Replay: read `.twee` events, feed output bytes into a fresh `Model`,
    apply resizes. Used by harness self-tests.
 5. Cell snapshot: include text, width, bold, underline, inverse, and a
    **normalized** color (named SGR → name; 256-palette → `p<n>`;

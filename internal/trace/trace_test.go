@@ -52,6 +52,7 @@ func TestTraceRoundTrip(t *testing.T) {
 	tr.WriteInput("key", "Enter", []byte("\r"))
 	tr.WriteResize(20, 5)
 	tr.WriteOutput([]byte("world"), time.Now())
+	tr.WriteExit(7)
 
 	// Add a screenshot.
 	tr.AddScreenshotPNG(makeTinyPNG(t))
@@ -113,6 +114,7 @@ func TestTraceRoundTrip(t *testing.T) {
 	}
 	sc := bufio.NewScanner(ef)
 	nEvents := 0
+	sawExit := false
 	for sc.Scan() {
 		line := sc.Bytes()
 		if len(bytes.TrimSpace(line)) == 0 {
@@ -122,11 +124,20 @@ func TestTraceRoundTrip(t *testing.T) {
 		if err := json.Unmarshal(line, &ev); err != nil {
 			t.Fatalf("event line %d: %v\nraw: %s", nEvents, err, line)
 		}
+		if ev.Type == "exit" {
+			sawExit = true
+			if ev.Code != 7 {
+				t.Errorf("exit code = %d, want 7", ev.Code)
+			}
+		}
 		nEvents++
 	}
 	ef.Close()
-	if nEvents != 5 { // 2 output + 2 input + 1 resize
-		t.Errorf("events count = %d, want 5", nEvents)
+	if nEvents != 6 { // 2 output + 2 input + 1 resize + 1 exit
+		t.Errorf("events count = %d, want 6", nEvents)
+	}
+	if !sawExit {
+		t.Error("events missing exit event")
 	}
 
 	// Check screenshot is a valid PNG.
