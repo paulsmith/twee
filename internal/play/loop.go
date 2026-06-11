@@ -256,7 +256,7 @@ func (l *loop) emitFrame(time.Time) {
 		return
 	}
 	placement := l.placementForSnapshot(snap)
-	es := engineSnapshot(snap)
+	es := EngineSnapshot(snap)
 	if l.atEnd {
 		overlayEndScreen(&es)
 	}
@@ -364,7 +364,8 @@ func hashSnapshot(s vt.Snapshot) []byte {
 	return sum[:]
 }
 
-func engineSnapshot(s vt.Snapshot) engine.Snapshot {
+// EngineSnapshot converts a VT snapshot to the renderer's input type.
+func EngineSnapshot(s vt.Snapshot) engine.Snapshot {
 	out := engine.Snapshot{
 		Cols:      s.Size.Cols,
 		Rows:      s.Size.Rows,

@@ -343,7 +343,7 @@ func TestLoopEndScreenWhenLastEventIsOutput(t *testing.T) {
 // with or without the end screen, for comparison against emitted frames.
 func renderedFrame(t *testing.T, l *loop, end bool) *image.RGBA {
 	t.Helper()
-	es := engineSnapshot(l.model.Snapshot())
+	es := EngineSnapshot(l.model.Snapshot())
 	if end {
 		overlayEndScreen(&es)
 	}

@@ -14,7 +14,7 @@ const (
 
 // overlayEndScreen dims snap's cells and draws a centered banner telling
 // the user playback has ended. It mutates snap in place, so the caller
-// must own the snapshot (engineSnapshot returns a deep copy).
+// must own the snapshot (EngineSnapshot returns a deep copy).
 func overlayEndScreen(snap *engine.Snapshot) {
 	if snap.Cols <= 0 || snap.Rows <= 0 {
 		return
