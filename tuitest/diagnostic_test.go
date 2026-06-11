@@ -47,15 +47,15 @@ exited:
 	}
 }
 
-func TestRunAutoRecordsToTempDir(t *testing.T) {
+func TestRunAutoRecordsTraceToTempDir(t *testing.T) {
 	term := Run(t, "/bin/sh", Args("-c", "printf 'recorded\\r\\n'"), Size(40, 5))
 	if err := term.WaitForText("recorded"); err != nil {
 		t.Fatal(err)
 	}
-	if term.RecordPath() == "" {
-		t.Fatal("expected auto recordPath to be set")
+	if term.TracePath() == "" {
+		t.Fatal("expected auto tracePath to be set")
 	}
-	if !strings.Contains(term.RecordPath(), "session.jsonl") {
-		t.Errorf("recordPath = %q, want suffix session.jsonl", term.RecordPath())
+	if !strings.Contains(term.TracePath(), "session.twee") {
+		t.Errorf("tracePath = %q, want suffix session.twee", term.TracePath())
 	}
 }

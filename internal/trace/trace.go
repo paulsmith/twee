@@ -48,8 +48,7 @@ func DefaultHostInfo() HostInfo {
 	}
 }
 
-// event mirrors recording.Event so that the trace package does not
-// import internal/recording.
+// event is the JSONL shape stored in events.jsonl inside a .twee bundle.
 type event struct {
 	TMS   int64  `json:"t_ms"`
 	Type  string `json:"type"`
@@ -58,6 +57,7 @@ type event struct {
 	Key   string `json:"key,omitempty"`
 	Cols  int    `json:"cols,omitempty"`
 	Rows  int    `json:"rows,omitempty"`
+	Code  int    `json:"code,omitempty"`
 }
 
 // Trace streams session artifacts into a temporary work directory and
@@ -169,6 +169,22 @@ func (tr *Trace) WriteResize(cols, rows int) {
 		Type: "resize",
 		Cols: cols,
 		Rows: rows,
+	}); err != nil && tr.err == nil {
+		tr.err = err
+	}
+}
+
+// WriteExit records the process exit code.
+func (tr *Trace) WriteExit(code int) {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	if tr.closed {
+		return
+	}
+	if err := tr.evEnc.Encode(event{
+		TMS:  tr.ms(time.Now()),
+		Type: "exit",
+		Code: code,
 	}); err != nil && tr.err == nil {
 		tr.err = err
 	}

@@ -93,10 +93,6 @@ type ScreenshotArgs struct {
 	PixelHeight int    `json:"pixel_height,omitempty"`
 }
 
-type RecordStartArgs struct {
-	Out string `json:"out,omitempty"`
-}
-
 type TraceStartArgs struct {
 	Out string `json:"out,omitempty"`
 }

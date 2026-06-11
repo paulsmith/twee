@@ -1,6 +1,6 @@
 package rpc
 
-// Op names. Multi-word verbs join with underscore; sub-verbs (record start /
+// Op names. Multi-word verbs join with underscore; sub-verbs (trace start /
 // wait text) become a single op name.
 const (
 	// Input
@@ -23,13 +23,11 @@ const (
 	OpSnapshot   = "snapshot"
 
 	// State changes
-	OpResize      = "resize"
-	OpScreenshot  = "screenshot"
-	OpRecordStart = "record_start"
-	OpRecordStop  = "record_stop"
-	OpTraceStart  = "trace_start"
-	OpTraceStop   = "trace_stop"
-	OpDiff        = "diff"
+	OpResize     = "resize"
+	OpScreenshot = "screenshot"
+	OpTraceStart = "trace_start"
+	OpTraceStop  = "trace_stop"
+	OpDiff       = "diff"
 
 	// Waits
 	OpWaitText   = "wait_text"

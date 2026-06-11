@@ -19,8 +19,7 @@ type config struct {
 	defaultTimeout    time.Duration
 	stableQuietWindow time.Duration
 
-	recordPath string
-	tracePath  string
+	tracePath string
 }
 
 func newConfig() *config {
@@ -42,7 +41,6 @@ func (c *config) toEngine() engine.Config {
 		Rows:              c.rows,
 		DefaultTimeout:    c.defaultTimeout,
 		StableQuietWindow: c.stableQuietWindow,
-		RecordPath:        c.recordPath,
 		TracePath:         c.tracePath,
 	}
 }
@@ -77,9 +75,9 @@ func DefaultTimeout(d time.Duration) Option {
 	return func(c *config) { c.defaultTimeout = d }
 }
 
-// Record enables session recording to the given path.
+// Record enables .twee trace recording to the given path.
 func Record(path string) Option {
-	return func(c *config) { c.recordPath = path }
+	return func(c *config) { c.tracePath = path }
 }
 
 // Trace enables trace recording to the given path. The trace is a .twee

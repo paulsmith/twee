@@ -65,7 +65,7 @@ top-level commands do not read `TWEE_SESSION`.
 
 Explicit global `--name` is accepted only for commands that target or create a
 named daemon: `start`, `status`, `stop`, `diff`, query commands, input commands,
-state-changing daemon commands, `wait`, `record`, and `trace`.
+state-changing daemon commands, `wait`, and `trace`.
 
 Explicit global `--name` is a usage error for `help`, `version`, `completion`,
 `sleep`, `play`, `run`, `codegen`, and `ls`. `ls` currently lists all sessions;
@@ -131,7 +131,7 @@ This includes:
 - `signal`
 - `key`
 - `keys`
-- Concrete leaves under `wait`, `record`, and `trace`
+- Concrete leaves under `wait` and `trace`
 
 ### Ordinary Local Leaves
 
@@ -149,14 +149,13 @@ consume `TWEE_SESSION` or `--name` unless a future design adds filtering.
 
 ### Subverb Containers
 
-Keep manual subverb dispatch for `wait`, `record`, and `trace`, then parse each
+Keep manual subverb dispatch for `wait` and `trace`, then parse each
 concrete leaf with `go-arg`.
 
 Static help should continue to support:
 
 ```sh
 twee help wait text
-twee help record start
 twee help trace stop
 ```
 

@@ -35,6 +35,16 @@ func TestTraceCapturesStartupOutput(t *testing.T) {
 
 func traceHasOutput(t *testing.T, tracePath, want string) bool {
 	t.Helper()
+	return traceHasEvent(t, tracePath, "output", want)
+}
+
+func traceHasInput(t *testing.T, tracePath, want string) bool {
+	t.Helper()
+	return traceHasEvent(t, tracePath, "input", want)
+}
+
+func traceHasEvent(t *testing.T, tracePath, eventType, want string) bool {
+	t.Helper()
 	zr, err := zip.OpenReader(tracePath)
 	if err != nil {
 		t.Fatalf("open trace zip: %v", err)
@@ -54,12 +64,12 @@ func traceHasOutput(t *testing.T, tracePath, want string) bool {
 		if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
 			t.Fatalf("decode event: %v", err)
 		}
-		if ev.Type != "output" {
+		if ev.Type != eventType {
 			continue
 		}
 		b, err := base64.StdEncoding.DecodeString(ev.Bytes)
 		if err != nil {
-			t.Fatalf("decode output bytes: %v", err)
+			t.Fatalf("decode %s bytes: %v", eventType, err)
 		}
 		if strings.Contains(string(b), want) {
 			return true

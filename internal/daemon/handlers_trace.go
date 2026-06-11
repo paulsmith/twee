@@ -22,7 +22,7 @@ func init() {
 
 // FinalizeArtifacts makes the session's artifacts durable: it drains the
 // remaining output, captures a final screenshot into the active trace (if
-// any), and finalizes the trace and recording. Idempotent. Used at daemon
+// any), and finalizes the trace. Idempotent. Used at daemon
 // teardown so a trace survives the child exiting before `trace stop`.
 func FinalizeArtifacts(t *engine.Term) error {
 	t.DrainOutput()

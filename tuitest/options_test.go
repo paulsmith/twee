@@ -2,7 +2,6 @@ package tuitest
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,8 +24,8 @@ func TestOptionsEnvDirDefaultTimeoutAndCursor(t *testing.T) {
 	}
 }
 
-func TestRecordOptionWritesFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "session.jsonl")
+func TestRecordOptionWritesTweeBundle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.twee")
 	term := Run(t, "/bin/sh",
 		Args("-c", "printf 'ready\\r\\n'; sleep 30"),
 		Record(path),
@@ -37,12 +36,8 @@ func TestRecordOptionWritesFile(t *testing.T) {
 	if err := term.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if !strings.Contains(string(b), `"type":"input"`) {
-		t.Fatalf("recording missing input event:\n%s", b)
+	if !traceHasInput(t, path, "abc") {
+		t.Fatalf("trace bundle missing input event for typed text")
 	}
 }
 

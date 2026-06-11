@@ -20,9 +20,6 @@ import (
 )
 
 // Term is a running TUI under test.
-//
-// recordPath is not stored here; it lives on the embedded engine and
-// is reachable via the promoted RecordPath() method.
 type Term struct {
 	*engine.Term
 	t testing.TB // optional; required for Expect*
@@ -38,8 +35,8 @@ func Run(t testing.TB, command string, opts ...Option) *Term {
 	if len(cfg.cmd) == 0 {
 		cfg.cmd = append([]string{command}, cfg.extraArgs...)
 	}
-	if cfg.recordPath == "" && os.Getenv("TUITEST_RECORD") != "0" {
-		cfg.recordPath = filepath.Join(t.TempDir(), "session.jsonl")
+	if cfg.tracePath == "" && os.Getenv("TUITEST_RECORD") != "0" {
+		cfg.tracePath = filepath.Join(t.TempDir(), "session.twee")
 	}
 	eng, err := engine.Start(context.Background(), cfg.toEngine())
 	if err != nil {
@@ -47,7 +44,6 @@ func Run(t testing.TB, command string, opts ...Option) *Term {
 	}
 	te := &Term{Term: eng, t: t}
 	t.Cleanup(func() {
-		recordPath := te.RecordPath()
 		tracePath := te.TracePath()
 		if err := te.Close(); err != nil {
 			if tracePath != "" {
@@ -57,9 +53,6 @@ func Run(t testing.TB, command string, opts ...Option) *Term {
 			}
 		}
 		if t.Failed() {
-			if recordPath != "" {
-				t.Logf("tuitest recording: %s", recordPath)
-			}
 			if tracePath != "" {
 				t.Logf("tuitest trace: %s", tracePath)
 			}
