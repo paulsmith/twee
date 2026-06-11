@@ -39,6 +39,9 @@ func (e Event) traceTime() time.Duration {
 	return time.Duration(e.TMS) * time.Millisecond
 }
 
+// TraceTime returns the event's timestamp as a duration from session start.
+func (e Event) TraceTime() time.Duration { return e.traceTime() }
+
 // OpenBundle opens and decodes a .twee zip bundle.
 func OpenBundle(path string) (Bundle, error) {
 	zr, err := zip.OpenReader(path)
