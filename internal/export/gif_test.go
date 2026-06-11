@@ -1,0 +1,120 @@
+package export
+
+import (
+	"image"
+	"image/color"
+	"image/gif"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func solidFrame(c color.RGBA, w, h int) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			img.SetRGBA(x, y, c)
+		}
+	}
+	return img
+}
+
+func TestGIFSinkRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "out.gif")
+	s, err := newGIFSink(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	red := color.RGBA{255, 0, 0, 255}
+	blue := color.RGBA{0, 0, 255, 255}
+	if err := s.add(solidFrame(red, 10, 10), 500*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.add(solidFrame(blue, 10, 10), time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.close(); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	g, err := gif.DecodeAll(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Image) != 2 {
+		t.Fatalf("got %d frames, want 2", len(g.Image))
+	}
+	if g.Delay[0] != 50 || g.Delay[1] != 100 {
+		t.Errorf("delays = %v, want [50 100] (centiseconds)", g.Delay)
+	}
+	if got := g.Image[0].At(5, 5); !sameColor(got, red) {
+		t.Errorf("frame 0 pixel = %v, want exact red (no dithering)", got)
+	}
+}
+
+func sameColor(a color.Color, b color.RGBA) bool {
+	r, g, bl, _ := a.RGBA()
+	return uint8(r>>8) == b.R && uint8(g>>8) == b.G && uint8(bl>>8) == b.B
+}
+
+func TestGIFSinkDelayRemainderCarry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "out.gif")
+	s, err := newGIFSink(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 3 frames x 33.33ms: naive rounding gives 3+3+3=9cs; carry gives
+	// 3+3+4=10cs (total 100ms preserved).
+	red := solidFrame(color.RGBA{255, 0, 0, 255}, 4, 4)
+	green := solidFrame(color.RGBA{0, 255, 0, 255}, 4, 4)
+	d := 33333333 * time.Nanosecond
+	frames := []*image.RGBA{red, green, red}
+	for _, f := range frames {
+		if err := s.add(f, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.close(); err != nil {
+		t.Fatal(err)
+	}
+	f, _ := os.Open(path)
+	defer f.Close()
+	g, err := gif.DecodeAll(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0
+	for _, dl := range g.Delay {
+		total += dl
+	}
+	if total != 10 {
+		t.Errorf("total delay = %dcs, want 10cs (remainder carry)", total)
+	}
+}
+
+func TestGIFSinkClampsMinimumDelay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "out.gif")
+	s, _ := newGIFSink(path)
+	red := solidFrame(color.RGBA{255, 0, 0, 255}, 4, 4)
+	if err := s.add(red, 5*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.close(); err != nil {
+		t.Fatal(err)
+	}
+	f, _ := os.Open(path)
+	defer f.Close()
+	g, err := gif.DecodeAll(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Delay[0] < 2 {
+		t.Errorf("delay = %dcs, want >= 2 (browser minimum)", g.Delay[0])
+	}
+}
