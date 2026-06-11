@@ -46,7 +46,7 @@ func TestHelp(t *testing.T) {
 		t.Errorf("help output should not link to markdown docs:\n%s", out)
 	}
 	last := -1
-	for _, verb := range []string{"cell", "codegen", "completion", "cursor", "diff", "find", "help", "key", "keys", "lines", "ls", "mode", "paste", "play", "region", "resize", "run", "screenshot", "scrollback", "signal", "size", "sleep", "snapshot", "start", "status", "stop", "text", "title", "trace", "type", "version", "wait"} {
+	for _, verb := range []string{"cell", "codegen", "completion", "cursor", "diff", "export", "find", "help", "key", "keys", "lines", "ls", "mode", "paste", "play", "region", "resize", "run", "screenshot", "scrollback", "signal", "size", "sleep", "snapshot", "start", "status", "stop", "text", "title", "trace", "type", "version", "wait"} {
 		needle := []byte("  " + verb + "  ")
 		idx := bytes.Index(out, needle)
 		if idx < 0 {

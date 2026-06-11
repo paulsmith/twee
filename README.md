@@ -60,8 +60,9 @@ tar -xzf twee_0.1.0_darwin_arm64.tar.gz
 ```
 
 This README tracks `main`, which has breaking CLI changes since v0.1.0
-(`--` before child argv, `wait text --pattern`, long options only). For
-the v0.1.0 CLI, read the README at that tag — or build from source.
+(`--` before child argv, `wait text --pattern`, mostly long options
+only; `twee export` uses `-o`). For the v0.1.0 CLI, read the README at
+that tag — or build from source.
 
 ### Building from source
 
@@ -151,6 +152,7 @@ command list is:
 | `completion` | Print shell completion setup (currently a placeholder). |
 | `cursor` | Show cursor state. |
 | `diff` | Compare the viewport to a saved text snapshot. |
+| `export` | Export a `.twee` trace bundle to GIF, MP4, or WebM. |
 | `find` | Find text in the viewport. |
 | `help` | Print top-level or per-command help. |
 | `key` | Send one named key. |
@@ -393,6 +395,35 @@ protocol. `stdout` must be a TTY, and the terminal must be large enough
 for the maximum recorded trace size plus two footer rows. Today that
 means Kitty-compatible playback only; there is no Sixel or iTerm2 image
 backend yet.
+
+## Export
+
+`twee export` renders a `.twee` bundle to a video file without opening a
+terminal UI. The output format is inferred from the `-o` extension:
+animated GIF is encoded in pure Go, while MP4 and WebM require an
+`ffmpeg` binary on `PATH` (or an explicit `--ffmpeg` path).
+
+```
+$ twee export /tmp/myapp.twee -o /tmp/myapp.gif
+$ twee export /tmp/myapp.twee -o /tmp/myapp.mp4 --speed 2
+```
+
+Exports emit a frame only when the visible screen changes. The cursor is
+not drawn, matching `twee play`, so cursor-only movement does not create
+extra frames. Timing is faithful to the recording by default: unlike
+`twee play`, `--max-idle` defaults to `0`, so long idle gaps are kept
+unless you explicitly cap them.
+
+Flags:
+
+| Flag | Purpose |
+|---|---|
+| `-o <path>` | Output path. Extension must be `.gif`, `.mp4`, or `.webm`. |
+| `--speed N` | Playback speed multiplier (default `1.0`). |
+| `--max-idle <dur>` | Cap long idle gaps between events (default `0`, faithful timing). |
+| `--font-size <pt>` | Render font size in points (default `14`). |
+| `--fps-cap N` | Limit snapshot/render work to at most this many frames per second of video time (default `30`). |
+| `--ffmpeg <path>` | ffmpeg binary for MP4/WebM output (default: find `ffmpeg` on `PATH`). |
 
 ## Limitations
 

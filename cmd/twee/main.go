@@ -122,8 +122,9 @@ Common flags:
   --name <name>     Target a named daemon (default: TWEE_SESSION or "default")
   --timeout <dur>   Override timeout for wait verbs
 
-Only long options are accepted. Global --name may appear before
+Most commands accept only long options. Global --name may appear before
 name-aware daemon commands, for example "twee --name foo status".
+The export command also accepts -o for its output path.
 
 Use "--" before child argv or literal payloads:
   twee start -- vim file
