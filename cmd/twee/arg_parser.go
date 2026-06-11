@@ -82,9 +82,6 @@ func rejectShortOptions(args []string) error {
 
 func parseRootArgs(args []string) (rootArgs, error) {
 	var root rootArgs
-	if err := rejectShortOptions(args); err != nil {
-		return root, err
-	}
 	if len(args) == 0 {
 		return root, nil
 	}
@@ -109,6 +106,8 @@ func parseRootArgs(args []string) (rootArgs, error) {
 			i++
 		case strings.HasPrefix(a, "--"):
 			return root, fmt.Errorf("unknown global option %s", a)
+		case strings.HasPrefix(a, "-") && a != "-":
+			return root, fmt.Errorf("%w: %s", errShortOption, a)
 		default:
 			root.Verb = a
 			root.Args = append([]string(nil), args[i+1:]...)
