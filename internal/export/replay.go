@@ -48,15 +48,14 @@ func replay(events []play.Event, cols, rows int, opts Options,
 	pendingSnap := model.Snapshot()
 	pendingHash := hashNoCursor(pendingSnap)
 	var pendingT time.Duration
-	var lastCheckpoint time.Duration
 	checkpointSet := false
+	var nextCheckpoint time.Duration
+	dirty := false
 
-	checkpoint := func(t time.Duration, force bool) error {
-		if !force && checkpointSet && t-lastCheckpoint < window {
-			return nil
-		}
+	checkpoint := func(t time.Duration) error {
 		checkpointSet = true
-		lastCheckpoint = t
+		nextCheckpoint = t + window
+		dirty = false
 
 		snap := model.Snapshot()
 		h := hashNoCursor(snap)
@@ -73,18 +72,43 @@ func replay(events []play.Event, cols, rows int, opts Options,
 	}
 
 	for i, ev := range events {
+		t := adjusted[i]
+		if dirty && t >= nextCheckpoint {
+			if err := checkpoint(nextCheckpoint); err != nil {
+				return err
+			}
+		}
 		if err := apply(model, ev); err != nil {
 			return err
 		}
-		if err := checkpoint(adjusted[i], false); err != nil {
-			return err
+		if !screenEvent(ev) {
+			continue
 		}
+		if !checkpointSet || t >= nextCheckpoint {
+			if err := checkpoint(t); err != nil {
+				return err
+			}
+			continue
+		}
+		dirty = true
 	}
 
 	end := time.Duration(0)
 	if len(events) > 0 {
 		end = adjusted[len(events)-1]
-		if err := checkpoint(end, true); err != nil {
+		if dirty {
+			if err := checkpoint(end); err != nil {
+				return err
+			}
+		}
+		if !checkpointSet {
+			if err := checkpoint(end); err != nil {
+				return err
+			}
+		}
+	}
+	if !checkpointSet {
+		if err := checkpoint(0); err != nil {
 			return err
 		}
 	}
@@ -128,6 +152,17 @@ func apply(model vt.Model, ev play.Event) error {
 	}
 	// input and exit events do not affect the screen.
 	return nil
+}
+
+func screenEvent(ev play.Event) bool {
+	switch ev.Type {
+	case "output":
+		return true
+	case "resize":
+		return ev.Cols > 0 && ev.Rows > 0
+	default:
+		return false
+	}
 }
 
 // hashNoCursor hashes the snapshot with the cursor zeroed: the renderer does

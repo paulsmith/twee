@@ -118,6 +118,41 @@ func TestReplayFPSCapMergesBursts(t *testing.T) {
 	}
 }
 
+func TestReplaySnapshotsDirtyFPSWindowBeforeLaterEvent(t *testing.T) {
+	frames := collect(t, []play.Event{
+		out(0, "x"),
+		out(20, "x"),
+		out(40, "x"),
+	}, Options{FPSCap: 30})
+	if !hasFrameText(frames, "c") {
+		t.Fatalf("frames = %v, want intermediate screen from dirty fps window", frameTexts(frames))
+	}
+}
+
+func hasFrameText(frames []frame, want string) bool {
+	for _, f := range frames {
+		if frameText(f) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func frameTexts(frames []frame) []string {
+	out := make([]string, len(frames))
+	for i, f := range frames {
+		out[i] = frameText(f)
+	}
+	return out
+}
+
+func frameText(f frame) string {
+	if len(f.snap.Lines) == 0 || len(f.snap.Lines[0].Cells) == 0 {
+		return ""
+	}
+	return f.snap.Lines[0].Cells[0].Text
+}
+
 func TestReplaySpeedAndMaxIdle(t *testing.T) {
 	// gap of 10s capped to 2s, then /2 speed -> 1s.
 	frames := collect(t, []play.Event{out(0, "x"), out(10000, "x")},
