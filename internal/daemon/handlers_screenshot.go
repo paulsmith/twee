@@ -1,10 +1,8 @@
 package daemon
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"os"
 
 	"github.com/paulsmith/twee/internal/engine"
 	"github.com/paulsmith/twee/internal/render"
@@ -18,23 +16,18 @@ func init() {
 }
 
 func handleScreenshot(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
-	var a rpc.ScreenshotArgs
-	if err := json.Unmarshal(raw, &a); err != nil && len(raw) > 0 {
-		return nil, &rpc.Error{Code: rpc.CodeInvalidArgument, Message: err.Error()}
+	a, errResp := decodeOptionalArgs[rpc.ScreenshotArgs](raw)
+	if errResp != nil {
+		return nil, errResp
 	}
 	snap := t.Snapshot()
 	img, err := render.Render(snap, renderOptionsForScreenshot(a))
 	if err != nil {
-		return nil, &rpc.Error{Code: rpc.CodeInternal, Message: err.Error()}
+		return nil, internalFailure(err)
 	}
 	if a.Out != "" {
-		f, err := os.Create(a.Out)
-		if err != nil {
-			return nil, &rpc.Error{Code: rpc.CodeIO, Message: err.Error()}
-		}
-		defer f.Close()
-		if err := render.EncodePNG(f, img); err != nil {
-			return nil, &rpc.Error{Code: rpc.CodeIO, Message: err.Error()}
+		if err := render.EncodePNGFile(a.Out, img); err != nil {
+			return nil, ioFailure(err)
 		}
 		return rpc.ScreenshotData{
 			Out:    a.Out,
@@ -42,12 +35,12 @@ func handleScreenshot(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 			Height: img.Bounds().Dy(),
 		}, nil
 	}
-	var buf bytes.Buffer
-	if err := render.EncodePNG(&buf, img); err != nil {
-		return nil, &rpc.Error{Code: rpc.CodeInternal, Message: err.Error()}
+	pngBytes, err := render.PNGBytes(img)
+	if err != nil {
+		return nil, internalFailure(err)
 	}
 	return rpc.ScreenshotData{
-		PNGBase64: base64.StdEncoding.EncodeToString(buf.Bytes()),
+		PNGBase64: base64.StdEncoding.EncodeToString(pngBytes),
 		Width:     img.Bounds().Dx(),
 		Height:    img.Bounds().Dy(),
 	}, nil

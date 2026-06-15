@@ -33,7 +33,7 @@ func handleStatus(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
 
 func handleStop(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
 	if err := t.Close(); err != nil {
-		return nil, &rpc.Error{Code: rpc.CodeIO, Message: err.Error()}
+		return nil, ioFailure(err)
 	}
 	return nil, nil
 }

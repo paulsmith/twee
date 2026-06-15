@@ -56,7 +56,7 @@ func runTrace(args []string) {
 		if err := parseArg("trace start", &opts, rest); err != nil {
 			fatalUsage("trace start: %v", err)
 		}
-		callAndEmit(mustCurrentSessionName("trace start", nameOptFromPtr(opts.Name)), rpc.OpTraceStart, rpc.TraceStartArgs{Out: opts.Out})
+		callSessionAndEmit("trace start", opts.Name, rpc.OpTraceStart, rpc.TraceStartArgs{Out: opts.Out})
 	case "stop":
 		var opts struct {
 			Name *string `arg:"--name"`
@@ -64,7 +64,7 @@ func runTrace(args []string) {
 		if err := parseArg("trace stop", &opts, rest); err != nil {
 			fatalUsage("trace stop: %v", err)
 		}
-		name := mustCurrentSessionName("trace stop", nameOptFromPtr(opts.Name))
+		name := mustResolveSessionNamePtr("trace stop", opts.Name)
 		resp, err := callDaemon(name, rpc.OpTraceStop, nil)
 		if err != nil {
 			msg := err.Error()

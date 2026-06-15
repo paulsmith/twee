@@ -34,28 +34,28 @@ func handleLines(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
 }
 
 func handleCell(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
-	var a rpc.CellArgs
-	if err := json.Unmarshal(raw, &a); err != nil {
-		return nil, &rpc.Error{Code: rpc.CodeInvalidArgument, Message: err.Error()}
+	a, errResp := decodeArgs[rpc.CellArgs](raw)
+	if errResp != nil {
+		return nil, errResp
 	}
 	snap := t.Snapshot()
 	if a.Y < 0 || a.Y >= len(snap.Lines) {
-		return nil, &rpc.Error{Code: rpc.CodeInvalidArgument, Message: "y out of range"}
+		return nil, invalidArgumentMessage("y out of range")
 	}
 	row := snap.Lines[a.Y].Cells
 	if a.X < 0 || a.X >= len(row) {
-		return nil, &rpc.Error{Code: rpc.CodeInvalidArgument, Message: "x out of range"}
+		return nil, invalidArgumentMessage("x out of range")
 	}
 	return row[a.X], nil
 }
 
 func handleRegion(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
-	var a rpc.RegionArgs
-	if err := json.Unmarshal(raw, &a); err != nil {
-		return nil, &rpc.Error{Code: rpc.CodeInvalidArgument, Message: err.Error()}
+	a, errResp := decodeArgs[rpc.RegionArgs](raw)
+	if errResp != nil {
+		return nil, errResp
 	}
 	if a.W <= 0 || a.H <= 0 {
-		return nil, &rpc.Error{Code: rpc.CodeInvalidArgument, Message: "w and h must be > 0"}
+		return nil, invalidArgumentMessage("w and h must be > 0")
 	}
 	snap := t.Snapshot()
 	out := make([][]engine.Cell, 0, a.H)
@@ -80,16 +80,16 @@ func handleCursor(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
 }
 
 func handleFind(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
-	var a rpc.FindArgs
-	if err := json.Unmarshal(raw, &a); err != nil {
-		return nil, &rpc.Error{Code: rpc.CodeInvalidArgument, Message: err.Error()}
+	a, errResp := decodeArgs[rpc.FindArgs](raw)
+	if errResp != nil {
+		return nil, errResp
 	}
 	lines := t.Lines()
 	matches := make([]rpc.FindMatch, 0)
 	if a.Regex {
 		re, err := regexp.Compile(a.Text)
 		if err != nil {
-			return nil, &rpc.Error{Code: rpc.CodeInvalidArgument, Message: err.Error()}
+			return nil, invalidArgument(err)
 		}
 		for y, ln := range lines {
 			for _, idx := range re.FindAllStringIndex(ln, -1) {

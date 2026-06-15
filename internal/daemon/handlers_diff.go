@@ -16,16 +16,16 @@ func init() {
 }
 
 func handleDiff(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
-	var a rpc.DiffArgs
-	if err := json.Unmarshal(raw, &a); err != nil {
-		return nil, &rpc.Error{Code: rpc.CodeInvalidArgument, Message: err.Error()}
+	a, errResp := decodeArgs[rpc.DiffArgs](raw)
+	if errResp != nil {
+		return nil, errResp
 	}
 	if a.Against == "" {
-		return nil, &rpc.Error{Code: rpc.CodeInvalidArgument, Message: "against is required"}
+		return nil, invalidArgumentMessage("against is required")
 	}
 	expectedBytes, err := os.ReadFile(a.Against)
 	if err != nil {
-		return nil, &rpc.Error{Code: rpc.CodeIO, Message: err.Error()}
+		return nil, ioFailure(err)
 	}
 	expected := string(expectedBytes)
 	current := t.VisibleText()

@@ -49,10 +49,7 @@ func (d *Dispatcher) Dispatch(req rpc.Request) rpc.Response {
 	h, ok := d.handlers[req.Op]
 	if !ok {
 		resp.OK = false
-		resp.Error = &rpc.Error{
-			Code:    rpc.CodeInvalidArgument,
-			Message: fmt.Sprintf("unknown op %q", req.Op),
-		}
+		resp.Error = invalidArgumentMessage(fmt.Sprintf("unknown op %q", req.Op))
 		return resp
 	}
 	data, errResp := h(d.term, req.Args)
@@ -66,10 +63,7 @@ func (d *Dispatcher) Dispatch(req rpc.Request) rpc.Response {
 		raw, err := json.Marshal(data)
 		if err != nil {
 			resp.OK = false
-			resp.Error = &rpc.Error{
-				Code:    rpc.CodeInternal,
-				Message: "marshal data: " + err.Error(),
-			}
+			resp.Error = rpcError(rpc.CodeInternal, "marshal data: "+err.Error())
 			return resp
 		}
 		resp.Data = raw

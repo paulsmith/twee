@@ -84,7 +84,7 @@ func parseStartArgs(args []string) (startOptions, error) {
 	if err != nil {
 		return startOptions{}, err
 	}
-	name, err := currentSessionName(nameOptFromPtr(parsed.Name))
+	name, err := resolveSessionNamePtr(parsed.Name)
 	if err != nil {
 		return startOptions{}, err
 	}

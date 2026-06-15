@@ -51,7 +51,7 @@ func runQuery(verb, op string, args []string) {
 	if err := parseArg(verb, &opts, args); err != nil {
 		fatalUsage("%s: %v", verb, err)
 	}
-	callAndEmit(mustCurrentSessionName(verb, nameOptFromPtr(opts.Name)), op, nil)
+	callSessionAndEmit(verb, opts.Name, op, nil)
 }
 
 func runCell(args []string) {
@@ -63,7 +63,7 @@ func runCell(args []string) {
 	if err := parseArg("cell", &opts, args); err != nil {
 		fatalUsage("cell: %v", err)
 	}
-	callAndEmit(mustCurrentSessionName("cell", nameOptFromPtr(opts.Name)), rpc.OpCell, rpc.CellArgs{X: opts.X, Y: opts.Y})
+	callSessionAndEmit("cell", opts.Name, rpc.OpCell, rpc.CellArgs{X: opts.X, Y: opts.Y})
 }
 
 func runRegion(args []string) {
@@ -77,7 +77,7 @@ func runRegion(args []string) {
 	if err := parseArg("region", &opts, args); err != nil {
 		fatalUsage("region: %v", err)
 	}
-	callAndEmit(mustCurrentSessionName("region", nameOptFromPtr(opts.Name)), rpc.OpRegion, rpc.RegionArgs{X: opts.X, Y: opts.Y, W: opts.W, H: opts.H})
+	callSessionAndEmit("region", opts.Name, rpc.OpRegion, rpc.RegionArgs{X: opts.X, Y: opts.Y, W: opts.W, H: opts.H})
 }
 
 func runFind(args []string) {
@@ -89,5 +89,5 @@ func runFind(args []string) {
 	if err := parseArg("find", &opts, args); err != nil {
 		fatalUsage("find: %v", err)
 	}
-	callAndEmit(mustCurrentSessionName("find", nameOptFromPtr(opts.Name)), rpc.OpFind, rpc.FindArgs{Text: opts.Pattern, Regex: opts.Regex})
+	callSessionAndEmit("find", opts.Name, rpc.OpFind, rpc.FindArgs{Text: opts.Pattern, Regex: opts.Regex})
 }

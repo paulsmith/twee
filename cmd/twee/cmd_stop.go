@@ -21,7 +21,7 @@ func runStop(args []string) {
 	if err := parseArg("stop", &opts, args); err != nil {
 		fatalUsage("stop: %v", err)
 	}
-	name := mustCurrentSessionName("stop", nameOptFromPtr(opts.Name))
+	name := mustResolveSessionNamePtr("stop", opts.Name)
 	resp, err := callDaemon(name, rpc.OpStop, nil)
 	if err != nil {
 		code := transportErrorCode(err)

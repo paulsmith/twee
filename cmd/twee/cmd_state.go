@@ -30,7 +30,7 @@ func runScreenshot(args []string) {
 		fatalUsage("screenshot: %v", err)
 	}
 	pixelWidth, pixelHeight := nativeDisplayPixels()
-	callAndEmit(mustCurrentSessionName("screenshot", nameOptFromPtr(opts.Name)), rpc.OpScreenshot, rpc.ScreenshotArgs{
+	callSessionAndEmit("screenshot", opts.Name, rpc.OpScreenshot, rpc.ScreenshotArgs{
 		Out:         opts.Out,
 		PixelWidth:  pixelWidth,
 		PixelHeight: pixelHeight,
@@ -46,7 +46,7 @@ func runResize(args []string) {
 	if err := parseArg("resize", &opts, args); err != nil {
 		fatalUsage("resize: %v", err)
 	}
-	callAndEmit(mustCurrentSessionName("resize", nameOptFromPtr(opts.Name)), rpc.OpResize, rpc.ResizeArgs{Cols: opts.Cols, Rows: opts.Rows})
+	callSessionAndEmit("resize", opts.Name, rpc.OpResize, rpc.ResizeArgs{Cols: opts.Cols, Rows: opts.Rows})
 }
 
 // runSleep is client-side: sleeps locally and emits an OK envelope.

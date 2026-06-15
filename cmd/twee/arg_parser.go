@@ -58,8 +58,12 @@ func currentSessionName(local nameOpt) (string, error) {
 	return sessionName(local, rootGlobalName, os.LookupEnv)
 }
 
-func mustCurrentSessionName(verb string, local nameOpt) string {
-	name, err := currentSessionName(local)
+func resolveSessionNamePtr(local *string) (string, error) {
+	return currentSessionName(nameOptFromPtr(local))
+}
+
+func mustResolveSessionNamePtr(verb string, local *string) string {
+	name, err := resolveSessionNamePtr(local)
 	if err != nil {
 		fatalUsage("%s: %v", verb, err)
 	}

@@ -78,7 +78,7 @@ func runWaitText(args []string) {
 	if err := parseArg("wait text", &opts, args); err != nil {
 		fatalUsage("wait text: %v", err)
 	}
-	callAndEmit(mustCurrentSessionName("wait text", nameOptFromPtr(opts.Name)), rpc.OpWaitText, rpc.WaitTextArgs{Text: opts.Pattern, Regex: opts.Regex, Timeout: opts.Timeout})
+	callSessionAndEmit("wait text", opts.Name, rpc.OpWaitText, rpc.WaitTextArgs{Text: opts.Pattern, Regex: opts.Regex, Timeout: opts.Timeout})
 }
 
 func runWaitNoText(args []string) {
@@ -90,7 +90,7 @@ func runWaitNoText(args []string) {
 	if err := parseArg("wait no-text", &opts, args); err != nil {
 		fatalUsage("wait no-text: %v", err)
 	}
-	callAndEmit(mustCurrentSessionName("wait no-text", nameOptFromPtr(opts.Name)), rpc.OpWaitNoText, rpc.WaitNoTextArgs{Text: opts.Pattern, Timeout: opts.Timeout})
+	callSessionAndEmit("wait no-text", opts.Name, rpc.OpWaitNoText, rpc.WaitNoTextArgs{Text: opts.Pattern, Timeout: opts.Timeout})
 }
 
 func runWaitStable(args []string) {
@@ -102,7 +102,7 @@ func runWaitStable(args []string) {
 	if err := parseArg("wait stable", &opts, args); err != nil {
 		fatalUsage("wait stable: %v", err)
 	}
-	callAndEmit(mustCurrentSessionName("wait stable", nameOptFromPtr(opts.Name)), rpc.OpWaitStable, rpc.WaitStableArgs{Quiet: opts.Quiet, Timeout: opts.Timeout})
+	callSessionAndEmit("wait stable", opts.Name, rpc.OpWaitStable, rpc.WaitStableArgs{Quiet: opts.Quiet, Timeout: opts.Timeout})
 }
 
 func runWaitCursor(args []string) {
@@ -115,7 +115,7 @@ func runWaitCursor(args []string) {
 	if err := parseArg("wait cursor", &opts, args); err != nil {
 		fatalUsage("wait cursor: %v", err)
 	}
-	callAndEmit(mustCurrentSessionName("wait cursor", nameOptFromPtr(opts.Name)), rpc.OpWaitCursor, rpc.WaitCursorArgs{X: opts.X, Y: opts.Y, Timeout: opts.Timeout})
+	callSessionAndEmit("wait cursor", opts.Name, rpc.OpWaitCursor, rpc.WaitCursorArgs{X: opts.X, Y: opts.Y, Timeout: opts.Timeout})
 }
 
 func runWaitExit(args []string) {
@@ -126,7 +126,7 @@ func runWaitExit(args []string) {
 	if err := parseArg("wait exit", &opts, args); err != nil {
 		fatalUsage("wait exit: %v", err)
 	}
-	name := mustCurrentSessionName("wait exit", nameOptFromPtr(opts.Name))
+	name := mustResolveSessionNamePtr("wait exit", opts.Name)
 	if !daemonReachable(name) {
 		emitOK(map[string]any{"exit_code": nil, "daemon_already_gone": true})
 		return

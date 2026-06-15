@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"image"
 	"image/png"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"golang.org/x/image/font"
@@ -37,6 +39,43 @@ func TestRenderEmitsPNG(t *testing.T) {
 	}
 	if cfg.Width <= 0 || cfg.Height <= 0 {
 		t.Errorf("got %dx%d", cfg.Width, cfg.Height)
+	}
+}
+
+func TestPNGBytes(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+
+	b, err := PNGBytes(img)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := png.DecodeConfig(bytes.NewReader(b))
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if cfg.Width != 1 || cfg.Height != 1 {
+		t.Fatalf("decoded size = %dx%d, want 1x1", cfg.Width, cfg.Height)
+	}
+}
+
+func TestEncodePNGFile(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	path := filepath.Join(t.TempDir(), "frame.png")
+
+	if err := EncodePNGFile(path, img); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	cfg, err := png.DecodeConfig(f)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if cfg.Width != 1 || cfg.Height != 1 {
+		t.Fatalf("decoded size = %dx%d, want 1x1", cfg.Width, cfg.Height)
 	}
 }
 

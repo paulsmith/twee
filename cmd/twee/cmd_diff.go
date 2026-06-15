@@ -21,5 +21,5 @@ func runDiff(args []string) {
 	if err := parseArg("diff", &opts, args); err != nil {
 		fatalUsage("diff: %v", err)
 	}
-	callAndEmit(mustCurrentSessionName("diff", nameOptFromPtr(opts.Name)), rpc.OpDiff, rpc.DiffArgs{Against: opts.Against})
+	callSessionAndEmit("diff", opts.Name, rpc.OpDiff, rpc.DiffArgs{Against: opts.Against})
 }

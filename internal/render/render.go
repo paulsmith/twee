@@ -1,11 +1,13 @@
 package render
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/png"
 	"io"
+	"os"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
@@ -62,6 +64,28 @@ func Render(snap engine.Snapshot, opts Options) (*image.RGBA, error) {
 // EncodePNG writes the image as PNG to w.
 func EncodePNG(w io.Writer, img image.Image) error {
 	return png.Encode(w, img)
+}
+
+// PNGBytes encodes the image as PNG and returns the encoded bytes.
+func PNGBytes(img image.Image) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := EncodePNG(&buf, img); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// EncodePNGFile writes the image as a PNG file at path.
+func EncodePNGFile(path string, img image.Image) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	if err := EncodePNG(f, img); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func cellMetrics(face font.Face) (cw, ch int) {

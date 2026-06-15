@@ -19,5 +19,5 @@ func runStatus(args []string) {
 	if err := parseArg("status", &opts, args); err != nil {
 		fatalUsage("status: %v", err)
 	}
-	callAndEmit(mustCurrentSessionName("status", nameOptFromPtr(opts.Name)), rpc.OpStatus, nil)
+	callSessionAndEmit("status", opts.Name, rpc.OpStatus, nil)
 }

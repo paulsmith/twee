@@ -62,6 +62,29 @@ func TestSessionNamePrecedenceAndValidation(t *testing.T) {
 	}
 }
 
+func TestResolveSessionNamePtrPrefersLocalName(t *testing.T) {
+	oldGlobal := rootGlobalName
+	t.Cleanup(func() { rootGlobalName = oldGlobal })
+	rootGlobalName = nameOpt{Value: "global", Present: true}
+
+	local := "local"
+	got, err := resolveSessionNamePtr(&local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "local" {
+		t.Fatalf("session name = %q, want local", got)
+	}
+}
+
+func TestResolveSessionNamePtrRejectsInvalidName(t *testing.T) {
+	local := "../bad"
+	_, err := resolveSessionNamePtr(&local)
+	if err == nil {
+		t.Fatal("resolveSessionNamePtr unexpectedly accepted invalid name")
+	}
+}
+
 func TestParseRootArgsGlobalNameAndHelp(t *testing.T) {
 	root, err := parseRootArgs([]string{"--name", "s", "status"})
 	if err != nil {

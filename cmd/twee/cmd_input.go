@@ -68,7 +68,7 @@ func runType(args []string) {
 	if err := parseArg("type", &opts, before); err != nil {
 		fatalUsage("type: %v", err)
 	}
-	callAndEmit(mustCurrentSessionName("type", nameOptFromPtr(opts.Name)), rpc.OpType, rpc.TypeArgs{Text: strings.Join(payload, " ")})
+	callSessionAndEmit("type", opts.Name, rpc.OpType, rpc.TypeArgs{Text: strings.Join(payload, " ")})
 }
 
 func runKey(args []string) {
@@ -82,7 +82,7 @@ func runKey(args []string) {
 	if _, err := input.Parse(opts.Key); err != nil {
 		fatalUsage("%s", keyErrorHint(opts.Key))
 	}
-	callAndEmit(mustCurrentSessionName("key", nameOptFromPtr(opts.Name)), rpc.OpKey, rpc.KeyArgs{Key: opts.Key})
+	callSessionAndEmit("key", opts.Name, rpc.OpKey, rpc.KeyArgs{Key: opts.Key})
 }
 
 // keyErrorHint produces a useful message when a "key" argument doesn't
@@ -111,7 +111,7 @@ func runKeys(args []string) {
 			fatalUsage("keys: %s", keyErrorHint(k))
 		}
 	}
-	name := mustCurrentSessionName("keys", nameOptFromPtr(opts.Name))
+	name := mustResolveSessionNamePtr("keys", opts.Name)
 	for _, k := range opts.Keys {
 		callOnly(name, rpc.OpKey, rpc.KeyArgs{Key: k})
 	}
@@ -129,7 +129,7 @@ func runPaste(args []string) {
 	if err := parseArg("paste", &opts, before); err != nil {
 		fatalUsage("paste: %v", err)
 	}
-	callAndEmit(mustCurrentSessionName("paste", nameOptFromPtr(opts.Name)), rpc.OpPaste, rpc.PasteArgs{Text: strings.Join(payload, " ")})
+	callSessionAndEmit("paste", opts.Name, rpc.OpPaste, rpc.PasteArgs{Text: strings.Join(payload, " ")})
 }
 
 func runSignal(args []string) {
@@ -140,5 +140,5 @@ func runSignal(args []string) {
 	if err := parseArg("signal", &opts, args); err != nil {
 		fatalUsage("signal: %v", err)
 	}
-	callAndEmit(mustCurrentSessionName("signal", nameOptFromPtr(opts.Name)), rpc.OpSignal, rpc.SignalArgs{Name: opts.Signal})
+	callSessionAndEmit("signal", opts.Name, rpc.OpSignal, rpc.SignalArgs{Name: opts.Signal})
 }

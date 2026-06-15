@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -33,19 +32,19 @@ func FinalizeArtifacts(t *engine.Term) error {
 }
 
 func handleTraceStart(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
-	var a rpc.TraceStartArgs
-	if err := json.Unmarshal(raw, &a); err != nil && len(raw) > 0 {
-		return nil, &rpc.Error{Code: rpc.CodeInvalidArgument, Message: err.Error()}
+	a, errResp := decodeOptionalArgs[rpc.TraceStartArgs](raw)
+	if errResp != nil {
+		return nil, errResp
 	}
 	if a.Out == "" {
 		dir, err := os.MkdirTemp("", "twee-trace-")
 		if err != nil {
-			return nil, &rpc.Error{Code: rpc.CodeIO, Message: err.Error()}
+			return nil, ioFailure(err)
 		}
 		a.Out = filepath.Join(dir, fmt.Sprintf("session-%d.twee", time.Now().UnixNano()))
 	}
 	if err := t.EnableTrace(a.Out); err != nil {
-		return nil, &rpc.Error{Code: rpc.CodeIO, Message: err.Error()}
+		return nil, ioFailure(err)
 	}
 	// Capture initial screenshot.
 	if png, err := renderScreenshot(t); err == nil {
@@ -62,14 +61,14 @@ func handleTraceStop(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
 		if p := t.FinalizedTracePath(); p != "" {
 			return map[string]any{"path": p, "already_finalized": true}, nil
 		}
-		return nil, &rpc.Error{Code: rpc.CodeNotFound, Message: "no active trace"}
+		return nil, notFoundMessage("no active trace")
 	}
 	// Capture final screenshot before closing the trace.
 	if png, err := renderScreenshot(t); err == nil {
 		t.TraceAddScreenshot(png)
 	}
 	if err := t.DisableTrace(); err != nil {
-		return nil, &rpc.Error{Code: rpc.CodeIO, Message: err.Error()}
+		return nil, ioFailure(err)
 	}
 	return map[string]string{"path": path}, nil
 }
@@ -80,9 +79,5 @@ func renderScreenshot(t *engine.Term) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var buf bytes.Buffer
-	if err := render.EncodePNG(&buf, img); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return render.PNGBytes(img)
 }

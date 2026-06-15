@@ -39,15 +39,7 @@ func newFFmpegSink(outPath, ffmpeg string) (*ffmpegSink, error) {
 func (s *ffmpegSink) add(img *image.RGBA, d time.Duration) error {
 	s.n++
 	name := fmt.Sprintf("frame-%06d.png", s.n)
-	f, err := os.Create(filepath.Join(s.dir, name))
-	if err != nil {
-		return err
-	}
-	if err := render.EncodePNG(f, img); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
+	if err := render.EncodePNGFile(filepath.Join(s.dir, name), img); err != nil {
 		return err
 	}
 	s.noteFrame(name, d)

@@ -78,6 +78,10 @@ func callAndEmit(name, op string, args any) {
 	emitOKRaw(resp.Data)
 }
 
+func callSessionAndEmit(verb string, localName *string, op string, args any) {
+	callAndEmit(mustResolveSessionNamePtr(verb, localName), op, args)
+}
+
 // callOnly calls one op, exits on error, but stays silent on success.
 func callOnly(name, op string, args any) {
 	resp, err := callDaemon(name, op, args)
