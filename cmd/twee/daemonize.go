@@ -92,7 +92,7 @@ func runDaemonChildReal() {
 	tracePath := os.Getenv(envDaemonTrace)
 	if tracePath != "" {
 		// Reuse the trace_start handler so `start --trace` and the trace
-		// verb produce identical bundles (initial screenshot included).
+		// verb produce identical bundles.
 		resp, err := dispatchRunControl(te, rpc.OpTraceStart, rpc.TraceStartArgs{Out: tracePath})
 		if err == nil && !resp.OK {
 			err = fmt.Errorf("%s", resp.Error.Message)

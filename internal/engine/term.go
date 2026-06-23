@@ -220,17 +220,6 @@ func (t *Term) DisableTrace() error {
 	return t.closeTraceLocked()
 }
 
-// TraceAddScreenshot adds a pre-encoded PNG screenshot to the active trace.
-// Returns nil if no trace is active.
-func (t *Term) TraceAddScreenshot(pngData []byte) {
-	t.cfgMu.Lock()
-	tr := t.tr
-	t.cfgMu.Unlock()
-	if tr != nil {
-		tr.AddScreenshotPNG(pngData)
-	}
-}
-
 // updateOutputHookLocked sets the pump's output hook to the active trace.
 // Must be called with cfgMu held.
 func (t *Term) updateOutputHookLocked() {

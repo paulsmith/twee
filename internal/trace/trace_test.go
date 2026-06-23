@@ -5,31 +5,13 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"image"
-	"image/color"
-	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
-
-// makeTinyPNG creates a small valid PNG in memory for testing.
-func makeTinyPNG(t *testing.T) []byte {
-	t.Helper()
-	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
-	for y := 0; y < 4; y++ {
-		for x := 0; x < 4; x++ {
-			img.Set(x, y, color.RGBA{200, 200, 200, 255})
-		}
-	}
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		t.Fatal(err)
-	}
-	return buf.Bytes()
-}
 
 func TestTraceRoundTrip(t *testing.T) {
 	dir := t.TempDir()
@@ -54,9 +36,6 @@ func TestTraceRoundTrip(t *testing.T) {
 	tr.WriteOutput([]byte("world"), time.Now())
 	tr.WriteExit(7)
 
-	// Add a screenshot.
-	tr.AddScreenshotPNG(makeTinyPNG(t))
-
 	if err := tr.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -73,11 +52,23 @@ func TestTraceRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal("manifest.json not found:", err)
 	}
-	var man Manifest
-	if err := json.NewDecoder(mf).Decode(&man); err != nil {
+	var rawManifest map[string]json.RawMessage
+	if err := json.NewDecoder(mf).Decode(&rawManifest); err != nil {
 		t.Fatal("decode manifest:", err)
 	}
 	mf.Close()
+	if _, ok := rawManifest["screenshots"]; ok {
+		t.Fatal("manifest has screenshots key")
+	}
+
+	var man Manifest
+	manifestBytes, err := json.Marshal(rawManifest)
+	if err != nil {
+		t.Fatal("re-encode manifest:", err)
+	}
+	if err := json.Unmarshal(manifestBytes, &man); err != nil {
+		t.Fatal("decode manifest struct:", err)
+	}
 
 	if man.Version != 1 {
 		t.Errorf("version = %d, want 1", man.Version)
@@ -100,12 +91,7 @@ func TestTraceRoundTrip(t *testing.T) {
 	if !man.StoppedAt.After(man.StartedAt) && !man.StoppedAt.Equal(man.StartedAt) {
 		t.Errorf("stopped_at (%v) should be >= started_at (%v)", man.StoppedAt, man.StartedAt)
 	}
-	if len(man.Screenshots) != 1 {
-		t.Fatalf("screenshots = %v, want 1 entry", man.Screenshots)
-	}
-	if man.Screenshots[0] != "screenshots/0000.png" {
-		t.Errorf("screenshot[0] = %q", man.Screenshots[0])
-	}
+	assertNoScreenshotEntries(t, &zr.Reader)
 
 	// Check events.jsonl
 	ef, err := zr.Open("events.jsonl")
@@ -139,16 +125,15 @@ func TestTraceRoundTrip(t *testing.T) {
 	if !sawExit {
 		t.Error("events missing exit event")
 	}
+}
 
-	// Check screenshot is a valid PNG.
-	sf, err := zr.Open("screenshots/0000.png")
-	if err != nil {
-		t.Fatal("screenshot not found:", err)
+func assertNoScreenshotEntries(t *testing.T, zr *zip.Reader) {
+	t.Helper()
+	for _, f := range zr.File {
+		if strings.HasPrefix(f.Name, "screenshots/") {
+			t.Fatalf("unexpected screenshot entry %q", f.Name)
+		}
 	}
-	if _, err := png.Decode(sf); err != nil {
-		t.Fatal("screenshot is not valid PNG:", err)
-	}
-	sf.Close()
 }
 
 func TestTraceIdempotentClose(t *testing.T) {

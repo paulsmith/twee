@@ -119,11 +119,13 @@ func TestTraceHelp(t *testing.T) {
 		[]byte("twee trace start"),
 		[]byte("manifest.json"),
 		[]byte("events.jsonl"),
-		[]byte("screenshots/*.png"),
 	} {
 		if !bytes.Contains(out, want) {
 			t.Errorf("trace help missing %q:\n%s", want, out)
 		}
+	}
+	if bytes.Contains(out, []byte("screenshots")) {
+		t.Errorf("trace help still mentions screenshots:\n%s", out)
 	}
 }
 

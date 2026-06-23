@@ -122,14 +122,12 @@ func TestTermTraceLifecycle(t *testing.T) {
 	te := startEngineTerm(t, []string{"/bin/cat"}, 20, 4)
 	path := filepath.Join(t.TempDir(), "session.twee")
 
-	te.TraceAddScreenshot([]byte("ignored when inactive"))
 	if err := te.EnableTrace(path); err != nil {
 		t.Fatalf("EnableTrace: %v", err)
 	}
 	if got := te.TracePath(); got != path {
 		t.Fatalf("TracePath = %q, want %q", got, path)
 	}
-	te.TraceAddScreenshot([]byte("not-a-png-but-recorded"))
 	if err := te.Type("traced"); err != nil {
 		t.Fatalf("Type: %v", err)
 	}

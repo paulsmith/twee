@@ -319,9 +319,8 @@ when hotkey tracing starts and when it stops.
 
 `twee trace` records a running daemon to a `.twee` zip bundle for
 debugging and replay tooling. A trace contains `manifest.json`,
-`events.jsonl`, and `screenshots/*.png`. Events include PTY output,
-input, and terminal resizes; screenshots capture the initial and final
-viewports.
+and `events.jsonl`. Events include PTY output, input, terminal resizes,
+and process exit.
 
 ```
 $ twee start -- ./myapp

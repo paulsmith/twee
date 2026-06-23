@@ -6,6 +6,9 @@ Proposal. `twee` is pre-release experimental software, so this proposal assumes
 the CLI, daemon protocol, and JSON output may change without a compatibility
 bridge.
 
+Update: trace bundles no longer store screenshot sidecars. The lifecycle
+contract is now about durable `manifest.json` and `events.jsonl` artifacts.
+
 Companion to [go-arg-cli-proposal.md](go-arg-cli-proposal.md), which is
 implemented. This proposal addresses the findings that refactor did not cover,
 recorded in external field notes from automating a vim edit/save/quit session
@@ -23,7 +26,7 @@ The results differ from the notes in important ways:
 | Trailing `-name` swallowed as payload | Resolved | Confirmed resolved (`TWEE_SESSION`, global `--name`, `--`) | None |
 | `wait text` positional ordering | Resolved, one sharp edge | Confirmed; `--pattern "-- X --"` space form fails with `missing value for --pattern` (exit 2), equals form works | Unhelpful error message |
 | `start` reports `ok:true` for a child that dies instantly | Open, not re-verified | **Already fixed.** `bash -c 'exit 3'` returns `CHILD_EXITED` with `exit_code:3`, `socket_created:true`, exit 1; a non-executable returns an IO error at start time. The quick-exit contract from the go-arg proposal is implemented (`runDaemonChildReal`, 100ms observation window) | Stale `.lock` file left behind on failed start |
-| Trace silently discarded if child exits before `trace stop` | Open, "re-verified still lost" | **Not lost.** The bundle is written via `Term.Close` → `trace.Close` during daemon teardown (`daemonize.go` exit path). Verified: valid zip with populated `stopped_at` | Three real gaps, below |
+| Trace silently discarded if child exits before `trace stop` | Open, "re-verified still lost" | **Not lost.** The bundle is written via `Term.Close` → `trace.Close` during daemon teardown (`daemonize.go` exit path). Verified: valid zip with populated `stopped_at` | Real gaps, below |
 
 ### Why the notes observed a "lost" trace
 
@@ -49,10 +52,9 @@ concludes the trace was discarded. Nothing ever reports otherwise.
 1. **No synchronization point.** The natural "I'm done" call, `wait exit`,
    returns before artifacts are durable. Scripts that check or consume the
    bundle immediately afterward race with teardown and intermittently lose.
-2. **The auto-finalized bundle is incomplete.** `handleTraceStop` captures a
-   final screenshot before closing the trace; the teardown path does not, so
-   child-exit bundles carry only `screenshots/0000.png` while `twee help
-   trace` promises initial *and* final viewport screenshots.
+2. **Screenshot sidecars are no longer part of trace completeness.** The
+   auto-finalized bundle is complete once `manifest.json` and `events.jsonl`
+   are durable.
 3. **Nothing is reported.** No response ever carries the finalized path on
    the auto path. `trace stop` issued after teardown fails with a raw dial
    error (`code:IO`, "no such file or directory") that neither says the trace
@@ -101,10 +103,8 @@ The exit goroutine in `runDaemonChildReal` becomes:
 
 1. `<-te.ExitedCh()`
 2. `te.DrainOutput()`
-3. Capture the final screenshot (the existing `renderScreenshot` helper) and
-   add it to the active trace, if any — same as `handleTraceStop`.
-4. `te.FinalizeArtifacts()` — bundle is now durable; `ArtifactsDone` closes.
-5. Grace sleep, `srv.Stop()`, listener close — unchanged.
+3. `te.FinalizeArtifacts()` — bundle is now durable; `ArtifactsDone` closes.
+4. Grace sleep, `srv.Stop()`, listener close — unchanged.
 
 Finalization must complete *before* `srv.Stop()`: the server is fully
 answerable there, so blocked `wait exit` handlers can respond with the path.
@@ -112,10 +112,6 @@ answerable there, so blocked `wait exit` handlers can respond with the path.
 teardown.) Closing the runner in step 2 is safe — the child has exited — and
 read-only handlers (`status`, `text`, `snapshot`) keep working from in-memory
 terminal state during the grace window.
-
-This also fixes gap 2: child-exit bundles get the final post-exit screenshot,
-which the field notes point out is *more* faithful than the staged `:wq`
-workaround frame.
 
 ### `wait exit` blocks on finalization and reports the path
 
@@ -137,9 +133,7 @@ flag is needed when `wait exit` synchronizes implicitly.
 ### `trace stop` after auto-finalization answers usefully
 
 During the grace window, a `trace stop` that arrives after auto-finalization
-currently re-reads the stale path and silently drops its screenshot into a
-closed trace. Instead, `handleTraceStop` checks `FinalizedTracePath()` first
-and returns:
+checks `FinalizedTracePath()` first and returns:
 
 ```json
 {"ok":true,"data":{"path":"...","already_finalized":true}}
@@ -207,9 +201,8 @@ begins with '-'; use --pattern="-- INSERT --")
 
 `twee help trace` states: an active trace is finalized automatically when
 the child exits; `wait exit` blocks until the bundle is durable and reports
-`trace_path`; bundles always contain initial and final screenshots. README
-gains the `start --trace` one-liner as the recommended way to record a full
-session.
+`trace_path`. README gains the `start --trace` one-liner as the recommended
+way to record a full session.
 
 ## Out of scope
 
@@ -227,9 +220,9 @@ session.
 1. Engine seams: `DrainOutput`, `FinalizeArtifacts`, `ArtifactsDone`,
    `FinalizedTracePath`; re-express `Term.Close` over them. Unit tests for
    idempotence and for `Close` equivalence.
-2. Teardown reorder in `runDaemonChildReal`: drain → final screenshot →
-   finalize → grace → stop. E2E test: bundle exists and contains both
-   screenshots at the moment `wait exit` returns.
+2. Teardown reorder in `runDaemonChildReal`: drain → finalize → grace → stop.
+   E2E test: bundle exists with `manifest.json` and `events.jsonl` at the
+   moment `wait exit` returns.
 3. `wait exit` gating + `trace_path` in `WaitExitData`;
    `already_finalized` answer for late `trace stop`; uniform `NOT_FOUND` for
    dial failures; dial-failure hint text.
@@ -246,8 +239,8 @@ Steps 1–3 deliver the contract and can land alone; 4–7 are independent.
 
 - `trace start --out X` on a session whose child exits on its own: at the
   instant `wait exit` returns, `X` exists, is a valid zip with
-  `manifest.json` (populated `stopped_at`), `events.jsonl`, and two
-  screenshots; the `wait exit` response carries `trace_path:X`. Run the
+  `manifest.json` (populated `stopped_at`) and `events.jsonl`; the `wait exit`
+  response carries `trace_path:X`. Run the
   existence check in the same shell pipeline as `wait exit` to pin the race.
 - Same with no `--out`: `trace_path` reports the generated temp path.
 - `wait exit` on a session with no trace: unchanged response shape, no

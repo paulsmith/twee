@@ -115,9 +115,6 @@ func TestRunTraceOutWritesBundle(t *testing.T) {
 	if len(bundle.Manifest.Command) != 1 || bundle.Manifest.Command[0] != "/bin/cat" {
 		t.Fatalf("manifest command = %#v, want [/bin/cat]", bundle.Manifest.Command)
 	}
-	if len(bundle.Manifest.Screenshots) < 2 {
-		t.Fatalf("screenshots = %v, want start + stop frames", bundle.Manifest.Screenshots)
-	}
 	if !eventsContain(bundle.Events, "input", "type", "", []byte("abc\n")) {
 		t.Fatalf("trace missing typed input event: %#v", bundle.Events)
 	}

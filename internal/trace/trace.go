@@ -1,5 +1,5 @@
-// Package trace writes a .twee trace bundle — a zip archive containing
-// a manifest, JSONL event stream, and PNG screenshots.
+// Package trace writes a .twee trace bundle: a zip archive containing
+// manifest.json and events.jsonl.
 package trace
 
 import (
@@ -19,16 +19,15 @@ import (
 // Manifest is the top-level metadata written to manifest.json inside
 // the zip bundle.
 type Manifest struct {
-	Version     int               `json:"version"`
-	Command     []string          `json:"command"`
-	Env         map[string]string `json:"env,omitempty"`
-	Cols        int               `json:"cols"`
-	Rows        int               `json:"rows"`
-	Pid         int               `json:"pid"`
-	Host        HostInfo          `json:"host"`
-	StartedAt   time.Time         `json:"started_at"`
-	StoppedAt   time.Time         `json:"stopped_at"`
-	Screenshots []string          `json:"screenshots"`
+	Version   int               `json:"version"`
+	Command   []string          `json:"command"`
+	Env       map[string]string `json:"env,omitempty"`
+	Cols      int               `json:"cols"`
+	Rows      int               `json:"rows"`
+	Pid       int               `json:"pid"`
+	Host      HostInfo          `json:"host"`
+	StartedAt time.Time         `json:"started_at"`
+	StoppedAt time.Time         `json:"stopped_at"`
 }
 
 // HostInfo captures details about the machine that recorded the trace.
@@ -71,8 +70,6 @@ type Trace struct {
 	eventsPath string
 	eventsFile *os.File
 	evEnc      *json.Encoder
-
-	screenshots []string // workDir-local PNG paths
 
 	start  time.Time
 	closed bool
@@ -190,24 +187,6 @@ func (tr *Trace) WriteExit(code int) {
 	}
 }
 
-// AddScreenshotPNG stores a pre-encoded PNG screenshot. The caller is
-// responsible for rendering the snapshot to PNG before calling this.
-func (tr *Trace) AddScreenshotPNG(pngData []byte) {
-	tr.mu.Lock()
-	defer tr.mu.Unlock()
-	if tr.closed {
-		return
-	}
-	path := filepath.Join(tr.workDir, fmt.Sprintf("screenshot-%04d.png", len(tr.screenshots)))
-	if err := os.WriteFile(path, pngData, 0o600); err != nil {
-		if tr.err == nil {
-			tr.err = err
-		}
-		return
-	}
-	tr.screenshots = append(tr.screenshots, path)
-}
-
 // Close finalises the trace, writing the zip bundle to disk. It is
 // idempotent — the second and subsequent calls return the error (if
 // any) from the first call.
@@ -233,12 +212,6 @@ func (tr *Trace) writeLocked() error {
 		return tr.err
 	}
 	tr.man.StoppedAt = time.Now()
-
-	// Build screenshot manifest paths.
-	tr.man.Screenshots = make([]string, len(tr.screenshots))
-	for i := range tr.screenshots {
-		tr.man.Screenshots[i] = fmt.Sprintf("screenshots/%04d.png", i)
-	}
 
 	zipPath := filepath.Join(tr.workDir, "bundle.twee")
 	f, err := os.Create(zipPath)
@@ -279,29 +252,6 @@ func (tr *Trace) writeLocked() error {
 	if err := events.Close(); err != nil {
 		_ = f.Close()
 		return err
-	}
-
-	// screenshots
-	for i, path := range tr.screenshots {
-		sw, err := zw.Create(fmt.Sprintf("screenshots/%04d.png", i))
-		if err != nil {
-			_ = f.Close()
-			return err
-		}
-		png, err := os.Open(path)
-		if err != nil {
-			_ = f.Close()
-			return err
-		}
-		if _, err := io.Copy(sw, png); err != nil {
-			_ = png.Close()
-			_ = f.Close()
-			return err
-		}
-		if err := png.Close(); err != nil {
-			_ = f.Close()
-			return err
-		}
 	}
 
 	if err := zw.Close(); err != nil {

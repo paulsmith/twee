@@ -58,23 +58,15 @@ func TestTraceStartStopOps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("manifest.json: %v", err)
 	}
-	var man struct {
-		Screenshots []string `json:"screenshots"`
-	}
+	var man map[string]json.RawMessage
 	if err := json.NewDecoder(mf).Decode(&man); err != nil {
 		t.Fatalf("decode manifest: %v", err)
 	}
 	_ = mf.Close()
-	if len(man.Screenshots) != 2 {
-		t.Fatalf("screenshots = %v, want start and stop screenshots", man.Screenshots)
+	if _, ok := man["screenshots"]; ok {
+		t.Fatal("manifest has screenshots key")
 	}
-	for _, path := range man.Screenshots {
-		sf, err := zr.Open(path)
-		if err != nil {
-			t.Fatalf("screenshot %q: %v", path, err)
-		}
-		_ = sf.Close()
-	}
+	assertNoScreenshotEntries(t, &zr.Reader)
 	if !traceHasInput(t, &zr.Reader, "x") {
 		t.Fatal("trace events missing typed input")
 	}
@@ -213,4 +205,13 @@ func traceHasInput(t *testing.T, zr *zip.Reader, want string) bool {
 		t.Fatalf("scan events: %v", err)
 	}
 	return false
+}
+
+func assertNoScreenshotEntries(t *testing.T, zr *zip.Reader) {
+	t.Helper()
+	for _, f := range zr.File {
+		if strings.HasPrefix(f.Name, "screenshots/") {
+			t.Fatalf("unexpected screenshot entry %q", f.Name)
+		}
+	}
 }

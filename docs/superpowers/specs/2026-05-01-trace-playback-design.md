@@ -6,7 +6,7 @@ Draft for implementation.
 
 ## Context
 
-`twee` already records sessions as `.twee` zip bundles (manifest + JSONL events + screenshots) via the `internal/trace` package. The `internal/recording` package can `ReplayInto` a `vt.Model` to reconstruct final state, but there is no way for a human to *watch* a recorded session — to see the TUI animate, see what was typed, scrub the timeline, and inspect cause and effect.
+`twee` already records sessions as `.twee` zip bundles (`manifest.json` and `events.jsonl`) via the `internal/trace` package. The event stream can reconstruct terminal state, but there is no way for a human to *watch* a recorded session — to see the TUI animate, see what was typed, scrub the timeline, and inspect cause and effect.
 
 `twee play` fills that gap. Primary audience: a human debugging a flake or reviewing a session in their own terminal, the way `asciinema play` works for asciicast files.
 

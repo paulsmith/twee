@@ -13,8 +13,7 @@ Start/stop a trace recording on the running session.
 
 Trace bundles are .twee zip files containing:
   manifest.json          session metadata: command, size, pid, host, times
-  events.jsonl           timestamped PTY output, input, and resize events
-  screenshots/*.png      initial and final viewport screenshots
+  events.jsonl           timestamped PTY output, input, resize, and exit events
 
 If --out is omitted, trace start writes to a temporary path and prints it in the
 JSON response. Trace stop finalizes the bundle and prints the saved path.
@@ -27,7 +26,7 @@ entire session from spawn to teardown, use "twee start --trace <path.twee>".`)
 Start a trace recording on the running session.
 
 While tracing is active, twee records PTY output bytes, input events, resize
-events, and an initial screenshot. If --out is omitted, twee creates a temporary
+events, and the process exit. If --out is omitted, twee creates a temporary
 .twee path and returns it as {"out": "..."}.
 
 Example:
@@ -37,8 +36,7 @@ Example:
 	registerUsage("trace stop", `twee trace stop [--name <name>]
 Stop a trace recording and write the .twee bundle.
 
-Trace stop captures a final screenshot, closes the trace, and returns the saved
-path as {"path": "..."}.`)
+Trace stop closes the trace and returns the saved path as {"path": "..."}.`)
 }
 
 func runTrace(args []string) {

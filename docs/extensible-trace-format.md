@@ -9,9 +9,8 @@ the Vibium recording format.
 ## Context
 
 `twee` currently uses one terminal recording format: a `.twee` zip bundle
-containing `manifest.json`, `events.jsonl`, and `screenshots/*.png`. It records
-PTY output bytes, input events, resize events, process exit, and sidecar
-screenshots for debugging and playback.
+containing `manifest.json` and `events.jsonl`. It records PTY output bytes,
+input events, resize events, and process exit.
 
 Vibium uses a richer browser-oriented zip recording:
 
@@ -521,8 +520,6 @@ Current `.twee` fields map directly:
 - `events.jsonl` `input` becomes `terminal.input`.
 - `events.jsonl` `resize` becomes `terminal.resize`.
 - `events.jsonl` `exit` becomes `process.exit`.
-- `screenshots/*.png` become content-addressed resources referenced by
-  `terminal.screenshot` events.
 
 The existing `twee play` model can be preserved by only consuming
 `terminal.output` and `terminal.resize`.

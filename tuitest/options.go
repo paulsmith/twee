@@ -81,7 +81,7 @@ func Record(path string) Option {
 }
 
 // Trace enables trace recording to the given path. The trace is a .twee
-// zip bundle containing a manifest, JSONL event stream, and screenshots.
+// zip bundle containing a manifest and JSONL event stream.
 func Trace(path string) Option {
 	return func(c *config) { c.tracePath = path }
 }

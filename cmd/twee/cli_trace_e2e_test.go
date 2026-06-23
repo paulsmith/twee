@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"encoding/base64"
 	"encoding/json"
-	"image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -86,20 +85,7 @@ func TestVimTraceEndToEnd(t *testing.T) {
 	if man.StoppedAt.Before(man.StartedAt) {
 		t.Errorf("stopped_at (%v) before started_at (%v)", man.StoppedAt, man.StartedAt)
 	}
-	if len(man.Screenshots) < 2 {
-		t.Errorf("screenshots = %v, want at least start + stop frames", man.Screenshots)
-	}
-	for _, p := range man.Screenshots {
-		sf, err := zr.Open(p)
-		if err != nil {
-			t.Errorf("screenshot %q missing: %v", p, err)
-			continue
-		}
-		if _, err := png.Decode(sf); err != nil {
-			t.Errorf("screenshot %q not a valid PNG: %v", p, err)
-		}
-		sf.Close()
-	}
+	assertNoScreenshotEntries(t, &zr.Reader)
 
 	nOut, nIn, typedSeen := scanEvents(t, &zr.Reader)
 	if nOut == 0 {
@@ -114,8 +100,8 @@ func TestVimTraceEndToEnd(t *testing.T) {
 }
 
 // TestTraceFinalizedWhenChildExits records a session whose child exits on
-// its own, without an explicit `trace stop`. The bundle must be durable —
-// complete with the final screenshot — by the moment `wait exit` returns.
+// its own, without an explicit `trace stop`. The bundle must be durable by
+// the moment `wait exit` returns.
 func TestTraceFinalizedWhenChildExits(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
@@ -161,20 +147,7 @@ func TestTraceFinalizedWhenChildExits(t *testing.T) {
 	if man.StoppedAt.IsZero() {
 		t.Error("manifest stopped_at is zero")
 	}
-	if len(man.Screenshots) < 2 {
-		t.Errorf("screenshots = %v, want initial + final frames", man.Screenshots)
-	}
-	for _, p := range man.Screenshots {
-		sf, err := zr.Open(p)
-		if err != nil {
-			t.Errorf("screenshot %q missing: %v", p, err)
-			continue
-		}
-		if _, err := png.Decode(sf); err != nil {
-			t.Errorf("screenshot %q not a valid PNG: %v", p, err)
-		}
-		sf.Close()
-	}
+	assertNoScreenshotEntries(t, &zr.Reader)
 	if nOut, _, _ := scanEvents(t, &zr.Reader); nOut == 0 {
 		t.Error("trace recorded no output events")
 	}
@@ -222,9 +195,7 @@ func TestStartTraceFullSession(t *testing.T) {
 	if man.StoppedAt.IsZero() {
 		t.Error("manifest stopped_at is zero")
 	}
-	if len(man.Screenshots) < 2 {
-		t.Errorf("screenshots = %v, want initial + final frames", man.Screenshots)
-	}
+	assertNoScreenshotEntries(t, &zr.Reader)
 	nOut, _, _ := scanEvents(t, &zr.Reader)
 	if nOut == 0 {
 		t.Error("trace recorded no output events")
@@ -316,14 +287,13 @@ func cliStdout(t *testing.T, bin string, env []string, args ...string) []byte {
 }
 
 type traceManifest struct {
-	Version     int       `json:"version"`
-	Command     []string  `json:"command"`
-	Cols        int       `json:"cols"`
-	Rows        int       `json:"rows"`
-	Pid         int       `json:"pid"`
-	StartedAt   time.Time `json:"started_at"`
-	StoppedAt   time.Time `json:"stopped_at"`
-	Screenshots []string  `json:"screenshots"`
+	Version   int       `json:"version"`
+	Command   []string  `json:"command"`
+	Cols      int       `json:"cols"`
+	Rows      int       `json:"rows"`
+	Pid       int       `json:"pid"`
+	StartedAt time.Time `json:"started_at"`
+	StoppedAt time.Time `json:"stopped_at"`
 }
 
 func readManifest(t *testing.T, zr *zip.Reader) traceManifest {
@@ -333,11 +303,31 @@ func readManifest(t *testing.T, zr *zip.Reader) traceManifest {
 		t.Fatalf("manifest.json missing: %v", err)
 	}
 	defer mf.Close()
+	var raw map[string]json.RawMessage
+	if err := json.NewDecoder(mf).Decode(&raw); err != nil {
+		t.Fatalf("decode manifest: %v", err)
+	}
+	if _, ok := raw["screenshots"]; ok {
+		t.Fatal("manifest has screenshots key")
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("re-encode manifest: %v", err)
+	}
 	var m traceManifest
-	if err := json.NewDecoder(mf).Decode(&m); err != nil {
+	if err := json.Unmarshal(b, &m); err != nil {
 		t.Fatalf("decode manifest: %v", err)
 	}
 	return m
+}
+
+func assertNoScreenshotEntries(t *testing.T, zr *zip.Reader) {
+	t.Helper()
+	for _, f := range zr.File {
+		if strings.HasPrefix(f.Name, "screenshots/") {
+			t.Fatalf("unexpected screenshot entry %q", f.Name)
+		}
+	}
 }
 
 // scanEvents tallies output / input events and reassembles the bytes
