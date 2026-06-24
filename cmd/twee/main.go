@@ -161,6 +161,7 @@ var commandSummaries = []commandSummary{
 	{"find", "Find text in the viewport"},
 	{"help", "Print top-level or per-command help"},
 	{"hover", "Move the mouse to a viewport cell"},
+	{"inspect", "Inspect a .twee trace bundle"},
 	{"key", "Send one named key"},
 	{"keys", "Send multiple named keys"},
 	{"lines", "Show visible viewport lines"},

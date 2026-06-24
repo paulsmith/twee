@@ -1,0 +1,114 @@
+// Package inspect computes summaries for .twee trace bundles.
+package inspect
+
+import (
+	"time"
+
+	"github.com/paulsmith/twee/internal/tracebundle"
+)
+
+// Summary is the JSON/text inspect shape for a .twee trace bundle.
+type Summary struct {
+	Path        string       `json:"path"`
+	Version     int          `json:"version"`
+	Command     []string     `json:"command"`
+	Duration    string       `json:"duration"`
+	DurationMS  int64        `json:"duration_ms"`
+	EventSpanMS int64        `json:"event_span_ms"`
+	StartedAt   *time.Time   `json:"started_at"`
+	StoppedAt   *time.Time   `json:"stopped_at"`
+	Terminal    Terminal     `json:"terminal"`
+	Events      EventSummary `json:"events"`
+	Exit        ExitSummary  `json:"exit"`
+}
+
+// Terminal summarizes initial and maximum terminal dimensions.
+type Terminal struct {
+	Cols    int `json:"cols"`
+	Rows    int `json:"rows"`
+	MaxCols int `json:"max_cols"`
+	MaxRows int `json:"max_rows"`
+}
+
+// EventSummary summarizes event counts.
+type EventSummary struct {
+	Total       int            `json:"total"`
+	ByType      map[string]int `json:"by_type"`
+	InputByKind map[string]int `json:"input_by_kind"`
+}
+
+// ExitSummary reports whether an exit event was recorded.
+type ExitSummary struct {
+	Recorded bool `json:"recorded"`
+	Code     *int `json:"code"`
+}
+
+// Summarize computes an inspect summary for bundle.
+func Summarize(path string, bundle tracebundle.Bundle) Summary {
+	spanMS := eventSpanMS(bundle.Events)
+	duration := durationFrom(bundle, spanMS)
+
+	s := Summary{
+		Path:        path,
+		Version:     bundle.Manifest.Version,
+		Command:     append([]string(nil), bundle.Manifest.Command...),
+		Duration:    duration.String(),
+		DurationMS:  duration.Milliseconds(),
+		EventSpanMS: spanMS,
+		StartedAt:   timePtr(bundle.Manifest.StartedAt),
+		StoppedAt:   timePtr(bundle.Manifest.StoppedAt),
+		Terminal: Terminal{
+			Cols:    bundle.Manifest.Cols,
+			Rows:    bundle.Manifest.Rows,
+			MaxCols: bundle.MaxCols,
+			MaxRows: bundle.MaxRows,
+		},
+		Events: EventSummary{
+			Total:       len(bundle.Events),
+			ByType:      map[string]int{},
+			InputByKind: map[string]int{},
+		},
+	}
+
+	for _, ev := range bundle.Events {
+		s.Events.ByType[ev.Type]++
+		if ev.Type == "input" && ev.Kind != "" {
+			s.Events.InputByKind[ev.Kind]++
+		}
+		if ev.Type == "exit" {
+			code := ev.Code
+			s.Exit.Recorded = true
+			s.Exit.Code = &code
+		}
+	}
+	return s
+}
+
+func eventSpanMS(events []tracebundle.Event) int64 {
+	var span int64
+	for _, ev := range events {
+		if ev.TMS > span {
+			span = ev.TMS
+		}
+	}
+	return span
+}
+
+func durationFrom(bundle tracebundle.Bundle, fallbackMS int64) time.Duration {
+	started, stopped := bundle.Manifest.StartedAt, bundle.Manifest.StoppedAt
+	if !started.IsZero() && !stopped.IsZero() {
+		d := stopped.Sub(started)
+		if d >= 0 {
+			return d
+		}
+	}
+	return time.Duration(fallbackMS) * time.Millisecond
+}
+
+func timePtr(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	v := t
+	return &v
+}

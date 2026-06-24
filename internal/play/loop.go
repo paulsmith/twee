@@ -137,9 +137,9 @@ func (l *loop) tick(now time.Time) (done bool) {
 		}
 		l.wallPrev = now
 		if l.cursor < len(l.events) && l.maxIdle > 0 {
-			gap := l.events[l.cursor].traceTime() - l.playT
+			gap := l.events[l.cursor].TraceTime() - l.playT
 			if gap > l.maxIdle {
-				l.playT = l.events[l.cursor].traceTime() - l.maxIdle
+				l.playT = l.events[l.cursor].TraceTime() - l.maxIdle
 			}
 		}
 		l.playT += time.Duration(float64(dt) * l.speed)
@@ -175,7 +175,7 @@ func (l *loop) drainCommands(now time.Time) (skipAdvance, dispatchReady, done bo
 				l.stepMode = true
 				if l.cursor < len(l.events) {
 					ev := l.events[l.cursor]
-					l.playT = ev.traceTime()
+					l.playT = ev.TraceTime()
 					l.dispatch(ev)
 					l.cursor++
 				}
@@ -209,7 +209,7 @@ func (l *loop) drainCommands(now time.Time) (skipAdvance, dispatchReady, done bo
 }
 
 func (l *loop) dispatchReady() {
-	for l.cursor < len(l.events) && l.events[l.cursor].traceTime() <= l.playT {
+	for l.cursor < len(l.events) && l.events[l.cursor].TraceTime() <= l.playT {
 		l.dispatch(l.events[l.cursor])
 		l.cursor++
 	}

@@ -49,7 +49,7 @@ func TestHelp(t *testing.T) {
 		t.Errorf("help output should not link to markdown docs:\n%s", out)
 	}
 	last := -1
-	for _, verb := range []string{"cell", "click", "codegen", "completion", "cursor", "diff", "drag", "export", "find", "help", "hover", "key", "keys", "lines", "ls", "mode", "paste", "play", "region", "resize", "run", "screenshot", "scroll", "scrollback", "signal", "size", "sleep", "snapshot", "start", "status", "stop", "text", "title", "trace", "type", "version", "wait"} {
+	for _, verb := range []string{"cell", "click", "codegen", "completion", "cursor", "diff", "drag", "export", "find", "help", "hover", "inspect", "key", "keys", "lines", "ls", "mode", "paste", "play", "region", "resize", "run", "screenshot", "scroll", "scrollback", "signal", "size", "sleep", "snapshot", "start", "status", "stop", "text", "title", "trace", "type", "version", "wait"} {
 		needle := []byte("  " + verb + "  ")
 		idx := bytes.Index(out, needle)
 		if idx < 0 {
@@ -60,6 +60,9 @@ func TestHelp(t *testing.T) {
 			t.Errorf("help output command %q is out of order:\n%s", verb, out)
 		}
 		last = idx
+	}
+	if bytes.Contains(out, []byte("screenshots")) {
+		t.Errorf("top-level help should not mention screenshots:\n%s", out)
 	}
 }
 
