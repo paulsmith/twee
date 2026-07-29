@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/paulsmith/twee/internal/play"
@@ -95,6 +96,18 @@ func TestValidSpeedRejectsNonFiniteAndNonPositive(t *testing.T) {
 	for _, v := range []float64{1, 0.5} {
 		if !play.ValidSpeed(v) {
 			t.Fatalf("speed %v unexpectedly invalid", v)
+		}
+	}
+}
+
+func TestPlayHelpDocumentsBackendConstraints(t *testing.T) {
+	help := usages["play"]
+	for _, want := range []string{
+		"auto tries Kitty, then iTerm2, then Sixel",
+		"direct terminal", "tmux and screen", "native pixel geometry",
+	} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("play help missing %q:\n%s", want, help)
 		}
 	}
 }

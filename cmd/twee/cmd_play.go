@@ -28,7 +28,12 @@ Flags:
   --step               start paused; use . to advance one event
   --max-idle <duration>
                        cap long gaps between events (default 2s; 0 disables)
-  --verbose            print a summary to stderr after exit`)
+  --verbose            print a summary to stderr after exit
+
+Backend selection:
+  auto tries Kitty, then iTerm2, then Sixel. Graphics playback requires a
+  direct terminal; tmux and screen passthrough are not supported. Sixel also
+  requires the terminal to report reliable native pixel geometry.`)
 }
 
 func runPlay(args []string) {

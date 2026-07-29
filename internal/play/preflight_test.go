@@ -3,10 +3,13 @@ package play
 import (
 	"bytes"
 	"io"
+	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
 
@@ -99,9 +102,10 @@ func TestQueryKittyTimeout(t *testing.T) {
 
 func TestSelectBackendAutoPreference(t *testing.T) {
 	tests := []struct {
-		name  string
-		reply string
-		want  Backend
+		name          string
+		reply         string
+		itermIdentity bool
+		want          Backend
 	}{
 		{
 			name:  "kitty before all others",
@@ -109,9 +113,10 @@ func TestSelectBackendAutoPreference(t *testing.T) {
 			want:  BackendKitty,
 		},
 		{
-			name:  "iterm2 before sixel",
-			reply: "noise\x1b]1337;Capabilities=FSx\x1b\\more\x1b[?1;4c",
-			want:  BackendITerm2,
+			name:          "iterm2 before sixel",
+			reply:         "noise\x1b]1337;Capabilities=FSx\x1b\\more\x1b[?1;4c",
+			itermIdentity: true,
+			want:          BackendITerm2,
 		},
 		{
 			name:  "sixel primary DA",
@@ -126,6 +131,12 @@ func TestSelectBackendAutoPreference(t *testing.T) {
 			got, err := selectBackend(preflightOptions{
 				Term: termOps, In: strings.NewReader(tt.reply), Out: &query,
 				Timeout: time.Second, Pixels: displayPixels{Width: 800, Height: 600},
+				Getenv: func(key string) string {
+					if key == "TERM_PROGRAM" && tt.itermIdentity {
+						return "iTerm.app"
+					}
+					return ""
+				},
 			}, BackendAuto)
 			if err != nil {
 				t.Fatalf("selectBackend: %v", err)
@@ -170,9 +181,9 @@ func TestSelectBackendUsesPublishedEnvironmentFallbacks(t *testing.T) {
 		name, key, value string
 		backend          Backend
 	}{
-		{"iterm FILE", "TERM_FEATURES", "TF", BackendITerm2},
 		{"sixel", "TERM_FEATURES", "TSx", BackendSixel},
 		{"old iterm", "TERM_PROGRAM", "iTerm.app", BackendITerm2},
+		{"iterm session", "ITERM_SESSION_ID", "w0t0p0", BackendITerm2},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			backend, err := selectBackend(preflightOptions{
@@ -192,6 +203,29 @@ func TestSelectBackendUsesPublishedEnvironmentFallbacks(t *testing.T) {
 	}
 }
 
+func TestSelectBackendAutoRejectsAmbiguousFWithoutITermIdentity(t *testing.T) {
+	_, err := selectBackend(preflightOptions{
+		Term: &fakeTermOps{isTTY: true},
+		In:   strings.NewReader("\x1b]1337;Capabilities=F\x1b\\\x1b[?1;2c"),
+		Out:  io.Discard, Timeout: time.Second,
+		Pixels: displayPixels{Width: 800, Height: 600},
+	}, BackendAuto)
+	if err == nil || !strings.Contains(err.Error(), "ambiguous F capability without iTerm identity") {
+		t.Fatalf("error = %v, want ambiguous-F diagnostic", err)
+	}
+}
+
+func TestSelectBackendExplicitITermAcceptsAmbiguousF(t *testing.T) {
+	backend, err := selectBackend(preflightOptions{
+		Term: &fakeTermOps{isTTY: true},
+		In:   strings.NewReader("\x1b]1337;Capabilities=F\x1b\\"),
+		Out:  io.Discard, Timeout: time.Second,
+	}, BackendITerm2)
+	if err != nil || backend != BackendITerm2 {
+		t.Fatalf("backend/error = %q/%v, want iterm2/nil", backend, err)
+	}
+}
+
 func TestSelectBackendAutoSkipsSixelWithoutPixelGeometry(t *testing.T) {
 	_, err := selectBackend(preflightOptions{
 		Term: &fakeTermOps{isTTY: true},
@@ -202,7 +236,7 @@ func TestSelectBackendAutoSkipsSixelWithoutPixelGeometry(t *testing.T) {
 		t.Fatal("selectBackend succeeded without pixel geometry")
 	}
 	for _, want := range []string{
-		"kitty: protocol not detected", "iterm2: FILE capability not detected",
+		"kitty: protocol not detected", "iterm2: iTerm identity not detected",
 		"sixel: terminal pixel geometry unavailable",
 	} {
 		if !strings.Contains(err.Error(), want) {
@@ -299,12 +333,85 @@ func TestSelectBackendKeepsCapabilityReplyWhenDAFenceTimesOut(t *testing.T) {
 	backend, err := selectBackend(preflightOptions{
 		Term: &fakeTermOps{isTTY: true}, In: r, Out: io.Discard,
 		Timeout: time.Millisecond, Pixels: displayPixels{Width: 800, Height: 600},
+		Getenv: func(key string) string {
+			if key == "TERM_PROGRAM" {
+				return "iTerm.app"
+			}
+			return ""
+		},
 	}, BackendAuto)
 	if err != nil {
 		t.Fatalf("selectBackend: %v", err)
 	}
 	if backend != BackendITerm2 {
 		t.Fatalf("backend = %q, want iterm2", backend)
+	}
+}
+
+func TestSelectBackendFDProbeLeavesNoReaderOnLegacyITermFallback(t *testing.T) {
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readEnd.Close()
+	defer writeEnd.Close()
+	r := &unsupportedDeadlineFDReader{file: readEnd}
+	flagsBefore, err := unix.FcntlInt(readEnd.Fd(), unix.F_GETFL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend, err := selectBackend(preflightOptions{
+		Term: &fakeTermOps{isTTY: true}, In: r, Out: io.Discard,
+		Timeout: time.Millisecond,
+		Getenv: func(key string) string {
+			if key == "TERM_PROGRAM" {
+				return "iTerm.app"
+			}
+			return ""
+		},
+	}, BackendITerm2)
+	if err != nil || backend != BackendITerm2 {
+		t.Fatalf("backend/error = %q/%v, want iterm2/nil", backend, err)
+	}
+	if got := r.readCalls.Load(); got != 0 {
+		t.Fatalf("generic Read calls = %d, want 0; fd probe must be synchronous", got)
+	}
+	if got := r.deadlineCalls.Load(); got != 0 {
+		t.Fatalf("deadline calls = %d, want 0; unsupported deadlines must be bypassed", got)
+	}
+	flagsAfter, err := unix.FcntlInt(readEnd.Fd(), unix.F_GETFL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flagsAfter != flagsBefore {
+		t.Fatalf("fd flags = %#x after probe, want original %#x", flagsAfter, flagsBefore)
+	}
+}
+
+func TestReadProbeFDStopsExactlyAtDAFence(t *testing.T) {
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readEnd.Close()
+	defer writeEnd.Close()
+	const reply = "\x1b]1337;Capabilities=F\x1b\\\x1b[?1;2c"
+	if _, err := io.WriteString(writeEnd, reply+"q"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readProbeReplies(readEnd, time.Second, BackendITerm2)
+	if err != nil {
+		t.Fatalf("readProbeReplies: %v", err)
+	}
+	if string(got) != reply {
+		t.Fatalf("reply = %q, want %q", got, reply)
+	}
+	var leftover [1]byte
+	if _, err := io.ReadFull(readEnd, leftover[:]); err != nil {
+		t.Fatal(err)
+	}
+	if leftover[0] != 'q' {
+		t.Fatalf("leftover = %q, want playback key q", leftover[0])
 	}
 }
 
@@ -376,6 +483,24 @@ func (r *blockingReader) Read([]byte) (int, error) {
 type blockingAfterReader struct {
 	data []byte
 	ch   chan struct{}
+}
+
+type unsupportedDeadlineFDReader struct {
+	file          *os.File
+	readCalls     atomic.Int32
+	deadlineCalls atomic.Int32
+}
+
+func (r *unsupportedDeadlineFDReader) Fd() uintptr { return r.file.Fd() }
+
+func (r *unsupportedDeadlineFDReader) Read(p []byte) (int, error) {
+	r.readCalls.Add(1)
+	return r.file.Read(p)
+}
+
+func (r *unsupportedDeadlineFDReader) SetReadDeadline(time.Time) error {
+	r.deadlineCalls.Add(1)
+	return os.ErrNoDeadline
 }
 
 func (r *blockingAfterReader) Read(p []byte) (int, error) {

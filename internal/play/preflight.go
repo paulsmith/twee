@@ -2,6 +2,7 @@ package play
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
 
@@ -103,9 +105,11 @@ func preflightBundleForBackend(bundle Bundle, opts preflightOptions, requested B
 }
 
 type backendSupport struct {
-	kitty bool
-	iterm bool
-	sixel bool
+	kitty         bool
+	iterm         bool
+	itermReported bool
+	itermIdentity bool
+	sixel         bool
 }
 
 func selectBackend(opts preflightOptions, requested Backend) (Backend, error) {
@@ -156,7 +160,11 @@ func selectBackend(opts preflightOptions, requested Backend) (Backend, error) {
 	if support.sixel && (opts.Pixels.Width <= 0 || opts.Pixels.Height <= 0) {
 		sixelReason = "terminal pixel geometry unavailable"
 	}
-	return "", fmt.Errorf("twee play: no usable graphics backend (kitty: protocol not detected; iterm2: FILE capability not detected; sixel: %s)", sixelReason)
+	itermReason := "iTerm identity not detected"
+	if support.itermReported && !support.itermIdentity {
+		itermReason = "ambiguous F capability without iTerm identity"
+	}
+	return "", fmt.Errorf("twee play: no usable graphics backend (kitty: protocol not detected; iterm2: %s; sixel: %s)", itermReason, sixelReason)
 }
 
 func probeBackends(opts preflightOptions, requested Backend) (backendSupport, error) {
@@ -176,14 +184,27 @@ func probeBackends(opts preflightOptions, requested Backend) (backendSupport, er
 	if _, err := io.WriteString(opts.Out, queries); err != nil {
 		return backendSupport{}, fmt.Errorf("twee play: graphics capability query: %w", err)
 	}
-	reply := readProbeReplies(opts.In, opts.Timeout, requested)
+	reply, err := readProbeReplies(opts.In, opts.Timeout, requested)
+	if err != nil {
+		return backendSupport{}, fmt.Errorf("twee play: graphics capability reply: %w", err)
+	}
 	support := parseBackendSupport(reply)
 
 	// TERM_FEATURES is the feature-reporting protocol's official alternate
 	// publication mechanism. Terminal-specific variables are weaker fallbacks
 	// for older direct terminals that implement graphics but not reporting.
 	features := parseFeatureString(opts.Getenv("TERM_FEATURES"))
-	support.iterm = support.iterm || features["F"] || opts.Getenv("TERM_PROGRAM") == "iTerm.app"
+	support.itermReported = support.itermReported || features["F"]
+	support.itermIdentity = opts.Getenv("TERM_PROGRAM") == "iTerm.app" || opts.Getenv("ITERM_SESSION_ID") != ""
+	if requested == BackendITerm2 {
+		// An explicit backend is the escape hatch for terminals that implement
+		// OSC 1337 without publishing an iTerm identity. Auto-selection cannot
+		// use F alone because the published feature table also assigns F to
+		// focus reporting.
+		support.iterm = support.itermReported || support.itermIdentity
+	} else {
+		support.iterm = support.itermIdentity
+	}
 	support.sixel = support.sixel || features["Sx"]
 	support.kitty = support.kitty || (opts.Getenv("KITTY_WINDOW_ID") != "" && strings.Contains(opts.Getenv("TERM"), "kitty"))
 	return support, nil
@@ -195,7 +216,7 @@ func probeQueries(requested Backend) string {
 		// Kitty recommends following the graphics query with primary DA.
 		return kittyQuery + primaryDAQuery
 	case BackendITerm2:
-		return iterm2Query
+		return iterm2Query + primaryDAQuery
 	case BackendSixel:
 		return iterm2Query + primaryDAQuery
 	default:
@@ -203,50 +224,105 @@ func probeQueries(requested Backend) string {
 	}
 }
 
-func readProbeReplies(r io.Reader, timeout time.Duration, requested Backend) []byte {
+func readProbeReplies(r io.Reader, timeout time.Duration, requested Backend) ([]byte, error) {
+	if fdReader, ok := r.(interface{ Fd() uintptr }); ok {
+		// Run always reaches this path with its *os.File stdin. Polling and
+		// reading synchronously guarantees that capability detection relinquishes
+		// the fd before readCommands starts, even when os.File deadlines are not
+		// supported by the terminal device.
+		return readProbeFD(int(fdReader.Fd()), timeout, requested)
+	}
 	recorder := &recordingReader{r: r}
 	deadline, hasDeadline := r.(interface{ SetReadDeadline(time.Time) error })
 	if hasDeadline {
 		hasDeadline = deadline.SetReadDeadline(time.Now().Add(timeout)) == nil
 	}
-	type result struct{ reply []byte }
+	type result struct {
+		reply []byte
+		err   error
+	}
 	ch := make(chan result, 1)
 	go func() {
-		data, _ := readProbeStream(recorder, maxProbeReplySize, requested)
-		ch <- result{reply: data}
+		data, err := readProbeStream(recorder, maxProbeReplySize, requested)
+		ch <- result{reply: data, err: normalizeProbeReadError(err)}
 	}()
+	if hasDeadline {
+		// A successful deadline contract makes this a bounded embedder path.
+		// Wait until the read has actually exited before clearing the deadline;
+		// otherwise a stale probe goroutine can steal playback keystrokes from
+		// readCommands. The reader deadline keeps this wait bounded.
+		result := <-ch
+		if err := deadline.SetReadDeadline(time.Time{}); err != nil {
+			return result.reply, errors.Join(result.err, fmt.Errorf("clear probe read deadline: %w", err))
+		}
+		return result.reply, result.err
+	}
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
 	case result := <-ch:
-		if hasDeadline {
-			_ = deadline.SetReadDeadline(time.Time{})
-		}
-		return result.reply
+		return result.reply, result.err
 	case <-timer.C:
 		// Return bytes accumulated even when auto-detection is waiting for
 		// primary DA as an ordering fence. Capability-only terminals may not
 		// answer DA, but their complete OSC report is still authoritative.
-		if hasDeadline {
-			// Force any read that raced the timer to finish before removing the
-			// deadline, so the playback input reader cannot inherit it.
-			_ = deadline.SetReadDeadline(time.Now())
-			select {
-			case result := <-ch:
-				_ = deadline.SetReadDeadline(time.Time{})
-				return result.reply
-			case <-time.After(20 * time.Millisecond):
-				_ = deadline.SetReadDeadline(time.Time{})
+		return recorder.bytes(), nil
+	}
+}
+
+func readProbeFD(fd int, timeout time.Duration, requested Backend) ([]byte, error) {
+	deadline := time.Now().Add(timeout)
+	var out bytes.Buffer
+	var buf [1]byte
+	for out.Len() < maxProbeReplySize {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return out.Bytes(), nil
+		}
+		waitMS := int((remaining + time.Millisecond - 1) / time.Millisecond)
+		pollFD := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+		n, err := unix.Poll(pollFD, waitMS)
+		if err == unix.EINTR {
+			continue
+		}
+		if err != nil {
+			return out.Bytes(), err
+		}
+		if n == 0 {
+			return out.Bytes(), nil
+		}
+		n, err = unix.Read(fd, buf[:])
+		if n > 0 {
+			out.Write(buf[:n])
+			if probeRepliesComplete(out.Bytes(), requested) {
+				return out.Bytes(), nil
 			}
 		}
-		return recorder.bytes()
+		switch err {
+		case nil:
+			if n == 0 {
+				return out.Bytes(), nil
+			}
+		case unix.EINTR, unix.EAGAIN:
+			continue
+		default:
+			return out.Bytes(), err
+		}
 	}
+	return out.Bytes(), fmt.Errorf("reply too large")
+}
+
+func normalizeProbeReadError(err error) error {
+	if err == nil || errors.Is(err, io.EOF) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return nil
+	}
+	return err
 }
 
 // recordingReader preserves partial probe replies for the timeout path. A
 // generic io.Reader cannot be canceled, so its goroutine may live until that
-// reader unblocks; real terminal files support deadlines and take the bounded
-// path above.
+// reader unblocks. Run's terminal *os.File takes the synchronous fd-poll path
+// above and never leaves a competing reader behind.
 type recordingReader struct {
 	r    io.Reader
 	mu   sync.Mutex
@@ -287,27 +363,11 @@ func readProbeStream(r io.Reader, limit int, requested Backend) ([]byte, error) 
 	return out.Bytes(), fmt.Errorf("reply too large")
 }
 
-func probeRepliesComplete(reply []byte, requested Backend) bool {
-	switch requested {
-	case BackendKitty:
-		return bytes.Contains(reply, []byte("\x1b_Gi=31;")) && bytes.Contains(reply, []byte("\x1b\\")) ||
-			hasPrimaryDAReply(reply)
-	case BackendITerm2:
-		return len(capabilityReplies(reply)) > 0
-	case BackendSixel:
-		for _, features := range capabilityReplies(reply) {
-			if parseFeatureString(features)["Sx"] {
-				return true
-			}
-		}
-		return hasPrimaryDAReply(reply)
-	default:
-		// Primary DA is the ordered fence recommended by Kitty: once it
-		// arrives, preceding supported graphics queries have replied. A
-		// successful Kitty response can short-circuit because it is auto's
-		// highest-priority backend.
-		return bytes.Contains(reply, []byte("\x1b_Gi=31;OK\x1b\\")) || hasPrimaryDAReply(reply)
-	}
+func probeRepliesComplete(reply []byte, _ Backend) bool {
+	// Every backend query is followed by primary DA. Consume through that
+	// ordered fence so its reply cannot leak into interactive input; if a
+	// terminal omits DA, timeout returns any complete capability reply seen.
+	return hasPrimaryDAReply(reply)
 }
 
 func parseBackendSupport(reply []byte) backendSupport {
@@ -318,10 +378,7 @@ func parseBackendSupport(reply []byte) backendSupport {
 	}
 	for _, featureString := range capabilityReplies(reply) {
 		features := parseFeatureString(featureString)
-		// The published feature table currently assigns F to both focus
-		// reporting and FILE. There is no wire-level way to distinguish them;
-		// treat advertised F as FILE, as iTerm2 itself prescribes for images.
-		support.iterm = support.iterm || features["F"]
+		support.itermReported = support.itermReported || features["F"]
 		support.sixel = support.sixel || features["Sx"]
 	}
 	return support
