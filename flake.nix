@@ -57,7 +57,8 @@
 
           preConfigure = ''
             export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
-            cp -R ${ghosttyZigCache} "$ZIG_GLOBAL_CACHE_DIR"
+            mkdir -p "$ZIG_GLOBAL_CACHE_DIR"
+            cp -R ${ghosttyZigCache} "$ZIG_GLOBAL_CACHE_DIR/p"
             chmod -R u+w "$ZIG_GLOBAL_CACHE_DIR"
             export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
           ''
@@ -98,7 +99,15 @@
             export SDKROOT="${pkgs.apple-sdk.sdkroot}"
           '';
 
-          cmakeFlags = [ "-DCMAKE_BUILD_TYPE=Release" ];
+          cmakeFlags = [
+            "-DCMAKE_BUILD_TYPE=Release"
+          ]
+          # In the sandbox zig cannot probe the host ABI (no /usr/bin/env)
+          # and falls back to musl, which breaks the C++ deps. Pin the
+          # target triple explicitly on Linux.
+          ++ lib.optionals pkgs.stdenv.isLinux [
+            "-DGHOSTTY_ZIG_BUILD_FLAGS=-Dtarget=${pkgs.stdenv.hostPlatform.parsed.cpu.name}-linux-gnu"
+          ];
 
           installPhase = ''
             runHook preInstall
@@ -121,6 +130,11 @@
           vendorHash = "sha256-aF6WFeX8X6BajVzS5h+dwFujs/api/EcK/WgrRVxgHw=";
 
           subPackages = [ "cmd/twee" ];
+
+          # The e2e tests exec host binaries (/bin/cat, /usr/bin/false)
+          # that don't exist in the build sandbox; run tests in the dev
+          # shell instead.
+          doCheck = false;
 
           nativeBuildInputs = [ pkgs.pkg-config ];
           buildInputs = [ ghostty-vt ];
