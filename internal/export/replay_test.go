@@ -1,6 +1,7 @@
 package export
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -48,8 +49,9 @@ func (m *fakeModel) Snapshot() vt.Snapshot {
 }
 
 type frame struct {
-	snap vt.Snapshot
-	d    time.Duration
+	snap    vt.Snapshot
+	overlay string
+	d       time.Duration
 }
 
 func collect(t *testing.T, events []play.Event, opts Options) []frame {
@@ -57,8 +59,8 @@ func collect(t *testing.T, events []play.Event, opts Options) []frame {
 	var out []frame
 	err := replay(events, 80, 24, opts,
 		func(cols, rows int) vt.Model { return &fakeModel{cols: cols, rows: rows} },
-		func(s vt.Snapshot, d time.Duration) error {
-			out = append(out, frame{s, d})
+		func(s vt.Snapshot, overlay string, d time.Duration) error {
+			out = append(out, frame{s, overlay, d})
 			return nil
 		})
 	if err != nil {
@@ -69,6 +71,10 @@ func collect(t *testing.T, events []play.Event, opts Options) []frame {
 
 func out(tms int64, s string) play.Event {
 	return play.Event{TMS: tms, Type: "output", Bytes: []byte(s)}
+}
+
+func keyInput(tms int64, key string) play.Event {
+	return play.Event{TMS: tms, Type: "input", Kind: "key", Key: key}
 }
 
 func TestReplayEmitsFrameOnChange(t *testing.T) {
@@ -181,5 +187,42 @@ func TestReplayResizeUpdatesModel(t *testing.T) {
 	last := frames[len(frames)-1].snap
 	if last.Size.Cols != 100 || last.Size.Rows != 30 {
 		t.Errorf("snapshot size = %dx%d, want 100x30", last.Size.Cols, last.Size.Rows)
+	}
+}
+
+// TestReplayInputOverlayForcesFrameOnUnchangedScreen pins down the
+// --input-overlay interaction with the emit-on-screen-change rule: a key
+// event between two otherwise-unbroken output events produces no frame
+// split at all without the overlay (the screen doesn't visibly change
+// again until the trailing frame), but must split the frame once the
+// overlay is enabled — otherwise a new overlay value could take effect
+// and later change again without ever being visible in its own frame.
+func TestReplayInputOverlayForcesFrameOnUnchangedScreen(t *testing.T) {
+	events := []play.Event{
+		out(1000, "x"),
+		keyInput(1500, "Enter"),
+		out(4000, "c"), // cursor-only change: doesn't split the frame either
+	}
+
+	without := collect(t, events, Options{})
+	if len(without) != 2 {
+		t.Fatalf("without overlay: got %d frames, want 2 (blank, then the single unbroken 'x' frame)", len(without))
+	}
+
+	with := collect(t, events, Options{InputOverlay: true})
+	if len(with) != 3 {
+		t.Fatalf("with overlay: got %d frames, want 3 (the key event must split the 'x' frame in two)", len(with))
+	}
+	last := with[len(with)-1]
+	if !strings.Contains(last.overlay, "Enter") {
+		t.Fatalf("last frame overlay = %q, want it to mention Enter", last.overlay)
+	}
+	// The screen content itself is unaffected by the overlay forcing an
+	// extra frame — only the frame boundaries and overlay text differ.
+	if frameText(with[0]) != frameText(without[0]) {
+		t.Errorf("first frame content changed by enabling overlay")
+	}
+	if frameText(last) != frameText(without[len(without)-1]) {
+		t.Errorf("final frame content changed by enabling overlay")
 	}
 }

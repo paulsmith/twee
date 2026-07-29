@@ -31,7 +31,7 @@ func TestFormatEventToast(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := formatEventToast(tt.ev); got != tt.want {
+			if got := FormatEventToast(tt.ev); got != tt.want {
 				t.Fatalf("toast = %q, want %q", got, tt.want)
 			}
 		})

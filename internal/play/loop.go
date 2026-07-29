@@ -237,7 +237,7 @@ func (l *loop) dispatch(ev Event) {
 }
 
 func (l *loop) setToast(ev Event) {
-	text := formatEventToast(ev)
+	text := FormatEventToast(ev)
 	if text == "" {
 		return
 	}

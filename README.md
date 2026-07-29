@@ -592,6 +592,27 @@ Flags:
 | `--font-size <pt>` | Render font size in points (default `14`). |
 | `--fps-cap N` | Limit snapshot/render work to at most this many frames per second of video time (default `30`). |
 | `--ffmpeg <path>` | ffmpeg binary for MP4/WebM output (default: find `ffmpeg` on `PATH`). |
+| `--crop <x,y,w,h>` | Render only this cell rectangle of the screen. `w,h` must be `> 0`, `x,y` must be `>= 0`. |
+| `--input-overlay` | Append a footer strip below the frames showing the most recent input or resize event. |
+
+`--crop` takes cell coordinates, not pixels. A frame whose actual screen
+is smaller than the crop rectangle (e.g. before a later resize grows it)
+renders the intersection and blank-fills the rest rather than failing
+mid-export:
+
+```
+$ twee export /tmp/myapp.twee -o /tmp/corner.gif --crop 0,0,40,10
+```
+
+`--input-overlay` adds a row below the frames formatted like `twee
+play`'s footer (`[12.345s] -> Enter`, `[1.000s] -> resize 100x30`, ...).
+A qualifying input or resize event always produces its own frame, even
+when the screen itself didn't change — otherwise it could be skipped
+entirely by the emit-on-screen-change rule:
+
+```
+$ twee export /tmp/myapp.twee -o /tmp/annotated.mp4 --input-overlay
+```
 
 ## Limitations
 

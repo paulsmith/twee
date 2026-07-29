@@ -17,6 +17,25 @@ type Options struct {
 	FontSize float64       // render font size in points; default 14
 	FPSCap   int           // max frames per second of logical time; default 30
 	FFmpeg   string        // ffmpeg binary; default looked up on PATH
+
+	// Crop, when non-nil, renders only this cell-coordinate rectangle of
+	// the screen instead of the whole recorded grid. A frame whose
+	// actual screen is smaller than the rectangle renders the
+	// intersection and blank-fills the rest rather than erroring.
+	Crop *CropRect
+
+	// InputOverlay appends a one-row footer strip below each frame
+	// showing the most recently seen input or resize event, formatted
+	// the same way "twee play"'s footer is. A qualifying event forces a
+	// frame even when the screen itself didn't change, so the overlay
+	// can't be skipped by the emit-on-screen-change rule.
+	InputOverlay bool
+}
+
+// CropRect is a cell-coordinate rectangle selecting the portion of the
+// screen Options.Crop renders.
+type CropRect struct {
+	X, Y, W, H int
 }
 
 const trailingCap = 3 * time.Second
@@ -33,12 +52,23 @@ func (o *Options) normalize() {
 	}
 }
 
+// frameKey identifies a visually distinct frame: the screen content
+// (hashNoCursor) plus, when --input-overlay is active, the current
+// overlay text. Comparing the pair directly (rather than hashing them
+// together) keeps the "did anything change" check a plain ==.
+type frameKey struct {
+	hash    [32]byte
+	overlay string
+}
+
 // replay walks events on a logical clock and calls emit with each visibly
-// distinct frame and its display duration. Frames arrive in order and
-// durations sum to the adjusted length of the recording, with idle tail capped.
+// distinct frame, its current overlay text (see Options.InputOverlay;
+// "" when disabled or no qualifying event has occurred yet), and its
+// display duration. Frames arrive in order and durations sum to the
+// adjusted length of the recording, with idle tail capped.
 func replay(events []play.Event, cols, rows int, opts Options,
 	newModel func(int, int) vt.Model,
-	emit func(vt.Snapshot, time.Duration) error,
+	emit func(snap vt.Snapshot, overlay string, d time.Duration) error,
 ) error {
 	opts.normalize()
 	window := time.Second / time.Duration(opts.FPSCap)
@@ -46,11 +76,13 @@ func replay(events []play.Event, cols, rows int, opts Options,
 
 	adjusted := adjustedTimeline(events, opts)
 	pendingSnap := model.Snapshot()
-	pendingHash := hashNoCursor(pendingSnap)
+	var pendingOverlay string
+	pendingKey := frameKey{hashNoCursor(pendingSnap), pendingOverlay}
 	var pendingT time.Duration
 	checkpointSet := false
 	var nextCheckpoint time.Duration
 	dirty := false
+	var overlay string
 
 	checkpoint := func(t time.Duration) error {
 		checkpointSet = true
@@ -58,16 +90,16 @@ func replay(events []play.Event, cols, rows int, opts Options,
 		dirty = false
 
 		snap := model.Snapshot()
-		h := hashNoCursor(snap)
-		if h == pendingHash {
+		key := frameKey{hashNoCursor(snap), overlay}
+		if key == pendingKey {
 			return nil
 		}
 		if d := t - pendingT; d > 0 {
-			if err := emit(pendingSnap, d); err != nil {
+			if err := emit(pendingSnap, pendingOverlay, d); err != nil {
 				return err
 			}
 		}
-		pendingSnap, pendingHash, pendingT = snap, h, t
+		pendingSnap, pendingOverlay, pendingKey, pendingT = snap, overlay, key, t
 		return nil
 	}
 
@@ -81,7 +113,19 @@ func replay(events []play.Event, cols, rows int, opts Options,
 		if err := apply(model, ev); err != nil {
 			return err
 		}
-		if !screenEvent(ev) {
+		// A new input/resize event must produce a frame of its own even
+		// when it doesn't touch the screen — otherwise the overlay could
+		// update and revert between two emitted frames without ever
+		// being seen, since the emit-on-screen-change rule wouldn't
+		// consider it a reason to checkpoint at all.
+		forceFrame := false
+		if opts.InputOverlay {
+			if txt := play.FormatEventToast(ev); txt != "" {
+				overlay = txt
+				forceFrame = true
+			}
+		}
+		if !screenEvent(ev) && !forceFrame {
 			continue
 		}
 		if !checkpointSet || t >= nextCheckpoint {
@@ -119,7 +163,7 @@ func replay(events []play.Event, cols, rows int, opts Options,
 	if tail < window {
 		tail = window
 	}
-	return emit(pendingSnap, tail)
+	return emit(pendingSnap, pendingOverlay, tail)
 }
 
 func adjustedTimeline(events []play.Event, opts Options) []time.Duration {

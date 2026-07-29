@@ -38,7 +38,7 @@ func Export(path, outPath string, opts Options) error {
 	if err != nil {
 		return err
 	}
-	cv, err := newCanvas(b.MaxCols, b.MaxRows, opts.FontSize)
+	cv, err := newCanvas(b.MaxCols, b.MaxRows, opts.FontSize, opts.Crop, opts.InputOverlay)
 	if err != nil {
 		return fmt.Errorf("twee export: %w", err)
 	}
@@ -48,8 +48,8 @@ func Export(path, outPath string, opts Options) error {
 		return fmt.Errorf("twee export: %w", err)
 	}
 	err = replay(b.Events, b.Manifest.Cols, b.Manifest.Rows, opts, vt.New,
-		func(s vt.Snapshot, d time.Duration) error {
-			img, err := cv.compose(s)
+		func(s vt.Snapshot, overlay string, d time.Duration) error {
+			img, err := cv.compose(s, overlay)
 			if err != nil {
 				return err
 			}

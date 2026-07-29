@@ -10,7 +10,13 @@ type toast struct {
 	text string
 }
 
-func formatEventToast(ev Event) string {
+// FormatEventToast formats an input or resize event as the one-line
+// "footer" text twee play shows for the most recent such event
+// ("[12.345s] -> Enter", "[1.000s] -> resize 100x30", ...). It returns
+// "" for event types that don't get a footer line (output, exit).
+// Exported so internal/export can reuse the identical formatting for
+// its --input-overlay footer strip instead of drifting from play's.
+func FormatEventToast(ev Event) string {
 	prefix := fmt.Sprintf("[%06.3fs] \u2192 ", float64(ev.TMS)/1000)
 	switch ev.Type {
 	case "input":
