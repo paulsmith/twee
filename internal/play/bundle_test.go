@@ -139,3 +139,19 @@ func writeTestBundle(t *testing.T, files map[string]string) string {
 	}
 	return path
 }
+
+func FuzzOpenBundleCorruptInputDoesNotPanic(f *testing.F) {
+	f.Add([]byte{})
+	f.Add([]byte("not a zip"))
+	f.Add([]byte("PK\x03\x04truncated"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 1<<20 {
+			t.Skip()
+		}
+		path := filepath.Join(t.TempDir(), "corrupt.twee")
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = OpenBundle(path)
+	})
+}

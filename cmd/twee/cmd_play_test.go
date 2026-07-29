@@ -34,13 +34,46 @@ func TestPlayFakeKittyEmitsAPC(t *testing.T) {
 	}
 }
 
+func TestPlayFakeExperimentalBackendsEmitProtocolBytes(t *testing.T) {
+	bin := buildBinary(t)
+	path := writePlayBundle(t)
+	for _, tt := range []struct {
+		backend string
+		want    []byte
+	}{
+		{"iterm2", []byte("\x1b]1337;File=")},
+		{"sixel", []byte("\x1bP0;1;0q")},
+	} {
+		t.Run(tt.backend, func(t *testing.T) {
+			cmd := exec.Command(bin, "play", path, "--speed", "100", "--backend", tt.backend)
+			cmd.Env = append(os.Environ(), append(testEnv(t), "TWEE_PLAY_FAKE_BACKEND="+tt.backend)...)
+			out, err := cmd.Output()
+			if err != nil {
+				if exitErr, ok := err.(*exec.ExitError); ok {
+					t.Fatalf("play: %v\nstderr:\n%s\nstdout:\n%s", err, exitErr.Stderr, out)
+				}
+				t.Fatalf("play: %v", err)
+			}
+			if !bytes.Contains(out, tt.want) {
+				t.Fatalf("output missing %q in %q", tt.want, out)
+			}
+			if !bytes.Contains(out, []byte("at end")) {
+				t.Fatalf("output missing final status in %q", out)
+			}
+		})
+	}
+}
+
 func TestParsePlayArgsAcceptsFlagsAfterBundle(t *testing.T) {
-	path, opts := parsePlayArgs([]string{"demo.twee", "--speed", "2.5", "--step", "--max-idle=500ms", "--verbose"})
+	path, opts := parsePlayArgs([]string{"demo.twee", "--backend", "sixel", "--speed", "2.5", "--step", "--max-idle=500ms", "--verbose"})
 	if path != "demo.twee" {
 		t.Fatalf("path = %q, want demo.twee", path)
 	}
 	if opts.Speed != 2.5 {
 		t.Fatalf("speed = %v, want 2.5", opts.Speed)
+	}
+	if opts.Backend != play.BackendSixel {
+		t.Fatalf("backend = %q, want sixel", opts.Backend)
 	}
 	if !opts.Step {
 		t.Fatal("step = false, want true")

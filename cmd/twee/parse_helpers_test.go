@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/paulsmith/twee/internal/play"
 	"github.com/paulsmith/twee/internal/rpc"
 )
 
@@ -117,6 +118,9 @@ func TestParsePlayArgs(t *testing.T) {
 	}
 	if opts.Speed != 2.5 || !opts.Step || opts.MaxIdle != 150*time.Millisecond || !opts.Verbose {
 		t.Fatalf("opts = %+v", opts)
+	}
+	if opts.Backend != play.BackendAuto {
+		t.Fatalf("backend = %q, want auto", opts.Backend)
 	}
 	if got := parsePlaySpeed("1.25"); got != 1.25 {
 		t.Fatalf("parsePlaySpeed = %v, want 1.25", got)
