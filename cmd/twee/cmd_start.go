@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/paulsmith/twee/internal/rpc"
 )
@@ -21,13 +22,23 @@ Flags:
   --env KEY=VALUE  environment override (repeatable)
   --trace <path.twee>
                   record the whole session, spawn to teardown, to a
-                  trace bundle; finalized automatically at child exit`)
+                  trace bundle; finalized automatically at child exit
+  --force          if a live session of this name already exists, stop
+                  it first (default grace) instead of failing with
+                  ALREADY_RUNNING; adds "replaced":true to the response
+                  when it actually stopped something. Stale leftovers
+                  (a dead daemon's socket/lock) are already recovered
+                  automatically either way.`)
 }
 
 func runStart(args []string) {
 	opts, err := parseStartArgs(args)
 	if err != nil {
 		fatalUsage("start: %v", err)
+	}
+	var replaced bool
+	if opts.force {
+		replaced = forceStopExisting(opts.name)
 	}
 	msg, err := daemonize(opts.name, opts.dir, opts.cmd, opts.cols, opts.rows, opts.env, opts.trace)
 	if err != nil {
@@ -44,7 +55,29 @@ func runStart(args []string) {
 		}
 		emitError(code, message, details, 1)
 	}
+	msg.Replaced = replaced
 	emitOK(msg)
+}
+
+// forceStopExisting is "start --force"'s pre-stop step: if a live daemon
+// currently owns name's lock, stop it (default grace) and wait for that
+// process to fully exit before returning, so the daemonize call right
+// after doesn't race the old daemon's own asynchronous teardown (a stop
+// RPC returns as soon as the child is dead, but the daemon process
+// releasing its flock and removing its socket/lock happens slightly
+// later, in a different goroutine). Returns true only when it actually
+// stopped a live session; a stale lock (already unowned — cleaned up by
+// stopSession same as a plain "stop" would) or no lock at all reports
+// false, since daemonize already recovers those cases on its own
+// regardless of --force.
+func forceStopExisting(name string) bool {
+	pid, hadPID := readLockPID(name)
+	r := stopSession(name, rpc.StopArgs{})
+	replaced := r.errCode == "" && r.data["stopped"] == true
+	if hadPID {
+		waitForPIDExit(pid, 3*time.Second)
+	}
+	return replaced
 }
 
 type startOptions struct {
@@ -55,6 +88,7 @@ type startOptions struct {
 	dir   string
 	env   map[string]string
 	trace string
+	force bool
 }
 
 func parseStartArgs(args []string) (startOptions, error) {
@@ -69,6 +103,7 @@ func parseStartArgs(args []string) (startOptions, error) {
 		Dir   string   `arg:"--dir"`
 		Env   []string `arg:"--env,separate"`
 		Trace string   `arg:"--trace"`
+		Force bool     `arg:"--force"`
 	}
 	if err := requireSeparateValues(before, "--env"); err != nil {
 		return startOptions{}, err
@@ -100,7 +135,7 @@ func parseStartArgs(args []string) (startOptions, error) {
 	if err != nil {
 		return startOptions{}, err
 	}
-	return startOptions{name: name, cmd: cmd, cols: cols, rows: rows, dir: parsed.Dir, env: envOverrides, trace: trace}, nil
+	return startOptions{name: name, cmd: cmd, cols: cols, rows: rows, dir: parsed.Dir, env: envOverrides, trace: trace, force: parsed.Force}, nil
 }
 
 // multiFlag collects repeated string flags.

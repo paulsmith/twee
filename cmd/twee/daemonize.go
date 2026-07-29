@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,6 +35,7 @@ type readyMessage struct {
 	Socket       string          `json:"socket"`
 	PID          int             `json:"pid"`
 	Trace        string          `json:"trace,omitempty"`
+	Replaced     bool            `json:"replaced,omitempty"`
 	Error        string          `json:"error,omitempty"`
 	ErrorCode    string          `json:"error_code,omitempty"`
 	ErrorDetails json.RawMessage `json:"error_details,omitempty"`
@@ -70,7 +72,17 @@ func runDaemonChildReal() {
 
 	readyW := os.NewFile(uintptr(readyFD), "ready-pipe")
 	lockFile := os.NewFile(uintptr(lockFD), "lock-file")
-	_ = lockFile // hold open to keep flock alive
+	// The lock file was written with the *launcher's* PID by
+	// daemonize (before this child even existed); overwrite it with our
+	// own now that we're the process actually holding the flock for the
+	// rest of the session's life. Nothing parses this at a byte level
+	// today except best-effort tooling (readLockPID, for "start
+	// --force"'s wait-for-old-daemon-to-exit step) — but a lock file
+	// naming the wrong PID is a footgun for any future reader, manual or
+	// automated.
+	_, _ = lockFile.Seek(0, 0)
+	_ = lockFile.Truncate(0)
+	_, _ = fmt.Fprintf(lockFile, "%d\n", os.Getpid())
 
 	sock, err := socketPath(name)
 	if err != nil {
@@ -236,6 +248,42 @@ func acquireSessionLock(name string) (*os.File, error) {
 		_ = lf.Close() // path unlinked or replaced under us; retry
 	}
 	return nil, fmt.Errorf("lock %s: path kept changing during acquisition", lp)
+}
+
+// readLockPID reads the PID daemonize wrote into name's lock file, if
+// any. Used by "start --force" to wait for a stopped daemon to fully
+// exit — releasing its flock — before trying to acquire the lock
+// itself. A missing lock file or unparsable contents just means there's
+// nothing to wait for (never started, or already fully torn down); the
+// caller treats that the same as "not applicable".
+func readLockPID(name string) (int, bool) {
+	lp, err := lockPath(name)
+	if err != nil {
+		return 0, false
+	}
+	raw, err := os.ReadFile(lp)
+	if err != nil {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+	return pid, true
+}
+
+// waitForPIDExit polls until pid is no longer alive or timeout elapses.
+// Best-effort: on timeout it just returns, and the caller's subsequent
+// lock acquisition will surface a real ALREADY_RUNNING if the process
+// genuinely never exits, rather than this hanging forever.
+func waitForPIDExit(pid int, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(pid, 0); err == syscall.ESRCH {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // daemonize re-execs into daemon mode with the given config, holding

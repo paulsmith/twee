@@ -137,6 +137,15 @@ $ twee start -- /bin/sh -c 'exit 3'
 {"ok":false,"error":{"code":"CHILD_EXITED","message":"child exited during startup","details":{"name":"default","child_argv":["/bin/sh","-c","exit 3"],"exit_code":3,"socket_created":true}}}
 ```
 
+`start --name <name>` colliding with an already-live daemon of that name
+fails with `ALREADY_RUNNING` by default. `start --force` instead stops
+the live session first (default grace) and proceeds with the new one,
+adding `"replaced":true` to the response when it actually stopped
+something. A stale leftover (a dead daemon's socket/lock left behind by
+e.g. `kill -9`) is recovered automatically either way — with or without
+`--force` — so `--force` only changes behavior for a genuinely live
+collision, and doesn't add `"replaced"` for a stale one.
+
 Sessions end one of two ways. `twee stop` SIGTERMs the child, waits a
 grace period (250ms by default; override with `--grace <dur>`),
 escalates to SIGKILL, and removes the socket and lock file. `--grace 0`
@@ -283,7 +292,7 @@ stdout.
 |---|---|
 | `TIMEOUT` | Wait expired. |
 | `NOT_FOUND` | Session unreachable: no daemon socket for that name (any verb). Also `trace stop` with no active trace. |
-| `ALREADY_RUNNING` | `start` collided with an existing daemon of that name. Also `trace start` while a trace is already active (`details.path` names the active trace); stop it first. |
+| `ALREADY_RUNNING` | `start` collided with an existing daemon of that name (pass `--force` to stop it and proceed instead of failing). Also `trace start` while a trace is already active (`details.path` names the active trace); stop it first. |
 | `CHILD_EXITED` | `start` observed the child exit during startup (within ~100ms); `details` carries `child_argv`, `exit_code`, `socket_created`, and `trace_path` when `--trace` was given. |
 | `INVALID_ARGUMENT` | Bad op argument: malformed duration/regex, out-of-range coords, unknown op, unknown or missing arg key, malformed script. Also a negative `stop --grace`. |
 | `IO` | Socket / PTY / file error. |
