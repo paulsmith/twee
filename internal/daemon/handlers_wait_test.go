@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -118,6 +119,71 @@ func TestWaitHandlersRejectInvalidArgs(t *testing.T) {
 				t.Fatalf("error code = %q, want %q", err.Code, tt.code)
 			}
 		})
+	}
+}
+
+// TestWaitTimeoutDetailsCauseIsShort pins down that details.cause is the
+// short root cause of a timed-out wait, not a second copy of the
+// multi-line diagnostic dump that already lives in message.
+func TestWaitTimeoutDetailsCauseIsShort(t *testing.T) {
+	te := startTestTerm(t)
+
+	_, errResp := handleWaitText(te, mustJSON(t, rpc.WaitTextArgs{
+		Text: "text that never appears", Timeout: "50ms",
+	}))
+	if errResp == nil {
+		t.Fatal("handleWaitText unexpectedly succeeded")
+	}
+	if errResp.Code != rpc.CodeTimeout {
+		t.Fatalf("code = %q, want %q", errResp.Code, rpc.CodeTimeout)
+	}
+	if !strings.Contains(errResp.Message, "--- visible screen ---") {
+		t.Fatalf("message missing diagnostic dump: %q", errResp.Message)
+	}
+	var details struct {
+		Cause      string `json:"cause"`
+		LastScreen string `json:"last_screen"`
+	}
+	if err := json.Unmarshal(errResp.Details, &details); err != nil {
+		t.Fatalf("decode details: %v", err)
+	}
+	if details.Cause != "pump: timeout" {
+		t.Fatalf("details.cause = %q, want %q", details.Cause, "pump: timeout")
+	}
+	if strings.Contains(details.Cause, "--- visible screen ---") {
+		t.Fatalf("details.cause duplicates the diagnostic dump: %q", details.Cause)
+	}
+	if details.LastScreen == "" {
+		t.Fatal("details.last_screen unexpectedly empty")
+	}
+}
+
+// TestWaitExitTimeoutUnchanged pins down that wait exit's timeout
+// message/cause are untouched by the dedup fix: WaitForExit's error
+// isn't wrapped with a diagnostic dump to begin with, so cause still
+// equals the (short) message, same as before.
+func TestWaitExitTimeoutUnchanged(t *testing.T) {
+	te, err := engine.Start(context.Background(), engine.Config{
+		Cmd:  []string{"/bin/sh", "-c", "sleep 30"},
+		Cols: 10, Rows: 3,
+	})
+	if err != nil {
+		t.Fatalf("engine.Start: %v", err)
+	}
+	t.Cleanup(func() { _ = te.Close() })
+
+	_, errResp := handleWaitExit(te, mustJSON(t, rpc.WaitExitArgs{Timeout: "50ms"}))
+	if errResp == nil {
+		t.Fatal("handleWaitExit unexpectedly succeeded")
+	}
+	var details struct {
+		Cause string `json:"cause"`
+	}
+	if err := json.Unmarshal(errResp.Details, &details); err != nil {
+		t.Fatalf("decode details: %v", err)
+	}
+	if details.Cause != errResp.Message {
+		t.Fatalf("wait exit cause = %q, message = %q; want equal (unchanged semantics)", details.Cause, errResp.Message)
 	}
 }
 

@@ -268,12 +268,13 @@ stdout.
 Text queries that find nothing (`find`, etc.) return `ok:true` with
 empty results, not `NOT_FOUND`.
 
-`error.details` is shaped per failure. Wait timeouts carry `cause` and
-`last_screen` (the visible viewport text); the message itself embeds a
-diagnostic dump — the child's command, terminal size, cursor, recent
-input events, and the last ~1KB of PTY output, escaped. `CHILD_EXITED`
-from `start` carries the fields listed above. Other codes carry no
-`details`.
+`error.details` is shaped per failure. Wait timeouts carry `cause` — a
+short root cause like `"pump: timeout"` or `"pump: closed"` — and
+`last_screen` (the visible viewport text). The full diagnostic dump —
+the child's command, terminal size, cursor, recent input events, and
+the last ~1KB of PTY output, escaped — lives only in `message`, not
+`details.cause`. `CHILD_EXITED` from `start` carries the fields listed
+above. Other codes carry no `details`.
 
 ## Single-shot scripts
 
