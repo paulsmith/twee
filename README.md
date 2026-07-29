@@ -38,11 +38,11 @@ $ twee stop
 Omit `--out` on `screenshot` to receive the PNG inline as
 `data.png_base64`.
 
-Relative `--out` paths (on `screenshot` and `trace start`) and `--trace`
-paths (on `start` and `run --trace-out`) are resolved against the CLI
-invocation's own working directory, not the daemon's — a session can
-outlive several `cd`s between the client processes talking to it.
-Responses echo the resolved absolute path.
+Relative `--out` paths (on `screenshot` and `trace start`), `--trace`
+paths (on `start` and `run --trace-out`), and `diff`'s `--against` are
+all resolved against the CLI invocation's own working directory, not
+the daemon's — a session can outlive several `cd`s between the client
+processes talking to it. Responses echo the resolved absolute path.
 
 ## Why
 

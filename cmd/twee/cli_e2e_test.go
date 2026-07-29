@@ -353,6 +353,23 @@ func TestRelativeOutPathsResolveAgainstClientCwd(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(daemonDir, "session.twee")); !os.IsNotExist(err) {
 		t.Errorf("trace bundle incorrectly written to daemon cwd (stat err = %v)", err)
 	}
+
+	// diff --against is an input path, not an output path, but it's read
+	// by the daemon the same way: a relative path must resolve against
+	// the client's cwd, not the daemon's. Plant a decoy file in the
+	// daemon's cwd with different content so a wrong resolution is
+	// caught by content, not just by success/failure.
+	if err := os.WriteFile(filepath.Join(clientDir, "expected.txt"), []byte("sentinel-value"), 0o644); err != nil {
+		t.Fatalf("write client expected.txt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(daemonDir, "expected.txt"), []byte("wrong-file"), 0o644); err != nil {
+		t.Fatalf("write daemon-dir decoy expected.txt: %v", err)
+	}
+	diffResp := runIn(clientDir, "diff", "--name", name, "--against", "expected.txt")
+	diffData, _ := diffResp["data"].(map[string]any)
+	if diffData["expected"] != "sentinel-value" {
+		t.Fatalf("diff data.expected = %v, want %q (read from client cwd)", diffData["expected"], "sentinel-value")
+	}
 }
 
 func envValue(t *testing.T, env []string, key string) string {

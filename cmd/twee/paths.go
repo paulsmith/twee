@@ -84,12 +84,14 @@ func lockPath(name string) (string, error) {
 	return filepath.Join(dir, name+".lock"), nil
 }
 
-// absOutPath resolves a client-supplied output path against the client's
-// own working directory before it travels over the RPC wire. Without
-// this, a relative --out is later interpreted by the daemon process,
-// which may have a different cwd than the client invoking this command
-// (the daemon keeps whatever cwd it had at `start` time). Empty stays
-// empty, meaning "let the daemon choose a default path".
+// absOutPath resolves a client-supplied path (an --out destination, or
+// an input path like diff's --against) against the client's own working
+// directory before it travels over the RPC wire. Without this, a
+// relative path is later interpreted by the daemon process, which may
+// have a different cwd than the client invoking this command (the
+// daemon keeps whatever cwd it had at `start` time). Empty stays empty,
+// meaning "let the daemon choose a default path" (only meaningful for
+// --out flags; diff's --against is required and never empty).
 func absOutPath(p string) (string, error) {
 	if p == "" {
 		return "", nil

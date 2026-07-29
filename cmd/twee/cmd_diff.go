@@ -21,5 +21,9 @@ func runDiff(args []string) {
 	if err := parseArg("diff", &opts, args); err != nil {
 		fatalUsage("diff: %v", err)
 	}
-	callSessionAndEmit("diff", opts.Name, rpc.OpDiff, rpc.DiffArgs{Against: opts.Against})
+	against, err := absOutPath(opts.Against)
+	if err != nil {
+		fatalUsage("diff: %v", err)
+	}
+	callSessionAndEmit("diff", opts.Name, rpc.OpDiff, rpc.DiffArgs{Against: against})
 }
