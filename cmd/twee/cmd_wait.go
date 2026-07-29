@@ -21,7 +21,12 @@ Subverbs:
   wait exit [--timeout <dur>] [--name <name>]
 
 Default --timeout is 5s for text/no-text/stable/cursor, 30s for exit.
-On timeout the verb exits non-zero with code TIMEOUT.
+On timeout the verb exits non-zero with code TIMEOUT. If the session
+ends first (child exits, or "twee stop") — text/no-text/cursor exit
+non-zero with code SESSION_ENDED instead, so scripts can tell "the app
+is slow" from "the app is gone" without string-matching the message.
+"wait stable" is the exception: it reports success either way (see
+"twee help wait stable").
 
 "wait exit" treats a missing daemon as success (the child has already
 exited and the daemon torn down its socket). data.daemon_already_gone
@@ -32,15 +37,25 @@ Wait for substr (or regex with --regex) to appear in the viewport.
 With --regex, the pattern is matched against the whole viewport joined
 by newlines, compiled in multi-line mode: ^ and $ anchor at the start
 and end of each line, not just the start/end of the whole viewport.
-wait no-text has no --regex option.`)
+wait no-text has no --regex option.
+
+Fails with code SESSION_ENDED, not TIMEOUT, if the session ends before
+the pattern appears.`)
 	registerUsage("wait no-text", `twee wait no-text --pattern TEXT [--timeout <dur>] [--name <name>]
-Wait for substr to disappear from the viewport.`)
+Wait for substr to disappear from the viewport. Fails with code
+SESSION_ENDED, not TIMEOUT, if the session ends before it disappears.`)
 	registerUsage("wait stable", `twee wait stable [--quiet <dur>] [--timeout <dur>] [--name <name>]
 Wait for the screen to stop changing for --quiet (default 100ms).
 Will hang on apps with always-running spinners; use "wait text"
-instead for those.`)
+instead for those.
+
+If the session ends while waiting, this reports success rather than
+SESSION_ENDED: a screen that will never change again is trivially
+"stable". (This differs from wait text/no-text/cursor, which do
+distinguish session-ended from timeout.)`)
 	registerUsage("wait cursor", `twee wait cursor <x> <y> [--timeout <dur>] [--name <name>]
-Wait for the cursor to land at (x, y).`)
+Wait for the cursor to land at (x, y). Fails with code SESSION_ENDED,
+not TIMEOUT, if the session ends before it does.`)
 	registerUsage("wait exit", `twee wait exit [--timeout <dur>] [--name <name>]
 Wait for the child process to exit. Default --timeout is 30s. If the
 daemon socket is already gone, returns success with

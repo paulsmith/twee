@@ -2,11 +2,13 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/paulsmith/twee/internal/pump"
 	"github.com/paulsmith/twee/internal/vt"
 )
 
@@ -84,7 +86,11 @@ func (t *Term) WaitForTextRegex(re *regexp.Regexp, opts ...WaitOption) error {
 	return nil
 }
 
-// WaitForStableScreen waits for at least quietFor with no model-changing output.
+// WaitForStableScreen waits for at least quietFor with no model-changing
+// output. Note: unlike the other WaitForXxx methods, this one treats the
+// pump closing (session ended) the same as genuine stability and returns
+// nil rather than an IsSessionEnded error — see pump.Pump.WaitStable and
+// IsSessionEnded's doc comment for why.
 func (t *Term) WaitForStableScreen(quietFor time.Duration, opts ...WaitOption) error {
 	o := t.waitOpts(opts)
 	err := t.pump.WaitStable(o.Ctx, quietFor, o.Timeout)
@@ -92,6 +98,27 @@ func (t *Term) WaitForStableScreen(quietFor time.Duration, opts ...WaitOption) e
 		return fmt.Errorf("WaitForStableScreen: %w\n%s", err, t.Diagnostic())
 	}
 	return nil
+}
+
+// IsSessionEnded reports whether err — as returned by one of Term's
+// WaitForXxx methods — means the wait was cut short by the session ending
+// (the pump closed: the child exited, or the daemon tore the session
+// down) rather than by the deadline firing. Callers that want to
+// distinguish "the app is just slow" from "the app is gone" should check
+// this before falling back to a plain timeout.
+//
+// WaitForStableScreen never produces an error this reports true for:
+// pump.Pump.WaitStable treats a closed pump as trivially stable (nothing
+// will ever change again) and returns nil, not ErrClosed. That shortcut
+// is deliberately preserved — tuitest's WaitForStableScreen regression
+// tests spawn children that print and exit immediately, well inside the
+// quiet window, and rely on the closed-pump-is-stable behavior to pass;
+// flipping it to an error here would make those (and any real app that
+// happens to exit right after its last paint) report SESSION_ENDED
+// instead of the success a "did the screen stop changing" wait is really
+// asking about.
+func IsSessionEnded(err error) bool {
+	return errors.Is(err, pump.ErrClosed)
 }
 
 // WaitUntil waits until fn(snapshot) returns true.

@@ -176,6 +176,96 @@ func TestWaitTimeoutDetailsCauseIsShort(t *testing.T) {
 	}
 }
 
+// TestWaitSessionEndedOnPumpClose pins down that wait_text, wait_no_text,
+// and wait_cursor report SESSION_ENDED rather than TIMEOUT when the pump
+// closes (the child exits) before the wait's target state is reached and
+// before its deadline fires — so scripts can tell "the app is slow" from
+// "the app is gone" without string-matching cause. Each case uses a child
+// that prints "hello" and exits almost immediately, then waits on a
+// condition ("never appears" / "hello" never disappears / a cursor
+// position the child never reaches) that can only resolve via the pump
+// closing, well before the 5s timeout.
+func TestWaitSessionEndedOnPumpClose(t *testing.T) {
+	spawn := func(t *testing.T) *engine.Term {
+		t.Helper()
+		te, err := engine.Start(context.Background(), engine.Config{
+			Cmd:  []string{"/bin/sh", "-c", "printf 'hello\\r\\n'; sleep 0.05"},
+			Cols: 40, Rows: 5,
+		})
+		if err != nil {
+			t.Fatalf("engine.Start: %v", err)
+		}
+		t.Cleanup(func() { _ = te.Close() })
+		if err := te.WaitForText("hello"); err != nil {
+			t.Fatalf("WaitForText(hello): %v", err)
+		}
+		return te
+	}
+
+	tests := []struct {
+		name string
+		call func(te *engine.Term) (any, *rpc.Error)
+	}{
+		{"text", func(te *engine.Term) (any, *rpc.Error) {
+			return handleWaitText(te, mustJSON(t, rpc.WaitTextArgs{Text: "never appears", Timeout: "5s"}))
+		}},
+		{"no text", func(te *engine.Term) (any, *rpc.Error) {
+			return handleWaitNoText(te, mustJSON(t, rpc.WaitNoTextArgs{Text: "hello", Timeout: "5s"}))
+		}},
+		{"cursor", func(te *engine.Term) (any, *rpc.Error) {
+			return handleWaitCursor(te, mustJSON(t, rpc.WaitCursorArgs{X: 39, Y: 4, Timeout: "5s"}))
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			te := spawn(t)
+			_, errResp := tt.call(te)
+			if errResp == nil {
+				t.Fatal("wait unexpectedly succeeded")
+			}
+			if errResp.Code != rpc.CodeSessionEnded {
+				t.Fatalf("code = %q, want %q", errResp.Code, rpc.CodeSessionEnded)
+			}
+			var details struct {
+				Cause      string `json:"cause"`
+				LastScreen string `json:"last_screen"`
+			}
+			if err := json.Unmarshal(errResp.Details, &details); err != nil {
+				t.Fatalf("decode details: %v", err)
+			}
+			if details.Cause != "pump: closed" {
+				t.Fatalf("details.cause = %q, want %q", details.Cause, "pump: closed")
+			}
+			if details.LastScreen == "" {
+				t.Fatal("details.last_screen unexpectedly empty")
+			}
+		})
+	}
+}
+
+// TestWaitStableStaysSuccessOnPumpClose documents the deliberate
+// exception: unlike text/no-text/cursor, wait_stable does NOT report
+// SESSION_ENDED when the pump closes (see engine.IsSessionEnded's doc
+// comment). A child that exits well within the quiet window still
+// reports success, matching the pre-SESSION_ENDED behavior — flipping
+// this would break the "closed is trivially stable" shortcut that real
+// apps exiting right after their last paint rely on.
+func TestWaitStableStaysSuccessOnPumpClose(t *testing.T) {
+	te, err := engine.Start(context.Background(), engine.Config{
+		Cmd:  []string{"/bin/sh", "-c", "printf 'hi\\r\\n'"},
+		Cols: 40, Rows: 5,
+	})
+	if err != nil {
+		t.Fatalf("engine.Start: %v", err)
+	}
+	t.Cleanup(func() { _ = te.Close() })
+
+	_, errResp := handleWaitStable(te, mustJSON(t, rpc.WaitStableArgs{Quiet: "50ms", Timeout: "2s"}))
+	if errResp != nil {
+		t.Fatalf("handleWaitStable: %+v", errResp)
+	}
+}
+
 // TestWaitExitTimeoutUnchanged pins down that wait exit's timeout
 // message/cause are untouched by the dedup fix: WaitForExit's error
 // isn't wrapped with a diagnostic dump to begin with, so cause still

@@ -149,14 +149,21 @@ func handleSleep(_ *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	return nil, nil
 }
 
-// waitErr builds the TIMEOUT envelope for a failed wait. Message carries
-// the full diagnostic dump (see engine.Term.Diagnostic); details.cause
-// is deliberately just the short root cause (e.g. "pump: timeout" or
-// "pump: closed") rather than a second copy of that dump. Every
-// WaitForXxx helper wraps its root cause with %w before appending the
-// dump, so unwrapping once recovers it; wait exit's error isn't wrapped
-// at all (it has no dump to begin with), so it falls back to the full
-// (already short) message unchanged.
+// waitErr builds the failure envelope for a wait that didn't reach its
+// target state. Message carries the full diagnostic dump (see
+// engine.Term.Diagnostic); details.cause is deliberately just the short
+// root cause (e.g. "pump: timeout" or "pump: closed") rather than a
+// second copy of that dump. Every WaitForXxx helper wraps its root cause
+// with %w before appending the dump, so unwrapping once recovers it;
+// wait exit's error isn't wrapped at all (it has no dump to begin with),
+// so it falls back to the full (already short) message unchanged.
+//
+// The code is SESSION_ENDED rather than TIMEOUT when engine.IsSessionEnded
+// reports the wait was cut short by the pump closing (child exited, or
+// `twee stop`) instead of the deadline firing — see that function's doc
+// comment for why WaitForStableScreen never triggers this branch, and why
+// wait exit (which doesn't route through waitErr's pump-closed case at
+// all: session-ending is its success path) is unaffected.
 func waitErr(t *engine.Term, err error) *rpc.Error {
 	cause := err.Error()
 	if unwrapped := errors.Unwrap(err); unwrapped != nil {
@@ -166,5 +173,9 @@ func waitErr(t *engine.Term, err error) *rpc.Error {
 		"cause":       cause,
 		"last_screen": t.VisibleText(),
 	})
-	return &rpc.Error{Code: rpc.CodeTimeout, Message: err.Error(), Details: details}
+	code := rpc.CodeTimeout
+	if engine.IsSessionEnded(err) {
+		code = rpc.CodeSessionEnded
+	}
+	return &rpc.Error{Code: code, Message: err.Error(), Details: details}
 }

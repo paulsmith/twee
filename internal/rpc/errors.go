@@ -9,4 +9,12 @@ const (
 	CodeInvalidArgument = "INVALID_ARGUMENT"
 	CodeIO              = "IO"
 	CodeInternal        = "INTERNAL"
+	// CodeSessionEnded marks a wait (text / no-text / cursor) that was
+	// still pending when the session ended — child exited, or `twee
+	// stop` — rather than its deadline firing. It carries the same
+	// details.cause/details.last_screen as CodeTimeout. `wait exit` never
+	// uses this code: the session ending is its success path, not a
+	// failure. `wait stable` doesn't currently use it either — see
+	// engine.IsSessionEnded's doc comment.
+	CodeSessionEnded = "SESSION_ENDED"
 )

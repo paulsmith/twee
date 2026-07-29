@@ -211,8 +211,13 @@ Wait subcommands:
 
 All waits accept `--timeout <duration>` (default 5s, except `wait
 exit` which defaults to 30s). Failure exits non-zero with code
-`TIMEOUT`. `wait stable` also accepts `--quiet <dur>` — how long the
-screen must hold still (default 100ms).
+`TIMEOUT` if the deadline fires, or `SESSION_ENDED` if the session
+ends first (child exits, or `twee stop`) — see the Error codes table.
+`wait exit` is unaffected: the session ending is its success path, not
+a failure. `wait stable` also accepts `--quiet <dur>` — how long the
+screen must hold still (default 100ms); unlike the other waits, a
+session that ends while `wait stable` is waiting still reports success
+(a dead screen is trivially "stable"), never `SESSION_ENDED`.
 
 `wait text --regex` matches against the whole viewport joined by
 newlines, compiled in multi-line mode: `^` and `$` anchor at each
@@ -273,17 +278,18 @@ stdout.
 | `INVALID_ARGUMENT` | Bad op argument: malformed duration/regex, out-of-range coords, unknown op, unknown or missing arg key, malformed script. |
 | `IO` | Socket / PTY / file error. |
 | `INTERNAL` | Bug in twee (e.g. render or marshal failure). |
+| `SESSION_ENDED` | `wait text`/`wait no-text`/`wait cursor` was still pending when the session ended (child exited, or `twee stop`) instead of its deadline firing. `wait exit` never uses this — the session ending is its success path. `wait stable` doesn't either, by design: a dead screen is trivially "stable" (see the waits section). |
 
 Text queries that find nothing (`find`, etc.) return `ok:true` with
 empty results, not `NOT_FOUND`.
 
-`error.details` is shaped per failure. Wait timeouts carry `cause` — a
-short root cause like `"pump: timeout"` or `"pump: closed"` — and
-`last_screen` (the visible viewport text). The full diagnostic dump —
-the child's command, terminal size, cursor, recent input events, and
-the last ~1KB of PTY output, escaped — lives only in `message`, not
-`details.cause`. `CHILD_EXITED` from `start` carries the fields listed
-above. Other codes carry no `details`.
+`error.details` is shaped per failure. Wait failures carry `cause` — a
+short root cause, `"pump: timeout"` for `TIMEOUT` or `"pump: closed"`
+for `SESSION_ENDED` — and `last_screen` (the visible viewport text).
+The full diagnostic dump — the child's command, terminal size, cursor,
+recent input events, and the last ~1KB of PTY output, escaped — lives
+only in `message`, not `details.cause`. `CHILD_EXITED` from `start`
+carries the fields listed above. Other codes carry no `details`.
 
 ## Single-shot scripts
 
