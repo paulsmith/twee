@@ -364,38 +364,18 @@ func hashSnapshot(s vt.Snapshot) []byte {
 	return sum[:]
 }
 
-// EngineSnapshot converts a VT snapshot to the renderer's input type.
+// EngineSnapshot converts a VT snapshot to the renderer's input type,
+// used by both "twee play" (this package) and "twee export"
+// (internal/export/canvas.go calls this function directly). It used to
+// carry its own copy of this conversion, independent from engine's
+// live-session equivalent (engine.Term.Snapshot), and had fallen behind:
+// it cast vt's ColorKind numerically instead of switching on it —
+// vt.ColorPalette and engine.ColorIndexed are both iota 1, so every
+// real 256-color palette entry silently rendered through the 16-color
+// ANSI table instead — and it dropped the Italic and Strikethrough cell
+// attributes entirely. engine.FromVT (internal/engine/types.go) got the
+// same fix first for the live-session path (commit de4ff93); this now
+// just delegates to it so the two paths can't drift apart again.
 func EngineSnapshot(s vt.Snapshot) engine.Snapshot {
-	out := engine.Snapshot{
-		Cols:      s.Size.Cols,
-		Rows:      s.Size.Rows,
-		Cursor:    engine.Cursor{Col: s.Cursor.Col, Row: s.Cursor.Row, Visible: s.Cursor.Visible},
-		AltScreen: s.AltScreen,
-		Lines:     make([]engine.Line, len(s.Lines)),
-	}
-	for i, ln := range s.Lines {
-		cells := make([]engine.Cell, len(ln.Cells))
-		for j, c := range ln.Cells {
-			cells[j] = engine.Cell{
-				Text: c.Text, Width: c.Width,
-				Fg: fromVTColor(c.Fg), Bg: fromVTColor(c.Bg),
-				Bold: c.Bold, Dim: c.Dim, Underline: c.Underline, Inverse: c.Inverse,
-			}
-		}
-		out.Lines[i] = engine.Line{Cells: cells}
-	}
-	return out
-}
-
-func fromVTColor(c vt.Color) engine.Color {
-	out := engine.Color{Index: c.Index, R: c.R, G: c.G, B: c.B}
-	switch c.Kind {
-	case vt.ColorPalette:
-		out.Kind = engine.ColorPalette
-	case vt.ColorRGB:
-		out.Kind = engine.ColorRGB
-	default:
-		out.Kind = engine.ColorDefault
-	}
-	return out
+	return engine.FromVT(s)
 }

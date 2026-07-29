@@ -125,7 +125,7 @@ func IsSessionEnded(err error) bool {
 func (t *Term) WaitUntil(fn func(Snapshot) bool, opts ...WaitOption) error {
 	o := t.waitOpts(opts)
 	err := t.pump.Wait(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
-		return fn(fromVT(snap))
+		return fn(FromVT(snap))
 	})
 	if err != nil {
 		return fmt.Errorf("WaitUntil: %w\n%s", err, t.Diagnostic())

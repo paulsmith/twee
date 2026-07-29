@@ -50,7 +50,12 @@ const (
 	ColorRGB
 )
 
-func fromVT(s vt.Snapshot) Snapshot {
+// FromVT converts a vt.Snapshot into the engine's Snapshot type. It is
+// exported so internal/play's EngineSnapshot can delegate to this exact
+// conversion for playback and export instead of maintaining its own
+// near-duplicate — which is what used to happen, and had fallen behind:
+// see internal/play/loop.go's EngineSnapshot doc comment.
+func FromVT(s vt.Snapshot) Snapshot {
 	out := Snapshot{
 		Cols:      s.Size.Cols,
 		Rows:      s.Size.Rows,

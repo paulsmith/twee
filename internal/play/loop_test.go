@@ -3,11 +3,14 @@ package play
 import (
 	"bytes"
 	"image"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/paulsmith/twee/internal/engine"
 	"github.com/paulsmith/twee/internal/render"
+	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/vt"
 )
 
@@ -415,6 +418,61 @@ func TestLoopExpandsTallFrameToAvailableHeight(t *testing.T) {
 	}
 	if got := frame.size; got.Dx() != 120 || got.Dy() != 460 {
 		t.Fatalf("frame size = %dx%d, want 120x460", got.Dx(), got.Dy())
+	}
+}
+
+// TestEngineSnapshotCarriesPaletteColorAndStyleFromTrace is a regression
+// test for a bug in EngineSnapshot's predecessor (see its doc comment):
+// a 256-color SGR sequence recorded in a real .twee trace must survive
+// playback conversion as engine.ColorPalette (not silently relabeled
+// engine.ColorIndexed, the 16-color ANSI kind), and italic/strikethrough
+// must not be dropped.
+func TestEngineSnapshotCarriesPaletteColorAndStyleFromTrace(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "colors.twee")
+	tr, err := trace.New(path, trace.Manifest{Command: []string{"true"}, Cols: 10, Rows: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// SGR 38;5;99 selects xterm 256-color palette index 99. SGR 3 and 9
+	// are italic and strikethrough.
+	tr.WriteOutput([]byte("\x1b[38;5;99m\x1b[3m\x1b[9mZ"), time.Now())
+	tr.WriteExit(0)
+	if err := tr.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	bundle, err := OpenBundle(path)
+	if err != nil {
+		t.Fatalf("OpenBundle: %v", err)
+	}
+
+	model := vt.New(bundle.Manifest.Cols, bundle.Manifest.Rows)
+	for _, ev := range bundle.Events {
+		if ev.Type != "output" {
+			continue
+		}
+		if err := model.Feed(ev.Bytes); err != nil {
+			t.Fatalf("Feed: %v", err)
+		}
+	}
+
+	snap := EngineSnapshot(model.Snapshot())
+	cell := snap.Lines[0].Cells[0]
+	if cell.Text != "Z" {
+		t.Fatalf("cell text = %q, want Z", cell.Text)
+	}
+	if cell.Fg.Kind != engine.ColorPalette {
+		t.Fatalf("fg kind = %v, want ColorPalette (256-color); a numeric-cast bug "+
+			"would report ColorIndexed (16-color ANSI) instead, since they share iota 1", cell.Fg.Kind)
+	}
+	if cell.Fg.Index != 99 {
+		t.Fatalf("fg index = %d, want 99", cell.Fg.Index)
+	}
+	if !cell.Italic {
+		t.Fatal("cell.Italic = false, want true (dropped by the old conversion)")
+	}
+	if !cell.Strikethrough {
+		t.Fatal("cell.Strikethrough = false, want true (dropped by the old conversion)")
 	}
 }
 

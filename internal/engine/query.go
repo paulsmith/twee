@@ -8,7 +8,7 @@ import (
 
 // Snapshot returns the current terminal state.
 func (t *Term) Snapshot() Snapshot {
-	return fromVT(t.pump.Snapshot())
+	return FromVT(t.pump.Snapshot())
 }
 
 // VisibleText returns the visible viewport as plain text, trailing
