@@ -1,4 +1,5 @@
-// Package export renders .twee recordings to video files (GIF, MP4, WebM).
+// Package export renders .twee recordings to replay artifacts (GIF, HTML,
+// MP4, and WebM).
 package export
 
 import (
@@ -33,9 +34,9 @@ type Options struct {
 
 	// Quality selects the ffmpeg encoder preset for mp4/webm output:
 	// "low", "medium" (default), or "high" — see ffmpegArgs for the
-	// concrete CRF/preset values. Ignored for GIF, which has no such
-	// knob; the CLI rejects --quality with .gif output as a usage error
-	// rather than silently ignoring it.
+	// concrete CRF/preset values. Ignored for GIF and HTML, which have no
+	// such knob; the CLI rejects --quality with those formats as a usage
+	// error rather than silently ignoring it.
 	Quality string
 }
 

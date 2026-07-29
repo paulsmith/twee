@@ -11,14 +11,14 @@ import (
 	"github.com/paulsmith/twee/internal/vt"
 )
 
-// Export replays the bundle at path and writes a video to outPath. The
-// container is chosen by extension: .gif, .mp4, or .webm.
+// Export replays the bundle at path and writes a replay artifact to outPath.
+// The format is chosen by extension: .gif, .html, .mp4, or .webm.
 func Export(path, outPath string, opts Options) error {
 	opts.normalize()
 
 	ext := strings.ToLower(filepath.Ext(outPath))
-	if ext != ".gif" && ext != ".mp4" && ext != ".webm" {
-		return fmt.Errorf("twee export: unsupported output format %q (use .gif, .mp4, or .webm)", ext)
+	if ext != ".gif" && ext != ".html" && ext != ".mp4" && ext != ".webm" {
+		return fmt.Errorf("twee export: unsupported output format %q (use .gif, .html, .mp4, or .webm)", ext)
 	}
 
 	var ffmpeg string
@@ -69,6 +69,8 @@ func newSink(ext, outPath, ffmpeg, quality string) (sink, error) {
 	switch ext {
 	case ".gif":
 		return newGIFSink(outPath)
+	case ".html":
+		return newHTMLSink(outPath)
 	case ".mp4", ".webm":
 		return newFFmpegSink(outPath, ffmpeg, quality)
 	default:

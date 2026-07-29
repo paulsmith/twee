@@ -1,6 +1,12 @@
 package main
 
 import (
+	"archive/zip"
+	"encoding/base64"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +32,18 @@ func TestParseExportArgsDefaults(t *testing.T) {
 	_, _, opts := parseExportArgs([]string{"demo.twee", "-o", "demo.gif"})
 	if opts.Speed != 1 || opts.MaxIdle != 0 || opts.FPSCap != 30 {
 		t.Errorf("defaults wrong: %+v", opts)
+	}
+}
+
+func TestParseExportArgsHTML(t *testing.T) {
+	path, out, opts := parseExportArgs([]string{
+		"demo.twee", "-o", "demo.html", "--speed", "2", "--input-overlay",
+	})
+	if path != "demo.twee" || out != "demo.html" {
+		t.Errorf("path/out = %q/%q", path, out)
+	}
+	if opts.Speed != 2 || !opts.InputOverlay {
+		t.Errorf("opts = %+v", opts)
 	}
 }
 
@@ -110,6 +128,66 @@ func TestParseQualityFlagRejectsGIF(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "gif") {
 		t.Errorf("error = %v, want it to name .gif as the reason", err)
+	}
+}
+
+func TestParseQualityFlagRejectsHTML(t *testing.T) {
+	_, err := parseQualityFlag("high", "out.HTML")
+	if err == nil {
+		t.Fatal("want error for --quality with .html output")
+	}
+	if !strings.Contains(err.Error(), "html") {
+		t.Errorf("error = %v, want it to name .html as the reason", err)
+	}
+}
+
+func TestExportHelpIncludesSelfContainedHTML(t *testing.T) {
+	help := usages["export"]
+	for _, want := range []string{"out.html", "self-contained HTML", ".gif and .html"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("export help missing %q:\n%s", want, help)
+		}
+	}
+}
+
+func TestExportHTMLViaCLI(t *testing.T) {
+	dir := t.TempDir()
+	bundle := filepath.Join(dir, "test.twee")
+	f, err := os.Create(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	mw, err := zw.Create("manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprint(mw, `{"version":1,"command":["true"],"cols":10,"rows":2}`)
+	ew, err := zw.Create("events.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := base64.StdEncoding.EncodeToString([]byte("hello"))
+	fmt.Fprintf(ew, `{"t_ms":100,"type":"output","bytes_b64":"%s"}`+"\n", encoded)
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	bin := buildBinary(t)
+	out := filepath.Join(dir, "replay.html")
+	cmd := exec.Command(bin, "export", bundle, "-o", out, "--speed", "2")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("twee export: %v\n%s", err, output)
+	}
+	page, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(page), `id="twee-frames"`) {
+		t.Fatalf("CLI output is not a twee HTML replay: %.80q", page)
 	}
 }
 

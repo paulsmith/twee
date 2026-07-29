@@ -13,15 +13,16 @@ import (
 
 func init() {
 	register("export", runExport)
-	registerUsage("export", `twee export <bundle.twee> -o <out.gif|out.mp4|out.webm>
-Export a .twee trace bundle to a video file. The format is chosen by the
-output extension. GIF is encoded in pure Go; MP4 and WebM require ffmpeg.
+	registerUsage("export", `twee export <bundle.twee> -o <out.gif|out.html|out.mp4|out.webm>
+Export a .twee trace bundle to a replay artifact. The format is chosen by the
+output extension. GIF and self-contained HTML are encoded in pure Go; MP4 and
+WebM require ffmpeg. HTML replays work offline and include playback controls.
 
 Frames are emitted only when the screen visibly changes (the cursor is not
 rendered). Timing is faithful to the recording by default.
 
 Flags:
-  -o <path>            output file (required); .gif, .mp4, or .webm
+  -o <path>            output file (required); .gif, .html, .mp4, or .webm
   --speed <float>      playback speed multiplier (default 1.0)
   --max-idle <duration>
                        cap idle gaps (default 0 = faithful; note: 'twee play'
@@ -41,8 +42,8 @@ Flags:
   --quality low|medium|high
                        ffmpeg encoder preset for mp4/webm (default: medium,
                        which reproduces the output from before this flag
-                       existed). Usage error for .gif output: the pure-Go
-                       GIF encoder has no quality/CRF knob.`)
+                       existed). Usage error for .gif and .html output: the
+                       pure-Go encoders have no quality/CRF knob.`)
 }
 
 func runExport(args []string) {
@@ -124,8 +125,8 @@ func parseQualityFlag(quality, outPath string) (string, error) {
 	default:
 		return "", fmt.Errorf("--quality must be low, medium, or high (got %q)", quality)
 	}
-	if ext := strings.ToLower(filepath.Ext(outPath)); ext == ".gif" {
-		return "", fmt.Errorf("--quality is not supported for .gif output (the pure-Go GIF encoder has no quality/CRF knob)")
+	if ext := strings.ToLower(filepath.Ext(outPath)); ext == ".gif" || ext == ".html" {
+		return "", fmt.Errorf("--quality is not supported for %s output (the pure-Go encoder has no quality/CRF knob)", ext)
 	}
 	return quality, nil
 }
