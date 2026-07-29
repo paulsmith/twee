@@ -42,6 +42,9 @@ func TestHelp(t *testing.T) {
 	if !bytes.Contains(out, []byte("Usage: twee")) {
 		t.Errorf("help output missing usage banner:\n%s", out)
 	}
+	if !bytes.Contains(out, []byte("Export a .twee trace bundle to GIF, self-contained HTML, MP4, or WebM")) {
+		t.Errorf("help output missing HTML export summary:\n%s", out)
+	}
 	if bytes.Contains(out, []byte(".md")) {
 		t.Errorf("help output should not link to markdown docs:\n%s", out)
 	}

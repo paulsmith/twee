@@ -17,6 +17,19 @@ Keep the existing headless logical-clock exporter separate from interactive
 playback's wall-clock loop. They solve different timing problems and must not
 be coupled merely because both render terminal snapshots.
 
+## Implementation status (2026-07-29)
+
+- The CI GIF recipe and its artifact-sensitivity guidance are implemented.
+- Self-contained HTML export, atomic output commit, and automated viewer/export
+  tests are implemented. The cross-browser `file://` matrix is not yet run.
+- Backend selection, capability probing, and Kitty, iTerm2, and Sixel sinks are
+  implemented with automated protocol tests. Playback is direct-terminal only.
+- iTerm2 and Sixel remain experimental because the real-terminal redraw,
+  flicker, resize, and cleanup matrix is not yet run.
+
+The outstanding gates are tracked in the
+[manual verification matrix](playback-export-verification.md).
+
 ## Phase 1: CI GIF artifacts
 
 Publish `docs/ci-artifacts.md` and link it from the README's single-shot

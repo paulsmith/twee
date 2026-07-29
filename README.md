@@ -220,7 +220,7 @@ command list is:
 | `cursor` | Show cursor state. |
 | `diff` | Compare the viewport to a saved text snapshot. |
 | `do` | Run an op script against a running session. |
-| `export` | Export a `.twee` trace bundle to GIF, MP4, or WebM. |
+| `export` | Export a `.twee` trace bundle to GIF, self-contained HTML, MP4, or WebM. |
 | `find` | Find text in the viewport. |
 | `help` | Print top-level or per-command help. |
 | `key` | Send one named key. |
@@ -560,27 +560,40 @@ Flags:
 
 | Flag | Purpose |
 |---|---|
+| `--backend auto\|kitty\|iterm2\|sixel` | Graphics backend (default `auto`; iTerm2 and Sixel are experimental). |
 | `--speed N` | Playback speed multiplier (default `1.0`). `0.5` is half-speed, `4` is 4x. |
 | `--step` | Start paused and advance with `.`. |
 | `--max-idle <dur>` | Cap long idle gaps between events (default `2s`; `0` disables compression). |
 | `--verbose` | Print a one-line summary to stderr after exit. |
 
-Playback owns the terminal for its lifetime: it switches to the alt
-screen, enters raw mode, and writes frames with the Kitty graphics
-protocol. `stdout` must be a TTY, and the terminal must be large enough
-for the maximum recorded trace size plus two footer rows. Today that
-means Kitty-compatible playback only; there is no Sixel or iTerm2 image
-backend yet.
+Playback owns the terminal for its lifetime: it switches to the alt screen,
+enters raw mode, and writes frames with a terminal graphics protocol. `stdout`
+must be a TTY, and the terminal must be large enough for the maximum recorded
+trace size plus two footer rows.
+
+`--backend auto` probes protocol capabilities and prefers Kitty, then iTerm2,
+then Sixel. An explicit backend fails with a backend-specific diagnostic when
+the terminal does not advertise the required capability. Sixel also requires
+reliable terminal pixel geometry; auto detection skips Sixel when that geometry
+is unavailable.
+
+Graphics playback currently requires a direct terminal connection. tmux and
+screen passthrough are not supported. The iTerm2 and Sixel backends are
+experimental until their redraw, resize, flicker, and cleanup behavior has
+passed the [real-terminal verification matrix](docs/playback-export-verification.md).
 
 ## Export
 
-`twee export` renders a `.twee` bundle to a video file without opening a
-terminal UI. The output format is inferred from the `-o` extension:
-animated GIF is encoded in pure Go, while MP4 and WebM require an
-`ffmpeg` binary on `PATH` (or an explicit `--ffmpeg` path).
+`twee export` renders a `.twee` bundle to a replay artifact without opening a
+terminal UI. The output format is inferred from the `-o` extension. Animated
+GIF and self-contained HTML are encoded in pure Go; MP4 and WebM require an
+`ffmpeg` binary on `PATH` (or an explicit `--ffmpeg` path). HTML output works
+offline from a local file and includes playback, frame-step, speed, and
+timeline controls.
 
 ```
 $ twee export /tmp/myapp.twee -o /tmp/myapp.gif
+$ twee export /tmp/myapp.twee -o /tmp/myapp.html
 $ twee export /tmp/myapp.twee -o /tmp/myapp.mp4 --speed 2
 ```
 
@@ -594,7 +607,7 @@ Flags:
 
 | Flag | Purpose |
 |---|---|
-| `-o <path>` | Output path. Extension must be `.gif`, `.mp4`, or `.webm`. |
+| `-o <path>` | Output path. Extension must be `.gif`, `.html`, `.mp4`, or `.webm`. |
 | `--speed N` | Playback speed multiplier (default `1.0`). |
 | `--max-idle <dur>` | Cap long idle gaps between events (default `0`, faithful timing). |
 | `--font-size <pt>` | Render font size in points (default `14`). |
@@ -602,7 +615,7 @@ Flags:
 | `--ffmpeg <path>` | ffmpeg binary for MP4/WebM output (default: find `ffmpeg` on `PATH`). |
 | `--crop <x,y,w,h>` | Render only this cell rectangle of the screen. `w,h` must be `> 0`, `x,y` must be `>= 0`. |
 | `--input-overlay` | Append a footer strip below the frames showing the most recent input or resize event. |
-| `--quality low\|medium\|high` | ffmpeg encoder preset for MP4/WebM (default `medium`). Usage error for `.gif` output. |
+| `--quality low\|medium\|high` | ffmpeg encoder preset for MP4/WebM (default `medium`). Usage error for `.gif` and `.html` output. |
 
 `--crop` takes cell coordinates, not pixels. A frame whose actual screen
 is smaller than the crop rectangle (e.g. before a later resize grows it)
@@ -627,14 +640,16 @@ $ twee export /tmp/myapp.twee -o /tmp/annotated.mp4 --input-overlay
 (libvpx-vp9, constant-quality mode) output: `low` trades quality for
 encode speed, `high` the reverse, and `medium` (the default) reproduces
 the encoder's own out-of-the-box settings — passing `--quality medium`
-explicitly changes nothing. `.gif` output has no such knob (the encoder
-is a pure-Go palettized GIF writer), so `--quality` with a `.gif` `-o`
-path is a usage error rather than a silently-ignored flag:
+explicitly changes nothing. The pure-Go GIF and HTML encoders have no such
+knob, so `--quality` with a `.gif` or `.html` `-o` path is a usage error rather
+than a silently ignored flag:
 
 ```
 $ twee export /tmp/myapp.twee -o /tmp/myapp.mp4 --quality high
 $ twee export /tmp/myapp.twee -o /tmp/myapp.gif --quality high
-twee: export: --quality is not supported for .gif output (the pure-Go GIF encoder has no quality/CRF knob)
+twee: export: --quality is not supported for .gif output (the pure-Go encoder has no quality/CRF knob)
+$ twee export /tmp/myapp.twee -o /tmp/myapp.html --quality high
+twee: export: --quality is not supported for .html output (the pure-Go encoder has no quality/CRF knob)
 ```
 
 ## Limitations
