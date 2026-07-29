@@ -213,6 +213,7 @@ command list is:
 
 | Command | Purpose |
 |---|---|
+| `bundle` | Inspect or verify a `.twee` trace bundle. |
 | `cell` | Show one cell at x,y. |
 | `codegen` | Interactively author a run script. |
 | `completion` | Print shell completion setup (currently a placeholder). |
@@ -488,6 +489,38 @@ $ twee wait exit
 example: it pins a session via `TWEE_SESSION`, records the whole run
 with `start --trace`, drives a vim edit, and leaves a replayable bundle
 behind at `wait exit`.
+
+### Bundle tools
+
+`twee bundle info` and `twee bundle validate` inspect a `.twee` file
+directly — no daemon, no terminal — for debugging and CI.
+
+```
+$ twee bundle info /tmp/run.twee
+{"ok":true,"data":{"version":1,"command":["./myapp"],"cols":80,"rows":24,"started_at":"2026-01-01T12:00:00Z","stopped_at":"2026-01-01T12:00:05Z","duration_ms":5000,"size_bytes":4096,"events":{"exit":1,"input":2,"output":9,"resize":1}}}
+
+$ twee bundle validate /tmp/run.twee
+{"ok":true,"data":{"valid":true,"events":13}}
+```
+
+`bundle info`'s `data` carries a subset of the manifest (`version`,
+`command`, `cols`, `rows`, `started_at`, `stopped_at`) plus `duration_ms`
+and `size_bytes` (both derived) and `events`, a count per event type
+present in the bundle.
+
+`bundle validate` checks zip integrity, that the manifest parses with a
+supported version, that every `events.jsonl` line parses as a known
+event type, and that timestamps are non-decreasing. An invalid bundle
+reports `ok:false` with code `INVALID_ARGUMENT` and every problem found
+(not just the first) in `error.details.issues`:
+
+```
+$ twee bundle validate /tmp/broken.twee
+{"ok":false,"error":{"code":"INVALID_ARGUMENT","message":"bundle validate: 2 issue(s) found","details":{"issues":["events.jsonl line 4: unknown event type \"teleport\"","events.jsonl line 7: timestamp 120 before previous 500"]}}}
+```
+
+A missing or unreadable file fails both subcommands with code `IO`
+instead.
 
 ## Playback
 

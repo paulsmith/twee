@@ -148,6 +148,7 @@ type commandSummary struct {
 }
 
 var commandSummaries = []commandSummary{
+	{"bundle", "Inspect or verify a .twee trace bundle"},
 	{"cell", "Show one cell at x,y"},
 	{"codegen", "Interactively author a run script"},
 	{"completion", "Print shell completion setup"},
