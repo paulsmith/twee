@@ -51,7 +51,7 @@ func runDo(args []string) {
 	if len(ops) == 0 {
 		c, err := dial()
 		if err != nil {
-			emitError(transportErrorCode(err), err.Error(), nil, 1)
+			emitError(transportErrorCode(err), err.Error(), dialErrorDetails(err), 1)
 		}
 		c.Close()
 	}

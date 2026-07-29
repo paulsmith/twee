@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/paulsmith/twee/internal/ptyrunner"
@@ -42,6 +43,15 @@ type Term struct {
 
 	finalized          bool   // guarded by cfgMu; set once FinalizeArtifacts ran
 	finalizedTracePath string // guarded by cfgMu
+
+	// stopRequested records that an explicit "twee stop" (as opposed to
+	// the child exiting on its own) asked this session to end. Set by the
+	// daemon's stop handler before it calls CloseWithGrace; read at
+	// teardown to fill the session's tombstone. The handler and the
+	// exit-watching goroutine that eventually tears the daemon down run
+	// concurrently and neither side needs to block on the other, so an
+	// atomic is a simpler fit than a mutex-guarded bool.
+	stopRequested atomic.Bool
 
 	startedAt time.Time
 

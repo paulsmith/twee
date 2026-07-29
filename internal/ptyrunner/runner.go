@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"golang.org/x/sys/unix"
 )
 
 // Config configures a Runner.
@@ -121,6 +122,21 @@ func (r *Runner) ExitedCh() <-chan struct{} { return r.exited }
 
 // ExitCode is valid after ExitedCh fires.
 func (r *Runner) ExitCode() int { return r.exit.code }
+
+// ExitSignal reports the signal that terminated the child, as its
+// conventional name (e.g. "SIGTERM"), and true — or ("", false) if the
+// child instead exited via a normal exit code. Valid after ExitedCh
+// fires.
+func (r *Runner) ExitSignal() (string, bool) {
+	if r.cmd.ProcessState == nil {
+		return "", false
+	}
+	ws, ok := r.cmd.ProcessState.Sys().(syscall.WaitStatus)
+	if !ok || !ws.Signaled() {
+		return "", false
+	}
+	return unix.SignalName(ws.Signal()), true
+}
 
 // DefaultGrace is the SIGTERM-to-SIGKILL escalation window used by
 // Close. Exported so callers (engine.Term) can name the same default

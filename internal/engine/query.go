@@ -32,8 +32,23 @@ func (t *Term) CursorPos() Cursor {
 // ExitCode is valid after the child has exited.
 func (t *Term) ExitCode() int { return t.runner.ExitCode() }
 
+// ExitSignal reports the signal that terminated the child, as its
+// conventional name (e.g. "SIGTERM"), and true — or ("", false) if it
+// instead exited via a normal exit code. Valid after the child has
+// exited.
+func (t *Term) ExitSignal() (string, bool) { return t.runner.ExitSignal() }
+
 // ExitedCh returns a channel that closes when the child exits.
 func (t *Term) ExitedCh() <-chan struct{} { return t.runner.ExitedCh() }
+
+// MarkStopRequested records that an explicit "twee stop" (as opposed to
+// the child exiting on its own) asked this session to end. The daemon's
+// stop handler calls this before CloseWithGrace so the session's
+// tombstone can later say which of the two happened.
+func (t *Term) MarkStopRequested() { t.stopRequested.Store(true) }
+
+// StopRequested reports whether MarkStopRequested was ever called.
+func (t *Term) StopRequested() bool { return t.stopRequested.Load() }
 
 // RecentBytes returns up to N bytes of recent PTY output, oldest first.
 func (t *Term) RecentBytes() []byte { return t.pump.RecentBytes() }

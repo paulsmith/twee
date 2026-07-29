@@ -61,7 +61,7 @@ func runOpScript(ops []rpc.Request, dial func() (net.Conn, error), emitResults b
 		op.ID = fmt.Sprintf("%d", i)
 		c, err := dial()
 		if err != nil {
-			fail(transportErrorCode(err), err.Error(), nil)
+			fail(transportErrorCode(err), err.Error(), dialErrorDetails(err))
 			return
 		}
 		if err := rpc.WriteMessage(c, op); err != nil {

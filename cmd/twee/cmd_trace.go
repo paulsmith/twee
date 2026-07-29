@@ -74,7 +74,7 @@ func runTrace(args []string) {
 			if code == rpc.CodeNotFound {
 				msg += "; if the child already exited, an active trace was finalized automatically to its --out path (see 'twee help trace')"
 			}
-			emitError(code, msg, nil, 1)
+			emitError(code, msg, dialErrorDetails(err), 1)
 		}
 		if !resp.OK {
 			emitError(resp.Error.Code, resp.Error.Message, resp.Error.Details, 1)

@@ -166,16 +166,25 @@ func TestStopCleansTrulyStaleSocket(t *testing.T) {
 
 // TestStopOnMissingSessionStillNotFound pins down that a name with no
 // socket file at all (never started, or already fully cleaned up) is
-// still a plain NOT_FOUND, not confused with the stale-cleanup path.
+// still a plain NOT_FOUND, not confused with the stale-cleanup path. It
+// also pins down that a NOT_FOUND from a failed dial carries
+// details.name and a message leading with the session name rather than
+// the socket path — every daemon-targeting verb shares this via
+// dialErrorDetails, "stop" is just a convenient one to exercise it on.
 func TestStopOnMissingSessionStillNotFound(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
+	const name = "never-existed"
 
-	out := cliStdout(t, bin, env, "stop", "--name", "never-existed")
+	out := cliStdout(t, bin, env, "stop", "--name", name)
 	var resp struct {
 		OK    bool `json:"ok"`
 		Error struct {
-			Code string `json:"code"`
+			Code    string `json:"code"`
+			Message string `json:"message"`
+			Details struct {
+				Name string `json:"name"`
+			} `json:"details"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(out, &resp); err != nil {
@@ -183,6 +192,12 @@ func TestStopOnMissingSessionStillNotFound(t *testing.T) {
 	}
 	if resp.OK || resp.Error.Code != "NOT_FOUND" {
 		t.Fatalf("stop on never-started session = %s, want NOT_FOUND", out)
+	}
+	if resp.Error.Details.Name != name {
+		t.Errorf("details.name = %q, want %q", resp.Error.Details.Name, name)
+	}
+	if !strings.HasPrefix(resp.Error.Message, `session "`+name+`"`) {
+		t.Errorf("message %q does not lead with the session name", resp.Error.Message)
 	}
 }
 

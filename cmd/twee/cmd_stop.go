@@ -88,7 +88,7 @@ func stopSession(name string, args rpc.StopArgs) stopOutcome {
 				return stopOutcome{data: map[string]any{"name": name, "stopped": false, "stale_cleaned": true}}
 			}
 		}
-		return stopOutcome{errCode: code, errMessage: err.Error()}
+		return stopOutcome{errCode: code, errMessage: err.Error(), errDetails: dialErrorDetails(err)}
 	}
 	if !resp.OK {
 		return stopOutcome{errCode: resp.Error.Code, errMessage: resp.Error.Message, errDetails: resp.Error.Details}

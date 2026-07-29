@@ -13,14 +13,34 @@ import (
 
 // dialError marks a failure to reach the session's socket at all, as
 // opposed to an I/O error on an established connection. Clients map it
-// to NOT_FOUND: the session is gone (or never existed).
+// to NOT_FOUND: the session is gone (or never existed). It carries the
+// session name (not just the socket path) so the error message can lead
+// with what the caller actually typed, and so dialErrorDetails can
+// report {"name": ...} in the NOT_FOUND envelope.
 type dialError struct {
+	name string
 	sock string
 	err  error
 }
 
-func (e *dialError) Error() string { return fmt.Sprintf("dial %s: %v", e.sock, e.err) }
+func (e *dialError) Error() string {
+	return fmt.Sprintf("session %q not found: dial %s: %v", e.name, e.sock, e.err)
+}
 func (e *dialError) Unwrap() error { return e.err }
+
+// dialErrorDetails returns {"name": ...} when err is a *dialError (the
+// NOT_FOUND case), or nil for anything else. Callers pass this alongside
+// transportErrorCode(err) as the error's details, instead of a bare nil,
+// so a script can branch on error.details.name the same way it can on
+// error.code.
+func dialErrorDetails(err error) json.RawMessage {
+	var de *dialError
+	if !errors.As(err, &de) {
+		return nil
+	}
+	details, _ := json.Marshal(map[string]string{"name": de.name})
+	return details
+}
 
 // dialSession dials the named session's socket, wrapping an unreachable
 // or refused connection as a *dialError so callers can map it to
@@ -34,7 +54,7 @@ func dialSession(name string) (net.Conn, error) {
 	}
 	c, err := dialUnixSocketTimeout(sock, 2*time.Second)
 	if err != nil {
-		return nil, &dialError{sock: sock, err: err}
+		return nil, &dialError{name: name, sock: sock, err: err}
 	}
 	return c, nil
 }
@@ -84,7 +104,7 @@ func transportErrorCode(err error) string {
 func callAndEmit(name, op string, args any) {
 	resp, err := callDaemon(name, op, args)
 	if err != nil {
-		emitError(transportErrorCode(err), err.Error(), nil, 1)
+		emitError(transportErrorCode(err), err.Error(), dialErrorDetails(err), 1)
 	}
 	if !resp.OK {
 		emitError(resp.Error.Code, resp.Error.Message, resp.Error.Details, 1)
@@ -100,7 +120,7 @@ func callSessionAndEmit(verb string, localName *string, op string, args any) {
 func callOnly(name, op string, args any) {
 	resp, err := callDaemon(name, op, args)
 	if err != nil {
-		emitError(transportErrorCode(err), err.Error(), nil, 1)
+		emitError(transportErrorCode(err), err.Error(), dialErrorDetails(err), 1)
 	}
 	if !resp.OK {
 		emitError(resp.Error.Code, resp.Error.Message, resp.Error.Details, 1)

@@ -121,7 +121,8 @@ Session resolution order: per-command `--name`, global `--name`,
 a whole script to one session. While running, each session holds a
 `<name>.sock` and `<name>.lock` under `$XDG_STATE_HOME/twee` on Linux
 and `~/Library/Application Support/twee` on macOS, with `0700` on the
-directory and `0600` on the socket.
+directory and `0600` on the socket. Once a session has ended, a
+`<name>.exited` tombstone file can take their place — see below.
 
 `twee start` forks a daemon in the background, prints `{name, socket,
 pid}`, and exits. The PTY starts at 80x24 (`--cols`/`--rows` override);
@@ -170,7 +171,36 @@ and reports `{"name":..., "stopped":false, "stale_cleaned":true}`
 (exit 0) instead of failing; a name with no socket file at all is still
 `NOT_FOUND`. `twee ls` lists stale sessions too, alongside live ones, as
 `{"name":..., "running":false, "stale":true}`, instead of silently
-omitting them.
+omitting them (a tombstone left by a session that ended cleanly is not
+listed either way — see `twee status` below).
+
+Either way a session ends — the child exiting on its own or an explicit
+`twee stop` — the daemon writes a `<name>.exited` tombstone recording
+the outcome (exit code or terminating signal, and which of the two
+happened) before removing its socket and lock file. It's written
+shortly after teardown starts, sharing the same ~100ms-plus window a
+still-connected client gets to finish up (see `wait exit` above); a
+`twee status` immediately after `twee stop` can transiently see
+`NOT_FOUND` in that window before the tombstone lands. A fresh `twee
+start` under the same name removes any old tombstone for it, so it
+never gets confused with the new session's own eventual exit info.
+
+`twee status` on a session with no reachable daemon consults the
+tombstone before giving up: if one exists, it succeeds instead of
+failing with `NOT_FOUND`, `"running":false`, and `"signal"` present only
+when a signal (not a normal exit) ended it:
+
+```
+$ twee stop --name build
+{"ok":true,"data":{"name":"build","stopped":true}}
+$ twee status --name build
+{"ok":true,"data":{"name":"build","running":false,"stopped":true,"exit_code":null,"signal":"SIGTERM","stopped_at":"2026-01-01T12:00:00Z","command":["make","-j8"]}}
+```
+
+A name with neither a reachable daemon nor a tombstone is still
+`NOT_FOUND`, as before this existed. `twee ls` is unaffected either way:
+it only ever lists live and stale sessions (see above), never a bare
+tombstone.
 
 For a one-shot run with no daemon to manage, see `twee run` below
 (`run` manages its own ephemeral daemon and takes no `--name`).
@@ -291,7 +321,7 @@ stdout.
 | Code | Meaning |
 |---|---|
 | `TIMEOUT` | Wait expired. |
-| `NOT_FOUND` | Session unreachable: no daemon socket for that name (any verb). Also `trace stop` with no active trace. |
+| `NOT_FOUND` | Session unreachable: no daemon socket for that name (any verb), `details.name` names it and `message` leads with it. Also `trace stop` with no active trace (no `details` in that case — see below). |
 | `ALREADY_RUNNING` | `start` collided with an existing daemon of that name (pass `--force` to stop it and proceed instead of failing). Also `trace start` while a trace is already active (`details.path` names the active trace); stop it first. |
 | `CHILD_EXITED` | `start` observed the child exit during startup (within ~100ms); `details` carries `child_argv`, `exit_code`, `socket_created`, and `trace_path` when `--trace` was given. |
 | `INVALID_ARGUMENT` | Bad op argument: malformed duration/regex, out-of-range coords, unknown op, unknown or missing arg key, malformed script. Also a negative `stop --grace`. |
@@ -308,7 +338,12 @@ for `SESSION_ENDED` — and `last_screen` (the visible viewport text).
 The full diagnostic dump — the child's command, terminal size, cursor,
 recent input events, and the last ~1KB of PTY output, escaped — lives
 only in `message`, not `details.cause`. `CHILD_EXITED` from `start`
-carries the fields listed above. Other codes carry no `details`.
+carries the fields listed above. A `NOT_FOUND` from a failed dial — no
+daemon socket for the resolved name, on any daemon-targeting verb —
+carries `details.name` and a `message` leading with that name rather
+than the socket path it never typed; other sources of `NOT_FOUND` (e.g.
+`trace stop` with no active trace) carry no `details`, same as every
+other code.
 
 ## Single-shot scripts
 

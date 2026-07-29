@@ -176,9 +176,32 @@ func runDaemonChildReal() {
 
 	_ = srv.Serve(context.Background(), l)
 	_ = te.Close()
+	writeTombstone(name, buildTombstone(name, te))
 	_ = os.Remove(sock)
 	removeLockFile(name)
 	os.Exit(0)
+}
+
+// buildTombstone summarizes how te's session ended: an explicit "twee
+// stop" (t.StopRequested) or the child exiting on its own, with the
+// resulting exit code or terminating signal. Only called from the
+// natural end-of-session teardown path — never from the CHILD_EXITED
+// quick-exit path above, which start already reports directly to its
+// caller and which never leaves a socket behind to need a tombstone.
+func buildTombstone(name string, te *engine.Term) tombstone {
+	ts := tombstone{
+		Name:      name,
+		Stopped:   te.StopRequested(),
+		StoppedAt: time.Now(),
+		Command:   te.Cmd(),
+	}
+	if sig, ok := te.ExitSignal(); ok {
+		ts.Signal = sig
+	} else {
+		code := te.ExitCode()
+		ts.ExitCode = &code
+	}
+	return ts
 }
 
 // failDaemonStartup reports a startup error to the parent, removes the
@@ -300,6 +323,9 @@ func daemonize(name, dir string, cmd []string, cols, rows int, envOverrides map[
 	_ = lf.Truncate(0)
 	_, _ = lf.Seek(0, 0)
 	_, _ = fmt.Fprintf(lf, "%d\n", os.Getpid())
+	// A fresh start owns the name now; don't let a previous session's
+	// exit info be mistaken for this one's.
+	removeTombstone(name)
 
 	pr, pw, err := os.Pipe()
 	if err != nil {

@@ -84,6 +84,19 @@ func lockPath(name string) (string, error) {
 	return filepath.Join(dir, name+".lock"), nil
 }
 
+// tombstonePath returns the path of the tombstone file a session's
+// daemon leaves behind recording how it ended (see tombstone.go).
+func tombstonePath(name string) (string, error) {
+	if err := validateName(name); err != nil {
+		return "", err
+	}
+	dir, err := stateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, name+".exited"), nil
+}
+
 // absOutPath resolves a client-supplied path (an --out destination, or
 // an input path like diff's --against) against the client's own working
 // directory before it travels over the RPC wire. Without this, a

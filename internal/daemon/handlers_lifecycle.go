@@ -48,6 +48,10 @@ func handleStop(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 		}
 		grace = d
 	}
+	// Recorded before CloseWithGrace so the session's tombstone (written
+	// at teardown, once this handler has returned) can tell an explicit
+	// "twee stop" apart from the child exiting on its own.
+	t.MarkStopRequested()
 	if err := t.CloseWithGrace(grace); err != nil {
 		return nil, ioFailure(err)
 	}
