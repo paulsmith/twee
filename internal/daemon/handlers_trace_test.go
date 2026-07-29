@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -69,6 +70,62 @@ func TestTraceStartStopOps(t *testing.T) {
 	assertNoScreenshotEntries(t, &zr.Reader)
 	if !traceHasInput(t, &zr.Reader, "x") {
 		t.Fatal("trace events missing typed input")
+	}
+}
+
+// TestTraceStartWhileActiveFails pins down that a second "trace start"
+// while a trace is already active errors instead of silently finalizing
+// the first trace and starting a new one over it.
+func TestTraceStartWhileActiveFails(t *testing.T) {
+	te := startTestTerm(t)
+	sock, _ := startTestServer(t, te)
+	firstPath := filepath.Join(t.TempDir(), "first.twee")
+	secondPath := filepath.Join(t.TempDir(), "second.twee")
+
+	resp := dialAndCall(t, sock, rpc.Request{
+		ID:   "1",
+		Op:   rpc.OpTraceStart,
+		Args: mustJSON(t, rpc.TraceStartArgs{Out: firstPath}),
+	})
+	if !resp.OK {
+		t.Fatalf("first trace_start: %+v", resp.Error)
+	}
+
+	resp = dialAndCall(t, sock, rpc.Request{
+		ID:   "2",
+		Op:   rpc.OpTraceStart,
+		Args: mustJSON(t, rpc.TraceStartArgs{Out: secondPath}),
+	})
+	if resp.OK {
+		t.Fatalf("second trace_start unexpectedly succeeded: %+v", resp.Data)
+	}
+	if resp.Error.Code != rpc.CodeAlreadyRunning {
+		t.Fatalf("error code = %q, want %q", resp.Error.Code, rpc.CodeAlreadyRunning)
+	}
+	var details struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(resp.Error.Details, &details); err != nil {
+		t.Fatalf("decode details: %v", err)
+	}
+	if details.Path != firstPath {
+		t.Fatalf("details.path = %q, want active trace path %q", details.Path, firstPath)
+	}
+
+	// The first trace must still be the active one, untouched.
+	if got := te.TracePath(); got != firstPath {
+		t.Fatalf("TracePath after rejected second start = %q, want %q", got, firstPath)
+	}
+
+	resp = dialAndCall(t, sock, rpc.Request{ID: "3", Op: rpc.OpTraceStop})
+	if !resp.OK {
+		t.Fatalf("trace_stop: %+v", resp.Error)
+	}
+	if _, err := zip.OpenReader(firstPath); err != nil {
+		t.Fatalf("first trace bundle missing/invalid: %v", err)
+	}
+	if _, err := os.Stat(secondPath); !os.IsNotExist(err) {
+		t.Fatalf("second trace path should not exist: stat err = %v", err)
 	}
 }
 

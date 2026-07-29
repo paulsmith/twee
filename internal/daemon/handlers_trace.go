@@ -31,6 +31,13 @@ func handleTraceStart(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	if errResp != nil {
 		return nil, errResp
 	}
+	// Term.EnableTrace silently finalizes any active trace before
+	// starting a new one; guard here so a second `trace start` reports
+	// the collision instead of quietly truncating the first recording.
+	if active := t.TracePath(); active != "" {
+		details, _ := json.Marshal(map[string]string{"path": active})
+		return nil, &rpc.Error{Code: rpc.CodeAlreadyRunning, Message: "trace already active", Details: details}
+	}
 	if a.Out == "" {
 		dir, err := os.MkdirTemp("", "twee-trace-")
 		if err != nil {

@@ -259,7 +259,7 @@ stdout.
 |---|---|
 | `TIMEOUT` | Wait expired. |
 | `NOT_FOUND` | Session unreachable: no daemon socket for that name (any verb). Also `trace stop` with no active trace. |
-| `ALREADY_RUNNING` | `start` collided with an existing daemon of that name. |
+| `ALREADY_RUNNING` | `start` collided with an existing daemon of that name. Also `trace start` while a trace is already active (`details.path` names the active trace); stop it first. |
 | `CHILD_EXITED` | `start` observed the child exit during startup (within ~100ms); `details` carries `child_argv`, `exit_code`, `socket_created`, and `trace_path` when `--trace` was given. |
 | `INVALID_ARGUMENT` | Bad op argument: malformed duration/regex, out-of-range coords, unknown op, malformed script. |
 | `IO` | Socket / PTY / file error. |
@@ -352,6 +352,11 @@ $ twee trace stop
 
 If `--out` is omitted, `trace start` chooses a temporary `.twee` path
 and returns it in the JSON response.
+
+`trace start` on a session that already has an active trace fails with
+`ALREADY_RUNNING` (`error.details.path` names the active trace) instead
+of silently finalizing the first trace and starting a new one; stop the
+active trace first.
 
 A trace left active when the child exits is finalized automatically
 before the daemon tears down, and `twee wait exit` blocks until the
