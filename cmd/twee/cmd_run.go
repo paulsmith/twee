@@ -3,11 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/paulsmith/twee/internal/daemon"
@@ -194,23 +192,6 @@ func parseRunArgs(args []string) (runOptions, error) {
 	opts.tracePath = tracePath
 	opts.cmd = cmd
 	return opts, nil
-}
-
-func splitFlagValue(arg string) (name, value string, ok bool) {
-	if i := strings.IndexByte(arg, '='); i >= 0 {
-		return arg[:i], arg[i+1:], true
-	}
-	return arg, "", false
-}
-
-func flagValue(name, value string, hasValue bool, args []string, i int) (string, int, error) {
-	if hasValue {
-		return value, i, nil
-	}
-	if i+1 >= len(args) {
-		return "", i, fmt.Errorf("%s requires a value", name)
-	}
-	return args[i+1], i + 1, nil
 }
 
 func leadingResize(ops []rpc.Request) (rpc.ResizeArgs, bool) {

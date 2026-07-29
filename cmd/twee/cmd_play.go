@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/paulsmith/twee/internal/play"
@@ -101,14 +100,6 @@ func parsePlayArgs(args []string) (string, play.Options) {
 	opts.Step = parsed.Step
 	opts.Verbose = parsed.Verbose
 	return parsed.Path, opts
-}
-
-func parsePlaySpeed(s string) float64 {
-	v, err := strconv.ParseFloat(s, 64)
-	if err != nil || !play.ValidSpeed(v) {
-		fatalUsage("play: bad --speed value %q", s)
-	}
-	return v
 }
 
 func parsePlayDuration(s string) time.Duration {

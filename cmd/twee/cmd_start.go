@@ -138,15 +138,6 @@ func parseStartArgs(args []string) (startOptions, error) {
 	return startOptions{name: name, cmd: cmd, cols: cols, rows: rows, dir: parsed.Dir, env: envOverrides, trace: trace, force: parsed.Force}, nil
 }
 
-// multiFlag collects repeated string flags.
-type multiFlag []string
-
-func (m *multiFlag) String() string { return fmt.Sprint([]string(*m)) }
-func (m *multiFlag) Set(s string) error {
-	*m = append(*m, s)
-	return nil
-}
-
 func splitKV(s string) (string, string, bool) {
 	for i := 0; i < len(s); i++ {
 		if s[i] == '=' {

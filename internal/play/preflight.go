@@ -72,13 +72,6 @@ func checkStdoutTTY(opts preflightOptions) error {
 	return nil
 }
 
-// preflightBundle retains the Kitty-only preflight used by older package
-// tests and embedders. Run uses preflightBundleForBackend for selection.
-func preflightBundle(bundle Bundle, opts preflightOptions) error {
-	_, err := preflightBundleForBackend(bundle, opts, BackendKitty)
-	return err
-}
-
 func preflightBundleForBackend(bundle Bundle, opts preflightOptions, requested Backend) (Backend, error) {
 	if err := checkStdoutTTY(opts); err != nil {
 		return "", err
@@ -481,63 +474,4 @@ func hasPrimaryDAReply(reply []byte) bool {
 		}
 		rest = rest[1:]
 	}
-}
-
-// queryKitty is kept as a focused compatibility probe for package callers and
-// tests. New auto-detection uses the combined bounded probe above.
-func queryKitty(opts preflightOptions) error {
-	if opts.Term == nil {
-		opts.Term = realTerminalOps{}
-	}
-	if opts.Timeout <= 0 {
-		opts.Timeout = 200 * time.Millisecond
-	}
-	old, err := opts.Term.MakeRaw(opts.StdinFD)
-	if err != nil {
-		return fmt.Errorf("twee play: raw mode: %w", err)
-	}
-	defer opts.Term.Restore(opts.StdinFD, old)
-	if _, err := io.WriteString(opts.Out, kittyQuery); err != nil {
-		return fmt.Errorf("twee play: kitty query: %w", err)
-	}
-	if d, ok := opts.In.(interface{ SetReadDeadline(time.Time) error }); ok {
-		_ = d.SetReadDeadline(time.Now().Add(opts.Timeout))
-		defer d.SetReadDeadline(time.Time{})
-	}
-	type result struct {
-		reply []byte
-		err   error
-	}
-	ch := make(chan result, 1)
-	go func() {
-		reply, err := readAPCReply(opts.In, 4096)
-		ch <- result{reply: reply, err: err}
-	}()
-	select {
-	case res := <-ch:
-		if res.err != nil || !bytes.Contains(res.reply, []byte("\x1b_Gi=31;OK\x1b\\")) {
-			return fmt.Errorf("twee play: kitty graphics protocol not detected")
-		}
-		return nil
-	case <-time.After(opts.Timeout):
-		return fmt.Errorf("twee play: kitty graphics protocol not detected")
-	}
-}
-
-func readAPCReply(r io.Reader, limit int) ([]byte, error) {
-	var out bytes.Buffer
-	var b [1]byte
-	for out.Len() < limit {
-		n, err := r.Read(b[:])
-		if n > 0 {
-			out.WriteByte(b[0])
-			if bytes.HasSuffix(out.Bytes(), []byte("\x1b\\")) {
-				return out.Bytes(), nil
-			}
-		}
-		if err != nil {
-			return out.Bytes(), err
-		}
-	}
-	return out.Bytes(), fmt.Errorf("reply too large")
 }

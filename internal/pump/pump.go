@@ -6,7 +6,6 @@
 //   - All access to the VT model is guarded by mu.
 //   - After every Feed, gen is incremented and cond.Broadcast wakes
 //     waiters.
-//   - WithSnapshot serializes external readers against the pump.
 //   - Wait blocks until either pred(snapshot) is true, the timeout
 //     fires, or the model is closed.
 package pump
@@ -37,8 +36,8 @@ type Pump struct {
 	// last receive time and whether any feed has occurred. lastFeed is
 	// only meaningful when gotAnyFeed is true; WaitStable refuses to
 	// declare stability before then to avoid first-paint races.
-	lastFeed    time.Time
-	gotAnyFeed  bool
+	lastFeed   time.Time
+	gotAnyFeed bool
 
 	// Recorder hook. Called outside mu to avoid blocking the pump on
 	// recorder I/O.
@@ -146,14 +145,6 @@ func (p *Pump) appendRecent(chunk []byte) {
 	}
 	p.recent = append(p.recent[:0], p.recent[len(p.recent)-keep:]...)
 	p.recent = append(p.recent, chunk...)
-}
-
-// WithSnapshot calls fn with a fresh snapshot under the lock. fn must
-// not block.
-func (p *Pump) WithSnapshot(fn func(vt.Snapshot)) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	fn(p.model.Snapshot())
 }
 
 // Snapshot returns a fresh snapshot.

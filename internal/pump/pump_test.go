@@ -134,16 +134,15 @@ func TestRecentBytesAreCappedAndCopied(t *testing.T) {
 	}
 }
 
-func TestResizeAndWithSnapshot(t *testing.T) {
+func TestResizeAndSnapshot(t *testing.T) {
 	p := New(vt.New(5, 2), bytes.NewReader(nil))
 	if err := p.Resize(8, 3); err != nil {
 		t.Fatalf("Resize: %v", err)
 	}
-	p.WithSnapshot(func(s vt.Snapshot) {
-		if s.Size.Cols != 8 || s.Size.Rows != 3 {
-			t.Fatalf("snapshot size = %dx%d, want 8x3", s.Size.Cols, s.Size.Rows)
-		}
-	})
+	s := p.Snapshot()
+	if s.Size.Cols != 8 || s.Size.Rows != 3 {
+		t.Fatalf("snapshot size = %dx%d, want 8x3", s.Size.Cols, s.Size.Rows)
+	}
 }
 
 func TestWaitImmediateTimeoutContextAndClosed(t *testing.T) {

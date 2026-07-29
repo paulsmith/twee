@@ -33,70 +33,24 @@ func (f *fakeTermOps) Restore(int, *term.State) error {
 }
 
 func TestPreflightRejectsNonTTY(t *testing.T) {
-	err := preflightBundle(Bundle{MaxCols: 10, MaxRows: 3}, preflightOptions{
+	_, err := preflightBundleForBackend(Bundle{MaxCols: 10, MaxRows: 3}, preflightOptions{
 		Term: &fakeTermOps{isTTY: false, width: 80, height: 24},
 		In:   strings.NewReader(""),
 		Out:  io.Discard,
-	})
+	}, BackendKitty)
 	if err == nil || !strings.Contains(err.Error(), "non-tty") {
 		t.Fatalf("error = %v, want non-tty", err)
 	}
 }
 
 func TestPreflightRejectsSmallTerminal(t *testing.T) {
-	err := preflightBundle(Bundle{MaxCols: 100, MaxRows: 40}, preflightOptions{
+	_, err := preflightBundleForBackend(Bundle{MaxCols: 100, MaxRows: 40}, preflightOptions{
 		Term: &fakeTermOps{isTTY: true, width: 80, height: 24},
 		In:   strings.NewReader(""),
 		Out:  io.Discard,
-	})
+	}, BackendKitty)
 	if err == nil || !strings.Contains(err.Error(), "terminal is 80x24; trace needs at least 100x42") {
 		t.Fatalf("error = %v, want size mismatch", err)
-	}
-}
-
-func TestQueryKittyAcceptsOKReply(t *testing.T) {
-	termOps := &fakeTermOps{isTTY: true}
-	var out bytes.Buffer
-	err := queryKitty(preflightOptions{
-		Term:    termOps,
-		In:      strings.NewReader("\x1b_Gi=31;OK\x1b\\"),
-		Out:     &out,
-		Timeout: time.Second,
-	})
-	if err != nil {
-		t.Fatalf("queryKitty: %v", err)
-	}
-	if out.String() != kittyQuery {
-		t.Fatalf("query = %q, want %q", out.String(), kittyQuery)
-	}
-	if termOps.raws != 1 || termOps.restores != 1 {
-		t.Fatalf("raw/restores = %d/%d, want 1/1", termOps.raws, termOps.restores)
-	}
-}
-
-func TestQueryKittyRejectsGarbledReply(t *testing.T) {
-	err := queryKitty(preflightOptions{
-		Term:    &fakeTermOps{isTTY: true},
-		In:      strings.NewReader("\x1b_Gi=31;NOPE\x1b\\"),
-		Out:     io.Discard,
-		Timeout: time.Second,
-	})
-	if err == nil || !strings.Contains(err.Error(), "kitty graphics protocol not detected") {
-		t.Fatalf("error = %v, want kitty diagnostic", err)
-	}
-}
-
-func TestQueryKittyTimeout(t *testing.T) {
-	r := &blockingReader{ch: make(chan struct{})}
-	defer close(r.ch)
-	err := queryKitty(preflightOptions{
-		Term:    &fakeTermOps{isTTY: true},
-		In:      r,
-		Out:     io.Discard,
-		Timeout: time.Millisecond,
-	})
-	if err == nil || !strings.Contains(err.Error(), "kitty graphics protocol not detected") {
-		t.Fatalf("error = %v, want kitty diagnostic", err)
 	}
 }
 

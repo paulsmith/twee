@@ -65,9 +65,6 @@ func (s *Server) Stop() {
 	s.once.Do(func() { close(s.stopCh) })
 }
 
-// Term returns the wrapped Term.
-func (s *Server) Term() *engine.Term { return s.term }
-
 func (s *Server) handleConn(c net.Conn) {
 	defer c.Close()
 	var req rpc.Request

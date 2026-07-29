@@ -42,7 +42,7 @@ func TestParseRunArgsErrors(t *testing.T) {
 	}
 }
 
-func TestParseRunArgsDoubleDashAndHelpers(t *testing.T) {
+func TestParseRunArgsDoubleDash(t *testing.T) {
 	opts, err := parseRunArgs([]string{"--cols", "120", "--", "cmd", "--not-a-twee-flag"})
 	if err != nil {
 		t.Fatal(err)
@@ -52,22 +52,6 @@ func TestParseRunArgsDoubleDashAndHelpers(t *testing.T) {
 	}
 	if got := strings.Join(opts.cmd, " "); got != "cmd --not-a-twee-flag" {
 		t.Fatalf("cmd = %q", got)
-	}
-
-	if name, value, ok := splitFlagValue("--rows=40"); name != "--rows" || value != "40" || !ok {
-		t.Fatalf("splitFlagValue = %q %q %v", name, value, ok)
-	}
-	if name, value, ok := splitFlagValue("cmd"); name != "cmd" || value != "" || ok {
-		t.Fatalf("splitFlagValue cmd = %q %q %v", name, value, ok)
-	}
-	if value, next, err := flagValue("--x", "y", true, nil, 3); err != nil || value != "y" || next != 3 {
-		t.Fatalf("flagValue inline = %q %d %v", value, next, err)
-	}
-	if value, next, err := flagValue("--x", "", false, []string{"--x", "y"}, 0); err != nil || value != "y" || next != 1 {
-		t.Fatalf("flagValue next = %q %d %v", value, next, err)
-	}
-	if _, _, err := flagValue("--x", "", false, []string{"--x"}, 0); err == nil {
-		t.Fatal("flagValue missing unexpectedly succeeded")
 	}
 }
 
@@ -121,9 +105,6 @@ func TestParsePlayArgs(t *testing.T) {
 	}
 	if opts.Backend != play.BackendAuto {
 		t.Fatalf("backend = %q, want auto", opts.Backend)
-	}
-	if got := parsePlaySpeed("1.25"); got != 1.25 {
-		t.Fatalf("parsePlaySpeed = %v, want 1.25", got)
 	}
 	if got := parsePlayDuration("3s"); got != 3*time.Second {
 		t.Fatalf("parsePlayDuration = %v, want 3s", got)
@@ -208,7 +189,7 @@ func TestParseStartArgsRejectsEmptyEnvKey(t *testing.T) {
 	}
 }
 
-func TestSplitKVAndMultiFlag(t *testing.T) {
+func TestSplitKV(t *testing.T) {
 	for _, tt := range []struct {
 		in        string
 		key, val  string
@@ -223,17 +204,6 @@ func TestSplitKVAndMultiFlag(t *testing.T) {
 		if key != tt.key || val != tt.val || ok != tt.wantFound {
 			t.Fatalf("splitKV(%q) = %q %q %v", tt.in, key, val, ok)
 		}
-	}
-
-	var flags multiFlag
-	if err := flags.Set("A=B"); err != nil {
-		t.Fatal(err)
-	}
-	if err := flags.Set("C=D"); err != nil {
-		t.Fatal(err)
-	}
-	if got := flags.String(); !strings.Contains(got, "A=B") || !strings.Contains(got, "C=D") {
-		t.Fatalf("String = %q", got)
 	}
 }
 
