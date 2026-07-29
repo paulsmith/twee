@@ -118,6 +118,9 @@ func handleFind(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	if errResp != nil {
 		return nil, errResp
 	}
+	if a.Text == "" && !a.Regex {
+		return nil, invalidArgumentMessage("text or regex required")
+	}
 	lines := t.Lines()
 	matches := make([]rpc.FindMatch, 0)
 	if a.Regex {

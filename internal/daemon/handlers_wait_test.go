@@ -99,8 +99,11 @@ func TestWaitHandlersRejectInvalidArgs(t *testing.T) {
 		{"text timeout", handleWaitText, mustJSON(t, rpc.WaitTextArgs{Text: "hello", Timeout: "nope"}), rpc.CodeInvalidArgument},
 		{"text regex", handleWaitText, mustJSON(t, rpc.WaitTextArgs{Text: `(`, Regex: true}), rpc.CodeInvalidArgument},
 		{"text missing", handleWaitText, mustJSON(t, rpc.WaitTextArgs{Text: "missing", Timeout: "1ms"}), rpc.CodeTimeout},
+		{"text empty no regex", handleWaitText, mustJSON(t, rpc.WaitTextArgs{Text: "", Timeout: "1s"}), rpc.CodeInvalidArgument},
+		{"text unknown key", handleWaitText, json.RawMessage(`{"pattern":"never"}`), rpc.CodeInvalidArgument},
 		{"no text json", handleWaitNoText, json.RawMessage(`{`), rpc.CodeInvalidArgument},
 		{"no text timeout", handleWaitNoText, mustJSON(t, rpc.WaitNoTextArgs{Text: "hello", Timeout: "nope"}), rpc.CodeInvalidArgument},
+		{"no text empty", handleWaitNoText, mustJSON(t, rpc.WaitNoTextArgs{Text: "", Timeout: "1s"}), rpc.CodeInvalidArgument},
 		{"stable json", handleWaitStable, json.RawMessage(`{`), rpc.CodeInvalidArgument},
 		{"stable quiet", handleWaitStable, mustJSON(t, rpc.WaitStableArgs{Quiet: "nope"}), rpc.CodeInvalidArgument},
 		{"stable timeout", handleWaitStable, mustJSON(t, rpc.WaitStableArgs{Timeout: "nope"}), rpc.CodeInvalidArgument},
@@ -119,6 +122,21 @@ func TestWaitHandlersRejectInvalidArgs(t *testing.T) {
 				t.Fatalf("error code = %q, want %q", err.Code, tt.code)
 			}
 		})
+	}
+}
+
+// TestWaitTextEmptyRegexAllowed documents the boundary of the "text or
+// regex required" check added alongside strict arg decoding: it rejects
+// empty text only in literal mode (the footgun where a misnamed key left
+// Text at its zero value and matched instantly). An explicit
+// {"regex":true,"text":""} is a deliberate, if odd, "match anything"
+// pattern and is left alone.
+func TestWaitTextEmptyRegexAllowed(t *testing.T) {
+	te := startTestTerm(t)
+	if _, errResp := handleWaitText(te, mustJSON(t, rpc.WaitTextArgs{
+		Text: "", Regex: true, Timeout: "1s",
+	})); errResp != nil {
+		t.Fatalf("handleWaitText(regex, empty text): %+v", errResp)
 	}
 }
 

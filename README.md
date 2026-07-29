@@ -270,7 +270,7 @@ stdout.
 | `NOT_FOUND` | Session unreachable: no daemon socket for that name (any verb). Also `trace stop` with no active trace. |
 | `ALREADY_RUNNING` | `start` collided with an existing daemon of that name. Also `trace start` while a trace is already active (`details.path` names the active trace); stop it first. |
 | `CHILD_EXITED` | `start` observed the child exit during startup (within ~100ms); `details` carries `child_argv`, `exit_code`, `socket_created`, and `trace_path` when `--trace` was given. |
-| `INVALID_ARGUMENT` | Bad op argument: malformed duration/regex, out-of-range coords, unknown op, malformed script. |
+| `INVALID_ARGUMENT` | Bad op argument: malformed duration/regex, out-of-range coords, unknown op, unknown or missing arg key, malformed script. |
 | `IO` | Socket / PTY / file error. |
 | `INTERNAL` | Bug in twee (e.g. render or marshal failure). |
 
@@ -308,9 +308,17 @@ The script is a JSON array of RPC request bodies. Each `op` uses the
 daemon RPC wire name, for example `wait_text` rather than `wait text`.
 Arg names are wire names too and can differ from CLI flags:
 `wait_text`/`wait_no_text`/`find` take `"text"` (plus optional
-`"regex"`), even though the CLI flag is `--pattern`. Unknown arg keys
-are silently ignored — a misnamed key waits on the empty string and
-succeeds instantly.
+`"regex"`), even though the CLI flag is `--pattern`.
+
+Args are decoded strictly: an unknown key — a misnamed `"pattern"`
+where the wire name is `"text"`, say — fails the op with
+`INVALID_ARGUMENT` naming the bad key and the op's accepted keys,
+instead of being silently ignored (a stray key used to leave the
+matching field at its zero value; for `wait_text` that meant waiting on
+the empty string and succeeding instantly). `wait_text`, `wait_no_text`,
+and `find` also reject an empty/missing `"text"` in literal (non-regex)
+mode with `INVALID_ARGUMENT: "text or regex required"`, for the same
+reason.
 
 Pass `--script -` (or omit `--script`) to read from stdin. With
 `--emit results`, each op's response is streamed as NDJSON (each line

@@ -236,6 +236,8 @@ func TestQueryHandlersRejectInvalidArgs(t *testing.T) {
 		{"region size", handleRegion, mustJSON(t, rpc.RegionArgs{X: 0, Y: 0, W: 0, H: 1})},
 		{"find json", handleFind, json.RawMessage(`{`)},
 		{"find regex", handleFind, mustJSON(t, rpc.FindArgs{Text: `(`, Regex: true})},
+		{"find empty no regex", handleFind, mustJSON(t, rpc.FindArgs{Text: ""})},
+		{"find unknown key", handleFind, json.RawMessage(`{"pattern":"ell"}`)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -33,6 +33,9 @@ func handleWaitText(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	if errResp != nil {
 		return nil, errResp
 	}
+	if a.Text == "" && !a.Regex {
+		return nil, invalidArgumentMessage("text or regex required")
+	}
 	to, err := parseTimeout(a.Timeout, t.DefaultTimeout())
 	if err != nil {
 		return nil, invalidArgument(err)
@@ -61,6 +64,9 @@ func handleWaitNoText(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	a, errResp := decodeArgs[rpc.WaitNoTextArgs](raw)
 	if errResp != nil {
 		return nil, errResp
+	}
+	if a.Text == "" {
+		return nil, invalidArgumentMessage("text or regex required")
 	}
 	to, err := parseTimeout(a.Timeout, t.DefaultTimeout())
 	if err != nil {
