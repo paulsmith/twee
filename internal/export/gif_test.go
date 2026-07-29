@@ -6,6 +6,7 @@ import (
 	"image/gif"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -56,6 +57,7 @@ func TestGIFSinkRoundTrip(t *testing.T) {
 	if got := g.Image[0].At(5, 5); !sameColor(got, red) {
 		t.Errorf("frame 0 pixel = %v, want exact red (no dithering)", got)
 	}
+	assertFileMode(t, path, 0o600)
 }
 
 func sameColor(a color.Color, b color.RGBA) bool {
@@ -142,5 +144,41 @@ func TestGIFSinkAbortPreservesDestination(t *testing.T) {
 	}
 	if matches, err := filepath.Glob(filepath.Join(dir, ".out.gif.*.tmp")); err != nil || len(matches) != 0 {
 		t.Fatalf("temporary outputs after abort = %v, err = %v", matches, err)
+	}
+}
+
+func TestGIFSinkPreservesDestinationMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose Unix permission bits")
+	}
+	path := filepath.Join(t.TempDir(), "out.gif")
+	if err := os.WriteFile(path, []byte("previous artifact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := newGIFSink(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.abort()
+	if err := s.add(solidFrame(color.RGBA{R: 255, A: 255}, 4, 4), time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.close(); err != nil {
+		t.Fatal(err)
+	}
+	assertFileMode(t, path, 0o600)
+}
+
+func assertFileMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Errorf("%s mode = %04o, want %04o", path, got, want)
 	}
 }

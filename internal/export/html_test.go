@@ -7,8 +7,11 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -130,7 +133,7 @@ func TestExportHTMLDoesNotResolveFFmpeg(t *testing.T) {
 func TestHTMLSinkCommitsAtomically(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "replay.html")
-	if err := os.WriteFile(out, []byte("previous artifact"), 0o644); err != nil {
+	if err := os.WriteFile(out, []byte("previous artifact"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	s, err := newHTMLSink(out)
@@ -157,9 +160,42 @@ func TestHTMLSinkCommitsAtomically(t *testing.T) {
 	if !bytes.HasPrefix(after, []byte("<!doctype html>")) {
 		t.Fatalf("committed output does not look like HTML: %.40q", after)
 	}
+	assertFileMode(t, out, 0o600)
 	if matches, err := filepath.Glob(filepath.Join(dir, ".replay.html.*.tmp")); err != nil || len(matches) != 0 {
 		t.Fatalf("temporary outputs after commit = %v, err = %v", matches, err)
 	}
+}
+
+func TestHTMLNewArtifactHonorsRestrictiveUmask(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose Unix permission bits")
+	}
+	if os.Getenv("TWEE_TEST_RESTRICTIVE_UMASK") == "1" {
+		syscall.Umask(0o077)
+		out := os.Getenv("TWEE_TEST_OUTPUT")
+		s, err := newHTMLSink(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.abort()
+		if err := s.add(solidFrame(color.RGBA{G: 255, A: 255}, 4, 4), time.Second); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.close(); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	out := filepath.Join(t.TempDir(), "new.html")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHTMLNewArtifactHonorsRestrictiveUmask$")
+	cmd.Env = append(os.Environ(),
+		"TWEE_TEST_RESTRICTIVE_UMASK=1",
+		"TWEE_TEST_OUTPUT="+out,
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("umask helper: %v\n%s", err, output)
+	}
+	assertFileMode(t, out, 0o600)
 }
 
 func TestHTMLSinkAbortPreservesDestination(t *testing.T) {

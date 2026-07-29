@@ -76,9 +76,6 @@ func (s *htmlSink) close() error {
 	if err := s.w.Flush(); err != nil {
 		return err
 	}
-	if err := s.file.Chmod(0o644); err != nil {
-		return err
-	}
 	if err := s.file.Sync(); err != nil {
 		return err
 	}
@@ -86,6 +83,9 @@ func (s *htmlSink) close() error {
 		return err
 	}
 	s.file = nil
+	if err := preserveDestinationMode(s.tempPath, s.outPath); err != nil {
+		return err
+	}
 	if err := os.Rename(s.tempPath, s.outPath); err != nil {
 		return err
 	}

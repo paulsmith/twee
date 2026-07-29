@@ -60,15 +60,14 @@ func (s *gifSink) close() error {
 		_ = f.Close()
 		return err
 	}
-	if err := f.Chmod(0o644); err != nil {
-		_ = f.Close()
-		return err
-	}
 	if err := f.Sync(); err != nil {
 		_ = f.Close()
 		return err
 	}
 	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := preserveDestinationMode(s.tempPath, s.outPath); err != nil {
 		return err
 	}
 	if err := os.Rename(s.tempPath, s.outPath); err != nil {

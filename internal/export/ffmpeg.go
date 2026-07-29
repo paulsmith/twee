@@ -147,7 +147,7 @@ func (s *ffmpegSink) close() error {
 		return fmt.Errorf("ffmpeg failed: %w\n%s\nframes kept in %s for debugging",
 			err, tail(stderr.String(), 2000), s.dir)
 	}
-	if err := os.Chmod(s.tempOut, 0o644); err != nil {
+	if err := preserveDestinationMode(s.tempOut, s.outPath); err != nil {
 		return err
 	}
 	if err := os.Rename(s.tempOut, s.outPath); err != nil {

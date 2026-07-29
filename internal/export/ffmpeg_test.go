@@ -113,6 +113,29 @@ func TestFFmpegSinkIntegration(t *testing.T) {
 	}
 }
 
+func TestFFmpegSinkPreservesDestinationMode(t *testing.T) {
+	truePath, err := exec.LookPath("true")
+	if err != nil {
+		t.Skip("true executable not found")
+	}
+	out := filepath.Join(t.TempDir(), "out.mp4")
+	if err := os.WriteFile(out, []byte("previous artifact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := newFFmpegSink(out, truePath, "medium")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.abort()
+	if err := s.add(solidFrame(color.RGBA{R: 255, A: 255}, 4, 4), time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.close(); err != nil {
+		t.Fatal(err)
+	}
+	assertFileMode(t, out, 0o600)
+}
+
 func TestFFmpegSinkFailurePreservesDestination(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "out.mp4")
