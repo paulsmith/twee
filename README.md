@@ -60,15 +60,10 @@ Download a release tarball from
 it, and put `twee` on your `PATH`.
 
 ```sh
-curl -LO https://github.com/paulsmith/twee/releases/download/v0.1.0/twee_0.1.0_darwin_arm64.tar.gz
-tar -xzf twee_0.1.0_darwin_arm64.tar.gz
+curl -LO https://github.com/paulsmith/twee/releases/download/v0.2.0/twee_0.2.0_darwin_arm64.tar.gz
+tar -xzf twee_0.2.0_darwin_arm64.tar.gz
 ./twee version
 ```
-
-This README tracks `main`, which has breaking CLI changes since v0.1.0
-(`--` before child argv, `wait text --pattern`, mostly long options
-only; `twee export` uses `-o`). For the v0.1.0 CLI, read the README at
-that tag — or build from source.
 
 ### Building from source
 
