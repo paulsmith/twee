@@ -6,9 +6,24 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
+
+// waitProcessGone polls until pid no longer exists (kill(pid, 0) fails
+// with ESRCH) or the deadline passes.
+func waitProcessGone(t *testing.T, pid int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(pid, 0); err == syscall.ESRCH {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("pid %d still alive after %s", pid, timeout)
+}
 
 func stateDirOf(t *testing.T, env []string) string {
 	t.Helper()
@@ -94,6 +109,80 @@ func TestStopCleansStaleLock(t *testing.T) {
 	}
 	if _, err := os.Stat(lock); !os.IsNotExist(err) {
 		t.Errorf("stale lock remains after stop: stat err = %v", err)
+	}
+}
+
+// TestStopCleansTrulyStaleSocket reproduces a daemon killed with SIGKILL:
+// unlike a graceful "stop" or a natural child exit, nothing removes the
+// socket or lock file. A later "stop" must detect the now-unreachable
+// (but still present) socket, clean up both files, and report success
+// rather than NOT_FOUND.
+func TestStopCleansTrulyStaleSocket(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+	stateDir := stateDirOf(t, env)
+	const sessionName = "kill9-stale"
+
+	startOut, raw, err := runCLI(t, bin, env, "start", "--name", sessionName, "--", "/bin/sh", "-c", "sleep 30")
+	if err != nil {
+		t.Fatalf("start: %v\n%s", err, raw)
+	}
+	data, _ := startOut["data"].(map[string]any)
+	pidF, ok := data["pid"].(float64)
+	if !ok || pidF == 0 {
+		t.Fatalf("start response missing pid: %v", startOut)
+	}
+	pid := int(pidF)
+
+	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+		t.Fatalf("kill -9 %d: %v", pid, err)
+	}
+	waitProcessGone(t, pid, 3*time.Second)
+
+	sock := filepath.Join(stateDir, sessionName+".sock")
+	lock := filepath.Join(stateDir, sessionName+".lock")
+	if _, err := os.Stat(sock); err != nil {
+		t.Fatalf("socket file should still be on disk after kill -9: %v", err)
+	}
+
+	stopOut, raw, err := runCLI(t, bin, env, "stop", "--name", sessionName)
+	if err != nil {
+		t.Fatalf("stop after kill -9: %v\n%s", err, raw)
+	}
+	if stopOut["ok"] != true {
+		t.Fatalf("stop after kill -9 = %s, want ok:true", raw)
+	}
+	stopData, _ := stopOut["data"].(map[string]any)
+	if stopData["stopped"] != false || stopData["stale_cleaned"] != true {
+		t.Fatalf("stop data = %#v, want stopped:false stale_cleaned:true", stopData)
+	}
+	if _, err := os.Stat(sock); !os.IsNotExist(err) {
+		t.Errorf("socket file remains after stale cleanup: stat err = %v", err)
+	}
+	if _, err := os.Stat(lock); !os.IsNotExist(err) {
+		t.Errorf("lock file remains after stale cleanup: stat err = %v", err)
+	}
+}
+
+// TestStopOnMissingSessionStillNotFound pins down that a name with no
+// socket file at all (never started, or already fully cleaned up) is
+// still a plain NOT_FOUND, not confused with the stale-cleanup path.
+func TestStopOnMissingSessionStillNotFound(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+
+	out := cliStdout(t, bin, env, "stop", "--name", "never-existed")
+	var resp struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		t.Fatalf("decode %s: %v", out, err)
+	}
+	if resp.OK || resp.Error.Code != "NOT_FOUND" {
+		t.Fatalf("stop on never-started session = %s, want NOT_FOUND", out)
 	}
 }
 

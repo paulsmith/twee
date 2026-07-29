@@ -14,8 +14,10 @@ import (
 func init() {
 	register("ls", runLs)
 	registerUsage("ls", `twee ls
-List running daemons. Each entry has the same shape as "twee status".
-Entries whose socket cannot be reached are silently omitted.`)
+List running daemons. Each live entry has the same shape as "twee
+status" plus "name". A session whose daemon died without cleaning up
+(e.g. killed with SIGKILL) is listed too, instead of being silently
+omitted, as {"name": ..., "running": false, "stale": true}.`)
 }
 
 func runLs(args []string) {
@@ -35,9 +37,14 @@ func runLs(args []string) {
 		Name string `json:"name"`
 		rpc.StatusData
 	}
+	type staleResult struct {
+		Name    string `json:"name"`
+		Running bool   `json:"running"`
+		Stale   bool   `json:"stale"`
+	}
 	var (
 		mu  sync.Mutex
-		out = []result{}
+		out = []any{}
 		wg  sync.WaitGroup
 	)
 	for _, e := range entries {
@@ -51,6 +58,15 @@ func runLs(args []string) {
 			path := filepath.Join(dir, name+".sock")
 			c, err := dialUnixSocketTimeout(path, 500*time.Millisecond)
 			if err != nil {
+				// The socket file exists (we're iterating its dir
+				// entry) but nothing answers. If the lock proves no
+				// live daemon owns it, report it rather than silently
+				// dropping it.
+				if isSessionStale(name) {
+					mu.Lock()
+					out = append(out, staleResult{Name: name, Running: false, Stale: true})
+					mu.Unlock()
+				}
 				return
 			}
 			_ = c.Close()

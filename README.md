@@ -145,6 +145,15 @@ artifacts are durable and report `{"trace_path": ...}` — then removes
 its socket and lock file and exits. A `wait exit` on a session that is
 already gone succeeds with `{"exit_code":null,"daemon_already_gone":true}`.
 
+If a daemon is killed abruptly (e.g. `kill -9`) instead of exiting
+cleanly, its socket and lock file can be left behind. `twee stop --name
+<name>` on such a session detects the stale socket, removes both files,
+and reports `{"name":..., "stopped":false, "stale_cleaned":true}`
+(exit 0) instead of failing; a name with no socket file at all is still
+`NOT_FOUND`. `twee ls` lists stale sessions too, alongside live ones, as
+`{"name":..., "running":false, "stale":true}`, instead of silently
+omitting them.
+
 For a one-shot run with no daemon to manage, see `twee run` below
 (`run` manages its own ephemeral daemon and takes no `--name`).
 
