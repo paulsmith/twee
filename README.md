@@ -113,6 +113,9 @@ $ twee stop --name a
 $ twee stop --name b
 ```
 
+`ls`'s `data` is always an array (each entry shaped like `twee status`'s
+response, plus `name`): `[]` when no sessions are running, never `null`.
+
 Session resolution order: per-command `--name`, global `--name`,
 `$TWEE_SESSION`, then `default` — so `export TWEE_SESSION=mysess` pins
 a whole script to one session. While running, each session holds a

@@ -37,7 +37,7 @@ func runLs(args []string) {
 	}
 	var (
 		mu  sync.Mutex
-		out []result
+		out = []result{}
 		wg  sync.WaitGroup
 	)
 	for _, e := range entries {
