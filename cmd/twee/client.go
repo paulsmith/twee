@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"sync/atomic"
 	"time"
 
@@ -21,15 +22,28 @@ type dialError struct {
 func (e *dialError) Error() string { return fmt.Sprintf("dial %s: %v", e.sock, e.err) }
 func (e *dialError) Unwrap() error { return e.err }
 
-// callDaemon dials the named session's socket and runs one op.
-func callDaemon(name, op string, args any) (rpc.Response, error) {
+// dialSession dials the named session's socket, wrapping an unreachable
+// or refused connection as a *dialError so callers can map it to
+// NOT_FOUND via transportErrorCode. Shared by callDaemon (one op per
+// call) and "do"'s script executor (one op per dial, same socket,
+// repeated for each op in the script).
+func dialSession(name string) (net.Conn, error) {
 	sock, err := socketPath(name)
 	if err != nil {
-		return rpc.Response{}, err
+		return nil, err
 	}
 	c, err := dialUnixSocketTimeout(sock, 2*time.Second)
 	if err != nil {
-		return rpc.Response{}, &dialError{sock: sock, err: err}
+		return nil, &dialError{sock: sock, err: err}
+	}
+	return c, nil
+}
+
+// callDaemon dials the named session's socket and runs one op.
+func callDaemon(name, op string, args any) (rpc.Response, error) {
+	c, err := dialSession(name)
+	if err != nil {
+		return rpc.Response{}, err
 	}
 	defer c.Close()
 	req := rpc.Request{ID: nextID(), Op: op}

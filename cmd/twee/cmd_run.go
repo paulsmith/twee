@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -32,7 +31,10 @@ Flags:
   --emit results   stream NDJSON op responses instead of one summary
 
 The script is a JSON array of RPC bodies (op + args). Use the wire
-op names (e.g. "wait_text", not "wait text").`)
+op names (e.g. "wait_text", not "wait text").
+
+To run the same script format against an already-running named
+session instead of an ephemeral one, see "twee help do".`)
 }
 
 func runRun(args []string) {
@@ -44,14 +46,7 @@ func runRun(args []string) {
 		fatalUsage("run: missing command")
 	}
 
-	scriptBytes, err := readScript(opts.scriptPath)
-	if err != nil {
-		emitError(rpc.CodeIO, err.Error(), nil, 1)
-	}
-	var ops []rpc.Request
-	if err := json.Unmarshal(scriptBytes, &ops); err != nil {
-		emitError(rpc.CodeInvalidArgument, "script: "+err.Error(), nil, 1)
-	}
+	ops := loadScript(opts.scriptPath)
 	if !opts.colsSet || !opts.rowsSet {
 		if initial, ok := leadingResize(ops); ok {
 			if !opts.colsSet {
@@ -137,33 +132,9 @@ func runRun(args []string) {
 	go srv.Serve(context.Background(), listener)
 
 	emitResults := opts.emit == "results"
-	for i, op := range ops {
-		op.ID = fmt.Sprintf("%d", i)
-		c, err := dialUnixSocket(sock)
-		if err != nil {
-			fail(rpc.CodeIO, err.Error(), nil)
-		}
-		if err := rpc.WriteMessage(c, op); err != nil {
-			c.Close()
-			fail(rpc.CodeIO, err.Error(), nil)
-		}
-		var resp rpc.Response
-		if err := rpc.ReadMessage(c, &resp); err != nil {
-			c.Close()
-			fail(rpc.CodeIO, err.Error(), nil)
-		}
-		c.Close()
-		if emitResults {
-			_ = json.NewEncoder(os.Stdout).Encode(resp)
-		}
-		if !resp.OK {
-			if !emitResults {
-				fail(resp.Error.Code, resp.Error.Message, resp.Error.Details)
-			}
-			cleanup()
-			os.Exit(1)
-		}
-	}
+	dial := func() (net.Conn, error) { return dialUnixSocket(sock) }
+	runOpScript(ops, dial, emitResults, cleanup, fail)
+
 	if errResp := stopTrace(); errResp != nil {
 		fail(errResp.Code, errResp.Message, errResp.Details)
 	}
@@ -240,13 +211,6 @@ func flagValue(name, value string, hasValue bool, args []string, i int) (string,
 		return "", i, fmt.Errorf("%s requires a value", name)
 	}
 	return args[i+1], i + 1, nil
-}
-
-func readScript(path string) ([]byte, error) {
-	if path == "" || path == "-" {
-		return io.ReadAll(os.Stdin)
-	}
-	return os.ReadFile(path)
 }
 
 func leadingResize(ops []rpc.Request) (rpc.ResizeArgs, bool) {

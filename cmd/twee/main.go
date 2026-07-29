@@ -153,6 +153,7 @@ var commandSummaries = []commandSummary{
 	{"completion", "Print shell completion setup"},
 	{"cursor", "Show cursor state"},
 	{"diff", "Compare the viewport to a saved text snapshot"},
+	{"do", "Run an op script against a running session"},
 	{"export", "Export a .twee trace bundle to GIF, MP4, or WebM"},
 	{"find", "Find text in the viewport"},
 	{"help", "Print top-level or per-command help"},

@@ -170,6 +170,7 @@ command list is:
 | `completion` | Print shell completion setup (currently a placeholder). |
 | `cursor` | Show cursor state. |
 | `diff` | Compare the viewport to a saved text snapshot. |
+| `do` | Run an op script against a running session. |
 | `export` | Export a `.twee` trace bundle to GIF, MP4, or WebM. |
 | `find` | Find text in the viewport. |
 | `help` | Print top-level or per-command help. |
@@ -331,6 +332,42 @@ Pass `--script -` (or omit `--script`) to read from stdin. With
 carries an `id`, the op index) instead of the summary envelope. Use
 `--trace-out session.twee` to record the whole single-shot run as a
 replayable trace bundle.
+
+## Scripts against a running session
+
+`twee do` executes the same op-script format against an already-running
+named session instead of spinning up its own ephemeral daemon — useful
+for agents batching many ops into one process launch instead of paying
+a spawn per op:
+
+```
+$ twee start --name agent -- ./myapp
+$ twee do --name agent --script ops.json
+{"ok":true,"data":{"ops":5}}
+```
+
+Session resolution works exactly like every other daemon verb
+(per-command `--name`, global `--name`, `$TWEE_SESSION`, then
+`default`); a missing session fails with `NOT_FOUND`, same as `status`
+or `key` would. `--script -` (or omitting `--script`) reads from stdin,
+so a script can be piped in with a heredoc:
+
+```
+$ twee do --name agent <<'EOF'
+[
+  {"op": "wait_text", "args": {"text": "Choose an option", "timeout": "5s"}},
+  {"op": "key", "args": {"key": "Down"}}
+]
+EOF
+{"ok":true,"data":{"ops":2}}
+```
+
+`--emit results` streams NDJSON per op just like `run`. `do` has no
+`--trace-out` — use `twee trace start`/`trace stop` (see Traces below)
+to record a named session instead — and no `--` child argv, since
+there's no child to spawn. Ops like `stop` or `wait_exit` aren't
+special-cased: they do whatever they normally do, including ending the
+session.
 
 ## Codegen
 
