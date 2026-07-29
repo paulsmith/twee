@@ -1,6 +1,7 @@
 package export
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
@@ -296,4 +297,190 @@ func TestExportHTMLCorruptBundlePreservesExistingArtifact(t *testing.T) {
 	if string(got) != "known good artifact" {
 		t.Fatalf("existing output after failed export = %q", got)
 	}
+}
+
+func TestHTMLViewerBehavior(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	const executableScript = "<script>\n"
+	start := strings.Index(htmlSuffix, executableScript)
+	if start < 0 {
+		t.Fatal("HTML suffix is missing executable script")
+	}
+	script := htmlSuffix[start+len(executableScript):]
+	end := strings.Index(script, "\n</script>")
+	if end < 0 {
+		t.Fatal("HTML suffix is missing executable script terminator")
+	}
+	script = script[:end]
+
+	cmd := exec.Command(node)
+	cmd.Stdin = strings.NewReader(nodeViewerHarness + "\n" + script + "\n" + nodeViewerAssertions)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("viewer behavior: %v\n%s", err, output)
+	}
+}
+
+const nodeViewerHarness = `
+'use strict';
+const frameData = [
+  {src: 'frame-0', duration_ns: 100000000},
+  {src: 'frame-1', duration_ns: 200000000},
+  {src: 'frame-2', duration_ns: 300000000},
+];
+const drawn = [];
+function makeElement(id) {
+  const element = {
+    id,
+    value: id === 'speed' ? '1' : '0',
+    textContent: id === 'play' ? 'Play' : '',
+    listeners: {},
+    attributes: {},
+    addEventListener(type, listener) { this.listeners[type] = listener; },
+    dispatch(type, event = {}) { this.listeners[type](event); },
+    click() { this.dispatch('click'); },
+    setAttribute(name, value) { this.attributes[name] = value; },
+  };
+  return element;
+}
+const elements = {};
+for (const id of ['twee-frames', 'frame', 'play', 'timeline', 'time', 'speed', 'restart', 'previous', 'next']) {
+  elements[id] = makeElement(id);
+}
+elements['twee-frames'].textContent = JSON.stringify(frameData);
+elements.frame.getContext = () => ({drawImage(picture) { drawn.push(picture.src); }});
+const documentListeners = {};
+globalThis.document = {
+  getElementById(id) { return elements[id]; },
+  addEventListener(type, listener) { documentListeners[type] = listener; },
+};
+globalThis.Image = class {
+  constructor() {
+    this.complete = false;
+    this.naturalWidth = 80;
+    this.naturalHeight = 24;
+    this.listeners = {};
+  }
+  addEventListener(type, listener) { this.listeners[type] = listener; }
+  set src(value) {
+    this._src = value;
+    this.complete = true;
+    if (this.listeners.load) this.listeners.load();
+  }
+  get src() { return this._src; }
+};
+let now = 0;
+let animationCallback = null;
+globalThis.performance = {now() { return now; }};
+globalThis.requestAnimationFrame = callback => { animationCallback = callback; return 1; };
+globalThis.cancelAnimationFrame = () => { animationCallback = null; };
+`
+
+const nodeViewerAssertions = `
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+function lastDrawn() { return drawn[drawn.length - 1]; }
+function scrub(value) {
+  elements.timeline.value = String(value);
+  elements.timeline.dispatch('input');
+}
+assert(elements.timeline.max === '600', 'total duration');
+assert(elements.time.textContent === '0:00.000 / 0:00.600', 'initial clock');
+assert(lastDrawn() === 'frame-0', 'initial frame');
+scrub(99.999);
+assert(lastDrawn() === 'frame-0', 'frame before first boundary');
+scrub(100);
+assert(lastDrawn() === 'frame-1', 'frame at first boundary');
+scrub(299.999);
+assert(lastDrawn() === 'frame-1', 'frame before second boundary');
+scrub(300);
+assert(lastDrawn() === 'frame-2', 'frame at second boundary');
+scrub(600);
+assert(lastDrawn() === 'frame-2', 'frame at end');
+assert(elements.time.textContent === '0:00.600 / 0:00.600', 'clock at end');
+elements.previous.click();
+assert(elements.timeline.value === '100' && lastDrawn() === 'frame-1', 'previous frame');
+elements.next.click();
+assert(elements.timeline.value === '300' && lastDrawn() === 'frame-2', 'next frame');
+elements.restart.click();
+assert(elements.timeline.value === '0' && lastDrawn() === 'frame-0', 'restart');
+elements.play.click();
+assert(elements.play.textContent === 'Pause', 'play transition');
+let tick = animationCallback;
+animationCallback = null;
+now = 50;
+tick(now);
+assert(elements.timeline.value === '50', 'one-speed playback');
+elements.speed.value = '2';
+elements.speed.dispatch('change');
+tick = animationCallback;
+animationCallback = null;
+now = 100;
+tick(now);
+assert(elements.timeline.value === '150' && lastDrawn() === 'frame-1', 'two-speed playback');
+elements.play.click();
+assert(elements.play.textContent === 'Play' && animationCallback === null, 'pause transition');
+scrub(600);
+elements.play.click();
+assert(elements.timeline.value === '0', 'play from end restarts');
+tick = animationCallback;
+animationCallback = null;
+now = 500;
+tick(now);
+assert(elements.timeline.value === '600', 'playback clamps at end');
+assert(elements.play.textContent === 'Play', 'playback stops at end');
+`
+
+func FuzzExportHTMLCorruptBundle(f *testing.F) {
+	f.Add([]byte{})
+	f.Add([]byte("not a zip bundle"))
+	f.Add([]byte("PK\x03\x04truncated"))
+	f.Add(htmlFuzzBundle(`{"version":1,"cols":4,"rows":2}`, "not json\n"))
+	f.Add(htmlFuzzBundle(`{"version":1,"cols":4,"rows":2`, ""))
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 2<<20 {
+			t.Skip("keep individual fuzz cases bounded")
+		}
+		dir := t.TempDir()
+		bundle := filepath.Join(dir, "input.twee")
+		out := filepath.Join(dir, "out.html")
+		const previous = "known good artifact"
+		if err := os.WriteFile(bundle, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(out, []byte(previous), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		err := Export(bundle, out, Options{})
+		got, readErr := os.ReadFile(out)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if err != nil {
+			if string(got) != previous {
+				t.Fatalf("failed export replaced destination with %.40q", got)
+			}
+		} else if !bytes.HasPrefix(got, []byte("<!doctype html>")) {
+			t.Fatalf("successful export produced invalid artifact: %.40q", got)
+		}
+		matches, globErr := filepath.Glob(filepath.Join(dir, ".out.html.*.tmp"))
+		if globErr != nil || len(matches) != 0 {
+			t.Fatalf("temporary outputs = %v, err = %v", matches, globErr)
+		}
+	})
+}
+
+func htmlFuzzBundle(manifest, events string) []byte {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	mw, _ := zw.Create("manifest.json")
+	_, _ = mw.Write([]byte(manifest))
+	ew, _ := zw.Create("events.jsonl")
+	_, _ = ew.Write([]byte(events))
+	_ = zw.Close()
+	return buf.Bytes()
 }
