@@ -118,3 +118,29 @@ func TestGIFSinkClampsMinimumDelay(t *testing.T) {
 		t.Errorf("delay = %dcs, want >= 2 (browser minimum)", g.Delay[0])
 	}
 }
+
+func TestGIFSinkAbortPreservesDestination(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.gif")
+	if err := os.WriteFile(path, []byte("previous artifact"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := newGIFSink(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.add(solidFrame(color.RGBA{R: 255, A: 255}, 4, 4), time.Second); err != nil {
+		t.Fatal(err)
+	}
+	s.abort()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "previous artifact" {
+		t.Fatalf("destination after abort = %q", got)
+	}
+	if matches, err := filepath.Glob(filepath.Join(dir, ".out.gif.*.tmp")); err != nil || len(matches) != 0 {
+		t.Fatalf("temporary outputs after abort = %v, err = %v", matches, err)
+	}
+}

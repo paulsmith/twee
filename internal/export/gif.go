@@ -7,6 +7,7 @@ import (
 	"image/draw"
 	"image/gif"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -14,21 +15,27 @@ import (
 // standard library has no streaming GIF append API, so memory scales with
 // frame count.
 type gifSink struct {
-	path      string
+	outPath   string
+	tempPath  string
 	g         gif.GIF
 	elapsed   time.Duration
 	emittedCS int
 }
 
 func newGIFSink(path string) (*gifSink, error) {
-	f, err := os.Create(path)
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.CreateTemp(filepath.Dir(abs), "."+filepath.Base(abs)+".*.tmp")
 	if err != nil {
 		return nil, err
 	}
 	if err := f.Close(); err != nil {
+		_ = os.Remove(f.Name())
 		return nil, err
 	}
-	return &gifSink{path: path}, nil
+	return &gifSink{outPath: abs, tempPath: f.Name()}, nil
 }
 
 func (s *gifSink) add(img *image.RGBA, d time.Duration) error {
@@ -45,7 +52,7 @@ func (s *gifSink) add(img *image.RGBA, d time.Duration) error {
 }
 
 func (s *gifSink) close() error {
-	f, err := os.Create(s.path)
+	f, err := os.Create(s.tempPath)
 	if err != nil {
 		return err
 	}
@@ -53,7 +60,29 @@ func (s *gifSink) close() error {
 		_ = f.Close()
 		return err
 	}
-	return f.Close()
+	if err := f.Chmod(0o644); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(s.tempPath, s.outPath); err != nil {
+		return err
+	}
+	s.tempPath = ""
+	return nil
+}
+
+func (s *gifSink) abort() {
+	if s.tempPath != "" {
+		_ = os.Remove(s.tempPath)
+		s.tempPath = ""
+	}
 }
 
 func roundedCentiseconds(d time.Duration) int {

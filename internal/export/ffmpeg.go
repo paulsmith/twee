@@ -18,9 +18,11 @@ import (
 // working directory, so the list uses bare relative filenames.
 type ffmpegSink struct {
 	outPath string
+	tempOut string
 	ffmpeg  string
 	quality string
 	dir     string
+	keepDir bool
 	n       int
 	list    strings.Builder
 	lastRef string
@@ -35,7 +37,25 @@ func newFFmpegSink(outPath, ffmpeg, quality string) (*ffmpegSink, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ffmpegSink{outPath: abs, ffmpeg: ffmpeg, quality: quality, dir: dir}, nil
+	ext := filepath.Ext(abs)
+	base := strings.TrimSuffix(filepath.Base(abs), ext)
+	temp, err := os.CreateTemp(filepath.Dir(abs), "."+base+".*.tmp"+ext)
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return nil, err
+	}
+	if err := temp.Close(); err != nil {
+		_ = os.Remove(temp.Name())
+		_ = os.RemoveAll(dir)
+		return nil, err
+	}
+	return &ffmpegSink{
+		outPath: abs,
+		tempOut: temp.Name(),
+		ffmpeg:  ffmpeg,
+		quality: quality,
+		dir:     dir,
+	}, nil
 }
 
 func (s *ffmpegSink) add(img *image.RGBA, d time.Duration) error {
@@ -118,15 +138,38 @@ func (s *ffmpegSink) close() error {
 	if err := os.WriteFile(filepath.Join(s.dir, listName), []byte(s.concatList()), 0o644); err != nil {
 		return err
 	}
-	cmd := exec.Command(s.ffmpeg, ffmpegArgs(listName, s.outPath, s.quality)...)
+	cmd := exec.Command(s.ffmpeg, ffmpegArgs(listName, s.tempOut, s.quality)...)
 	cmd.Dir = s.dir
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		s.keepDir = true
 		return fmt.Errorf("ffmpeg failed: %w\n%s\nframes kept in %s for debugging",
 			err, tail(stderr.String(), 2000), s.dir)
 	}
-	return os.RemoveAll(s.dir)
+	if err := os.Chmod(s.tempOut, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(s.tempOut, s.outPath); err != nil {
+		return err
+	}
+	s.tempOut = ""
+	if err := os.RemoveAll(s.dir); err != nil {
+		return err
+	}
+	s.dir = ""
+	return nil
+}
+
+func (s *ffmpegSink) abort() {
+	if s.tempOut != "" {
+		_ = os.Remove(s.tempOut)
+		s.tempOut = ""
+	}
+	if s.dir != "" && !s.keepDir {
+		_ = os.RemoveAll(s.dir)
+		s.dir = ""
+	}
 }
 
 func tail(s string, n int) string {

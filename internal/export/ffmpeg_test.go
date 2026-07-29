@@ -112,3 +112,37 @@ func TestFFmpegSinkIntegration(t *testing.T) {
 		t.Fatalf("output missing or empty: %v", err)
 	}
 }
+
+func TestFFmpegSinkFailurePreservesDestination(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.mp4")
+	if err := os.WriteFile(out, []byte("previous artifact"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := newFFmpegSink(out, "/usr/bin/false", "medium")
+	if err != nil {
+		t.Fatal(err)
+	}
+	debugDir := s.dir
+	t.Cleanup(func() { _ = os.RemoveAll(debugDir) })
+	if err := s.add(solidFrame(color.RGBA{R: 255, A: 255}, 4, 4), time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.close(); err == nil {
+		t.Fatal("close succeeded with a failing ffmpeg command")
+	}
+	s.abort()
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "previous artifact" {
+		t.Fatalf("destination after failed close = %q", got)
+	}
+	if matches, err := filepath.Glob(filepath.Join(dir, ".out.*.tmp.mp4")); err != nil || len(matches) != 0 {
+		t.Fatalf("temporary outputs after failed close = %v, err = %v", matches, err)
+	}
+	if _, err := os.Stat(debugDir); err != nil {
+		t.Fatalf("debug frames were not preserved after ffmpeg failure: %v", err)
+	}
+}
