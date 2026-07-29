@@ -22,6 +22,7 @@ type ffmpegSink struct {
 	ffmpeg  string
 	quality string
 	dir     string
+	remove  func(string) error
 	keepDir bool
 	n       int
 	list    strings.Builder
@@ -55,6 +56,7 @@ func newFFmpegSink(outPath, ffmpeg, quality string) (*ffmpegSink, error) {
 		ffmpeg:  ffmpeg,
 		quality: quality,
 		dir:     dir,
+		remove:  os.RemoveAll,
 	}, nil
 }
 
@@ -147,6 +149,12 @@ func (s *ffmpegSink) close() error {
 		return fmt.Errorf("ffmpeg failed: %w\n%s\nframes kept in %s for debugging",
 			err, tail(stderr.String(), 2000), s.dir)
 	}
+	// Finish all fallible spool cleanup before committing the artifact. Once
+	// Rename succeeds, close must not report an error for disposable state.
+	if err := s.remove(s.dir); err != nil {
+		return fmt.Errorf("remove temporary frames: %w", err)
+	}
+	s.dir = ""
 	if err := preserveDestinationMode(s.tempOut, s.outPath); err != nil {
 		return err
 	}
@@ -154,10 +162,6 @@ func (s *ffmpegSink) close() error {
 		return err
 	}
 	s.tempOut = ""
-	if err := os.RemoveAll(s.dir); err != nil {
-		return err
-	}
-	s.dir = ""
 	return nil
 }
 
@@ -167,7 +171,7 @@ func (s *ffmpegSink) abort() {
 		s.tempOut = ""
 	}
 	if s.dir != "" && !s.keepDir {
-		_ = os.RemoveAll(s.dir)
+		_ = s.remove(s.dir)
 		s.dir = ""
 	}
 }

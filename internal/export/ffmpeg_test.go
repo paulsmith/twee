@@ -1,6 +1,7 @@
 package export
 
 import (
+	"errors"
 	"image"
 	"image/color"
 	"os"
@@ -167,5 +168,47 @@ func TestFFmpegSinkFailurePreservesDestination(t *testing.T) {
 	}
 	if _, err := os.Stat(debugDir); err != nil {
 		t.Fatalf("debug frames were not preserved after ffmpeg failure: %v", err)
+	}
+}
+
+func TestFFmpegSpoolCleanupFailureDoesNotCommit(t *testing.T) {
+	truePath, err := exec.LookPath("true")
+	if err != nil {
+		t.Skip("true executable not found")
+	}
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.mp4")
+	if err := os.WriteFile(out, []byte("previous artifact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := newFFmpegSink(out, truePath, "medium")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spoolDir := s.dir
+	t.Cleanup(func() { _ = os.RemoveAll(spoolDir) })
+	wantErr := errors.New("injected cleanup failure")
+	s.remove = func(path string) error {
+		if path != spoolDir {
+			t.Fatalf("remove path = %q, want spool %q", path, spoolDir)
+		}
+		return wantErr
+	}
+	if err := s.add(solidFrame(color.RGBA{B: 255, A: 255}, 4, 4), time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.close(); !errors.Is(err, wantErr) {
+		t.Fatalf("close error = %v, want injected cleanup error", err)
+	}
+	s.abort()
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "previous artifact" {
+		t.Fatalf("destination after cleanup failure = %q", got)
+	}
+	if matches, err := filepath.Glob(filepath.Join(dir, ".out.*.tmp.mp4")); err != nil || len(matches) != 0 {
+		t.Fatalf("temporary outputs after abort = %v, err = %v", matches, err)
 	}
 }
