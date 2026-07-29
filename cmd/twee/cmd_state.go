@@ -29,9 +29,13 @@ func runScreenshot(args []string) {
 	if err := parseArg("screenshot", &opts, args); err != nil {
 		fatalUsage("screenshot: %v", err)
 	}
+	out, err := absOutPath(opts.Out)
+	if err != nil {
+		fatalUsage("screenshot: %v", err)
+	}
 	pixelWidth, pixelHeight := nativeDisplayPixels()
 	callSessionAndEmit("screenshot", opts.Name, rpc.OpScreenshot, rpc.ScreenshotArgs{
-		Out:         opts.Out,
+		Out:         out,
 		PixelWidth:  pixelWidth,
 		PixelHeight: pixelHeight,
 	})

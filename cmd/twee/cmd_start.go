@@ -96,7 +96,11 @@ func parseStartArgs(args []string) (startOptions, error) {
 		}
 		envOverrides[k] = v
 	}
-	return startOptions{name: name, cmd: cmd, cols: cols, rows: rows, dir: parsed.Dir, env: envOverrides, trace: parsed.Trace}, nil
+	trace, err := absOutPath(parsed.Trace)
+	if err != nil {
+		return startOptions{}, err
+	}
+	return startOptions{name: name, cmd: cmd, cols: cols, rows: rows, dir: parsed.Dir, env: envOverrides, trace: trace}, nil
 }
 
 // multiFlag collects repeated string flags.

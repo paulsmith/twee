@@ -216,7 +216,11 @@ func parseRunArgs(args []string) (runOptions, error) {
 	opts.scriptPath = parsed.ScriptPath
 	opts.dir = parsed.Dir
 	opts.emit = parsed.Emit
-	opts.tracePath = parsed.TracePath
+	tracePath, err := absOutPath(parsed.TracePath)
+	if err != nil {
+		return opts, err
+	}
+	opts.tracePath = tracePath
 	opts.cmd = cmd
 	return opts, nil
 }

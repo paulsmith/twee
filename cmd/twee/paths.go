@@ -84,6 +84,23 @@ func lockPath(name string) (string, error) {
 	return filepath.Join(dir, name+".lock"), nil
 }
 
+// absOutPath resolves a client-supplied output path against the client's
+// own working directory before it travels over the RPC wire. Without
+// this, a relative --out is later interpreted by the daemon process,
+// which may have a different cwd than the client invoking this command
+// (the daemon keeps whatever cwd it had at `start` time). Empty stays
+// empty, meaning "let the daemon choose a default path".
+func absOutPath(p string) (string, error) {
+	if p == "" {
+		return "", nil
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", fmt.Errorf("resolve path %q: %w", p, err)
+	}
+	return abs, nil
+}
+
 // validateName rejects names that are empty, contain path separators or
 // NUL, look like traversal, or begin with "-".
 func validateName(name string) error {

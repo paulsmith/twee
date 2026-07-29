@@ -56,8 +56,14 @@ func TestParseRunArgsRunFlagsAndCommandFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.scriptPath != "ops.json" || opts.cols != 100 || opts.rows != 40 || opts.emit != "results" || opts.tracePath != "session.twee" {
-		t.Fatalf("opts = %+v", opts)
+	// --trace-out is resolved against the client's cwd (see absOutPath)
+	// so it travels over the wire unambiguously.
+	wantTrace, err := filepath.Abs("session.twee")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.scriptPath != "ops.json" || opts.cols != 100 || opts.rows != 40 || opts.emit != "results" || opts.tracePath != wantTrace {
+		t.Fatalf("opts = %+v, want tracePath %q", opts, wantTrace)
 	}
 	want := []string{"cmd", "-child-flag"}
 	if len(opts.cmd) != len(want) {

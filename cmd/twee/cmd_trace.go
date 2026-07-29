@@ -54,7 +54,11 @@ func runTrace(args []string) {
 		if err := parseArg("trace start", &opts, rest); err != nil {
 			fatalUsage("trace start: %v", err)
 		}
-		callSessionAndEmit("trace start", opts.Name, rpc.OpTraceStart, rpc.TraceStartArgs{Out: opts.Out})
+		out, err := absOutPath(opts.Out)
+		if err != nil {
+			fatalUsage("trace start: %v", err)
+		}
+		callSessionAndEmit("trace start", opts.Name, rpc.OpTraceStart, rpc.TraceStartArgs{Out: out})
 	case "stop":
 		var opts struct {
 			Name *string `arg:"--name"`

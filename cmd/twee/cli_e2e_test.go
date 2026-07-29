@@ -282,6 +282,79 @@ func TestScreenshotUsesPTYPixelSizeViaCLI(t *testing.T) {
 	}
 }
 
+// TestRelativeOutPathsResolveAgainstClientCwd pins down that a relative
+// --out is resolved against the *client's* cwd, not the daemon's. The
+// daemon here is started from one directory; screenshot and trace start
+// are then invoked with a relative --out from a different directory, and
+// the file must land there (not next to the daemon), with the response
+// echoing the resolved absolute path.
+func TestRelativeOutPathsResolveAgainstClientCwd(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+	name := "relout"
+	defer exec.Command(bin, "stop", "--name", name).Run()
+
+	daemonDir := t.TempDir()
+	clientDir := t.TempDir()
+
+	startCmd := exec.Command(bin, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
+	startCmd.Dir = daemonDir
+	startCmd.Env = append(os.Environ(), env...)
+	if out, err := startCmd.CombinedOutput(); err != nil {
+		t.Fatalf("start: %v\n%s", err, out)
+	}
+
+	runIn := func(dir string, args ...string) map[string]any {
+		t.Helper()
+		cmd := exec.Command(bin, args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), env...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+		var resp map[string]any
+		if err := json.Unmarshal(out, &resp); err != nil {
+			t.Fatalf("decode %s: %v", out, err)
+		}
+		if resp["ok"] != true {
+			t.Fatalf("%v: %s", args, out)
+		}
+		return resp
+	}
+
+	wantShot := filepath.Join(clientDir, "shot.png")
+	shotResp := runIn(clientDir, "screenshot", "--name", name, "--out", "shot.png")
+	shotData, _ := shotResp["data"].(map[string]any)
+	if shotData["out"] != wantShot {
+		t.Fatalf("screenshot data.out = %v, want %q", shotData["out"], wantShot)
+	}
+	if _, err := os.Stat(wantShot); err != nil {
+		t.Errorf("screenshot not written to client cwd: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(daemonDir, "shot.png")); !os.IsNotExist(err) {
+		t.Errorf("screenshot incorrectly written to daemon cwd (stat err = %v)", err)
+	}
+
+	wantTrace := filepath.Join(clientDir, "session.twee")
+	traceResp := runIn(clientDir, "trace", "start", "--name", name, "--out", "session.twee")
+	traceData, _ := traceResp["data"].(map[string]any)
+	if traceData["out"] != wantTrace {
+		t.Fatalf("trace start data.out = %v, want %q", traceData["out"], wantTrace)
+	}
+	stopResp := runIn(clientDir, "trace", "stop", "--name", name)
+	stopData, _ := stopResp["data"].(map[string]any)
+	if stopData["path"] != wantTrace {
+		t.Fatalf("trace stop data.path = %v, want %q", stopData["path"], wantTrace)
+	}
+	if _, err := os.Stat(wantTrace); err != nil {
+		t.Errorf("trace bundle not written to client cwd: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(daemonDir, "session.twee")); !os.IsNotExist(err) {
+		t.Errorf("trace bundle incorrectly written to daemon cwd (stat err = %v)", err)
+	}
+}
+
 func envValue(t *testing.T, env []string, key string) string {
 	t.Helper()
 	prefix := key + "="
