@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -36,7 +37,12 @@ Flags:
                        most recent input or resize event, like 'twee
                        play's footer. A new such event always produces its
                        own frame, even when the screen itself didn't
-                       change.`)
+                       change.
+  --quality low|medium|high
+                       ffmpeg encoder preset for mp4/webm (default: medium,
+                       which reproduces the output from before this flag
+                       existed). Usage error for .gif output: the pure-Go
+                       GIF encoder has no quality/CRF knob.`)
 }
 
 func runExport(args []string) {
@@ -58,6 +64,7 @@ func parseExportArgs(args []string) (path, out string, opts export.Options) {
 		FFmpeg       string   `arg:"--ffmpeg"`
 		Crop         string   `arg:"--crop"`
 		InputOverlay bool     `arg:"--input-overlay"`
+		Quality      string   `arg:"--quality"`
 		Path         string   `arg:"positional,required"`
 	}
 	if err := parseArg("export", &parsed, exportArgsForParser(args)); err != nil {
@@ -97,7 +104,30 @@ func parseExportArgs(args []string) (path, out string, opts export.Options) {
 		opts.Crop = &rect
 	}
 	opts.InputOverlay = parsed.InputOverlay
+	if parsed.Quality != "" {
+		quality, err := parseQualityFlag(parsed.Quality, parsed.Out)
+		if err != nil {
+			fatalUsage("export: %v", err)
+		}
+		opts.Quality = quality
+	}
 	return parsed.Path, parsed.Out, opts
+}
+
+// parseQualityFlag validates --quality's value and its combination with
+// outPath's extension, returning a usage-error-shaped error naming
+// what's wrong. Split out as a pure function for the same reason
+// parseCropFlag is: unit-testable without exiting the test process.
+func parseQualityFlag(quality, outPath string) (string, error) {
+	switch quality {
+	case "low", "medium", "high":
+	default:
+		return "", fmt.Errorf("--quality must be low, medium, or high (got %q)", quality)
+	}
+	if ext := strings.ToLower(filepath.Ext(outPath)); ext == ".gif" {
+		return "", fmt.Errorf("--quality is not supported for .gif output (the pure-Go GIF encoder has no quality/CRF knob)")
+	}
+	return quality, nil
 }
 
 // parseCropFlag parses --crop's "x,y,w,h" cell-coordinate value,

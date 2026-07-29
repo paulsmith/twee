@@ -30,6 +30,13 @@ type Options struct {
 	// frame even when the screen itself didn't change, so the overlay
 	// can't be skipped by the emit-on-screen-change rule.
 	InputOverlay bool
+
+	// Quality selects the ffmpeg encoder preset for mp4/webm output:
+	// "low", "medium" (default), or "high" — see ffmpegArgs for the
+	// concrete CRF/preset values. Ignored for GIF, which has no such
+	// knob; the CLI rejects --quality with .gif output as a usage error
+	// rather than silently ignoring it.
+	Quality string
 }
 
 // CropRect is a cell-coordinate rectangle selecting the portion of the
@@ -49,6 +56,11 @@ func (o *Options) normalize() {
 	}
 	if o.FPSCap <= 0 {
 		o.FPSCap = 30
+	}
+	switch o.Quality {
+	case "low", "medium", "high":
+	default:
+		o.Quality = "medium"
 	}
 }
 

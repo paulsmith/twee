@@ -594,6 +594,7 @@ Flags:
 | `--ffmpeg <path>` | ffmpeg binary for MP4/WebM output (default: find `ffmpeg` on `PATH`). |
 | `--crop <x,y,w,h>` | Render only this cell rectangle of the screen. `w,h` must be `> 0`, `x,y` must be `>= 0`. |
 | `--input-overlay` | Append a footer strip below the frames showing the most recent input or resize event. |
+| `--quality low\|medium\|high` | ffmpeg encoder preset for MP4/WebM (default `medium`). Usage error for `.gif` output. |
 
 `--crop` takes cell coordinates, not pixels. A frame whose actual screen
 is smaller than the crop rectangle (e.g. before a later resize grows it)
@@ -612,6 +613,20 @@ entirely by the emit-on-screen-change rule:
 
 ```
 $ twee export /tmp/myapp.twee -o /tmp/annotated.mp4 --input-overlay
+```
+
+`--quality` selects an ffmpeg CRF/preset for MP4 (libx264) and WebM
+(libvpx-vp9, constant-quality mode) output: `low` trades quality for
+encode speed, `high` the reverse, and `medium` (the default) reproduces
+the encoder's own out-of-the-box settings — passing `--quality medium`
+explicitly changes nothing. `.gif` output has no such knob (the encoder
+is a pure-Go palettized GIF writer), so `--quality` with a `.gif` `-o`
+path is a usage error rather than a silently-ignored flag:
+
+```
+$ twee export /tmp/myapp.twee -o /tmp/myapp.mp4 --quality high
+$ twee export /tmp/myapp.twee -o /tmp/myapp.gif --quality high
+twee: export: --quality is not supported for .gif output (the pure-Go GIF encoder has no quality/CRF knob)
 ```
 
 ## Limitations

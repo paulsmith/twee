@@ -43,7 +43,7 @@ func Export(path, outPath string, opts Options) error {
 		return fmt.Errorf("twee export: %w", err)
 	}
 
-	snk, err := newSink(ext, outPath, ffmpeg)
+	snk, err := newSink(ext, outPath, ffmpeg, opts.Quality)
 	if err != nil {
 		return fmt.Errorf("twee export: %w", err)
 	}
@@ -64,12 +64,12 @@ func Export(path, outPath string, opts Options) error {
 	return nil
 }
 
-func newSink(ext, outPath, ffmpeg string) (sink, error) {
+func newSink(ext, outPath, ffmpeg, quality string) (sink, error) {
 	switch ext {
 	case ".gif":
 		return newGIFSink(outPath)
 	case ".mp4", ".webm":
-		return newFFmpegSink(outPath, ffmpeg)
+		return newFFmpegSink(outPath, ffmpeg, quality)
 	default:
 		panic("unsupported extension checked by Export")
 	}

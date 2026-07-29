@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -70,6 +71,51 @@ func TestParseCropFlagValid(t *testing.T) {
 	want := export.CropRect{X: 1, Y: 2, W: 3, H: 4}
 	if rect != want {
 		t.Errorf("rect = %+v, want %+v", rect, want)
+	}
+}
+
+func TestParseExportArgsQuality(t *testing.T) {
+	_, _, opts := parseExportArgs([]string{"demo.twee", "-o", "demo.mp4", "--quality", "high"})
+	if opts.Quality != "high" {
+		t.Errorf("Quality = %q, want high", opts.Quality)
+	}
+	// Not passing --quality at all must leave Options.Quality empty here;
+	// export.Options.normalize (inside the export package) is what
+	// applies the "medium" default, not the CLI layer.
+	_, _, opts = parseExportArgs([]string{"demo.twee", "-o", "demo.mp4"})
+	if opts.Quality != "" {
+		t.Errorf("Quality = %q, want empty when --quality omitted", opts.Quality)
+	}
+}
+
+func TestParseQualityFlagValid(t *testing.T) {
+	for _, q := range []string{"low", "medium", "high"} {
+		got, err := parseQualityFlag(q, "out.mp4")
+		if err != nil {
+			t.Fatalf("parseQualityFlag(%q, out.mp4): %v", q, err)
+		}
+		if got != q {
+			t.Errorf("got %q, want %q", got, q)
+		}
+		if _, err := parseQualityFlag(q, "out.webm"); err != nil {
+			t.Errorf("parseQualityFlag(%q, out.webm): %v", q, err)
+		}
+	}
+}
+
+func TestParseQualityFlagRejectsGIF(t *testing.T) {
+	_, err := parseQualityFlag("high", "out.gif")
+	if err == nil {
+		t.Fatal("want error for --quality with .gif output")
+	}
+	if !strings.Contains(err.Error(), "gif") {
+		t.Errorf("error = %v, want it to name .gif as the reason", err)
+	}
+}
+
+func TestParseQualityFlagRejectsUnknownValue(t *testing.T) {
+	if _, err := parseQualityFlag("ultra", "out.mp4"); err == nil {
+		t.Fatal("want error for an unrecognized --quality value")
 	}
 }
 
