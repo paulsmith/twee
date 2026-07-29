@@ -387,6 +387,14 @@ carries an `id`, the op index) instead of the summary envelope. Use
 `--trace-out session.twee` to record the whole single-shot run as a
 replayable trace bundle.
 
+### CI replay artifacts
+
+For a scripted CI scenario, record with `--trace-out`, export the resulting
+bundle to GIF, and attach that GIF even when the scenario fails. The
+[CI replay artifact recipe](docs/ci-artifacts.md) preserves the original
+failure status, adds an artifact link to the job summary, and explains why raw
+`.twee` bundles should be treated as sensitive.
+
 ## Scripts against a running session
 
 `twee do` executes the same op-script format against an already-running
