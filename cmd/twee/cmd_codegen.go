@@ -80,7 +80,7 @@ func parseCodegenArgs(args []string) (codegen.Options, error) {
 	}
 	for _, kv := range parsed.Env {
 		k, v, ok := splitKV(kv)
-		if !ok {
+		if !ok || k == "" {
 			return opts, fmt.Errorf("bad --env value %q (want KEY=VALUE)", kv)
 		}
 		opts.Env[k] = v

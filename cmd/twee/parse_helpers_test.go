@@ -170,6 +170,7 @@ func TestParseCodegenArgsErrors(t *testing.T) {
 		{"dir value", []string{"--dir", "--", "vim"}, "missing value"},
 		{"env value", []string{"--env", "--", "vim"}, "missing value"},
 		{"env bad", []string{"--out", "ops.json", "--env", "NOPE", "--", "vim"}, "bad --env"},
+		{"env empty key", []string{"--out", "ops.json", "--env", "=value", "--", "vim"}, "bad --env"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -181,6 +182,25 @@ func TestParseCodegenArgsErrors(t *testing.T) {
 				t.Fatalf("error = %q, want substring %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestParseStartArgsRejectsEmptyEnvKey(t *testing.T) {
+	// "--env NOEQUALS" (no '=' at all) was already rejected; an empty
+	// key ("=value") must be rejected the same way instead of silently
+	// setting the environment variable named "".
+	if _, err := parseStartArgs([]string{"--env", "=value", "--", "vim"}); err == nil {
+		t.Fatal("parseStartArgs with empty --env key unexpectedly succeeded")
+	} else if !strings.Contains(err.Error(), "bad --env") {
+		t.Fatalf("error = %q, want substring %q", err, "bad --env")
+	}
+
+	opts, err := parseStartArgs([]string{"--env", "A=B", "--", "vim"})
+	if err != nil {
+		t.Fatalf("parseStartArgs valid --env: %v", err)
+	}
+	if opts.env["A"] != "B" {
+		t.Fatalf("env = %#v, want A=B", opts.env)
 	}
 }
 

@@ -91,7 +91,7 @@ func parseStartArgs(args []string) (startOptions, error) {
 	envOverrides := map[string]string{}
 	for _, kv := range parsed.Env {
 		k, v, ok := splitKV(kv)
-		if !ok {
+		if !ok || k == "" {
 			return startOptions{}, fmt.Errorf("bad --env value %q (want KEY=VALUE)", kv)
 		}
 		envOverrides[k] = v
