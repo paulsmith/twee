@@ -71,6 +71,11 @@ func (s *kittySink) Emit(img *image.RGBA, cols, rows int, toast, status string) 
 	return err
 }
 
+// Close implements frameSink. Kitty images live only in the alternate screen,
+// so leaving it performs all required cleanup and no protocol bytes are needed
+// here. Keeping Close silent also preserves the legacy Kitty output exactly.
+func (s *kittySink) Close() error { return nil }
+
 func clearFooter(w io.Writer, rows int) error {
 	if rows <= 0 {
 		return nil

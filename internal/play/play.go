@@ -17,10 +17,11 @@ type Options struct {
 	Step    bool
 	MaxIdle time.Duration
 	Verbose bool
+	Backend Backend
 
 	// DisplayPixelWidth and DisplayPixelHeight are the host terminal's native
 	// pixel dimensions. When set, frames are rendered to the pixel size of
-	// their Kitty placement area instead of the renderer's default font size.
+	// their graphics placement area instead of the renderer's default font size.
 	DisplayPixelWidth  int
 	DisplayPixelHeight int
 
@@ -30,6 +31,10 @@ type Options struct {
 
 	SkipPreflight bool
 	SkipRaw       bool
+
+	// sink is an internal lifecycle test hook. Production callers use the
+	// backend-selected sink constructed by Run.
+	sink playbackSink
 }
 
 // Run plays path until the user quits, stdin closes, or an error occurs.
@@ -46,6 +51,12 @@ func Run(path string, opts Options) error {
 	if opts.MaxIdle < 0 {
 		return fmt.Errorf("twee play: --max-idle must be >= 0")
 	}
+	if opts.Backend == "" {
+		opts.Backend = BackendAuto
+	}
+	if !ValidBackend(opts.Backend) {
+		return fmt.Errorf("twee play: invalid backend %q (want auto, kitty, iterm2, or sixel)", opts.Backend)
+	}
 	if opts.Stdin == nil {
 		opts.Stdin = os.Stdin
 	}
@@ -57,8 +68,10 @@ func Run(path string, opts Options) error {
 	}
 
 	pf := defaultPreflightOptions(opts.Stdin, opts.Stdout)
+	pf.Pixels = displayPixels{Width: opts.DisplayPixelWidth, Height: opts.DisplayPixelHeight}
 	terminalCols := 0
 	terminalRows := 0
+	backend := opts.Backend
 	if !opts.SkipPreflight {
 		if err := checkStdoutTTY(pf); err != nil {
 			return err
@@ -73,9 +86,15 @@ func Run(path string, opts Options) error {
 		return err
 	}
 	if !opts.SkipPreflight {
-		if err := preflightBundle(bundle, pf); err != nil {
+		var err error
+		backend, err = preflightBundleForBackend(bundle, pf, opts.Backend)
+		if err != nil {
 			return err
 		}
+	} else if backend == BackendAuto {
+		// Test and embedding callers that deliberately bypass capability
+		// detection retain the historical Kitty behavior.
+		backend = BackendKitty
 	}
 	if terminalCols <= 0 {
 		terminalCols = bundle.MaxCols
@@ -90,10 +109,21 @@ func Run(path string, opts Options) error {
 		}
 	}
 
+	sink := opts.sink
+	if sink == nil {
+		sink, err = newFrameSink(backend, opts.Stdout, terminalCols, displayPixels{
+			Width: opts.DisplayPixelWidth, Height: opts.DisplayPixelHeight,
+		})
+		if err != nil {
+			return err
+		}
+	}
+
 	rawRestore := func() {}
 	if !opts.SkipRaw {
 		old, err := realTerminalOps{}.MakeRaw(int(opts.Stdin.Fd()))
 		if err != nil {
+			_ = sink.Close()
 			return fmt.Errorf("twee play: raw mode: %w", err)
 		}
 		rawRestore = func() {
@@ -101,10 +131,13 @@ func Run(path string, opts Options) error {
 		}
 	}
 	if _, err := io.WriteString(opts.Stdout, "\x1b[?1049h\x1b[?25l\x1b[H"); err != nil {
+		_ = sink.Close()
 		rawRestore()
 		return err
 	}
+	var closeErr error
 	restoreFn := func() {
+		closeErr = sink.Close()
 		_, _ = io.WriteString(opts.Stdout, "\x1b[?25h\x1b[?1049l")
 		rawRestore()
 	}
@@ -130,7 +163,7 @@ func Run(path string, opts Options) error {
 		MaxIdle: opts.MaxIdle,
 		Step:    opts.Step,
 		Cmds:    cmds,
-		Sink:    newKittySink(opts.Stdout, terminalCols),
+		Sink:    sink,
 		DisplayPixels: displayPixels{
 			Width:  opts.DisplayPixelWidth,
 			Height: opts.DisplayPixelHeight,
@@ -156,6 +189,9 @@ func Run(path string, opts Options) error {
 
 	if l.err != nil {
 		return l.err
+	}
+	if closeErr != nil {
+		return fmt.Errorf("twee play: close %s backend: %w", backend, closeErr)
 	}
 	if opts.Verbose {
 		fmt.Fprintf(opts.Stderr, "twee play: played %d events from %s in %s\n",

@@ -11,7 +11,7 @@ import (
 
 func init() {
 	register("play", runPlay)
-	registerUsage("play", `twee play <bundle.twee> [--speed N] [--step] [--max-idle 2s]
+	registerUsage("play", `twee play <bundle.twee> [--backend auto|kitty|iterm2|sixel] [--speed N] [--step] [--max-idle 2s]
 Play a .twee trace bundle in the current terminal.
 
 Controls:
@@ -22,6 +22,8 @@ Controls:
   q       quit
 
 Flags:
+  --backend <name>    graphics backend: auto, kitty, iterm2, or sixel (default auto;
+                      iterm2 and sixel are experimental)
   --speed <float>      playback speed multiplier (default 1.0)
   --step               start paused; use . to advance one event
   --max-idle <duration>
@@ -38,7 +40,15 @@ func runPlay(args []string) {
 		fmt.Fprintln(os.Stderr, "twee play: --speed must be > 0")
 		os.Exit(1)
 	}
-	if os.Getenv("TWEE_PLAY_FAKE_KITTY") == "1" {
+	if fake := os.Getenv("TWEE_PLAY_FAKE_BACKEND"); fake != "" {
+		opts.Backend = play.Backend(fake)
+		opts.SkipPreflight = true
+		opts.SkipRaw = true
+		if opts.Backend == play.BackendSixel {
+			opts.DisplayPixelWidth, opts.DisplayPixelHeight = 800, 600
+		}
+	} else if os.Getenv("TWEE_PLAY_FAKE_KITTY") == "1" {
+		opts.Backend = play.BackendKitty
 		opts.SkipPreflight = true
 		opts.SkipRaw = true
 	} else {
@@ -55,6 +65,7 @@ func runPlay(args []string) {
 func parsePlayArgs(args []string) (string, play.Options) {
 	opts := play.Options{Speed: 1, MaxIdle: 2 * time.Second}
 	var parsed struct {
+		Backend string   `arg:"--backend"`
 		Speed   *float64 `arg:"--speed"`
 		Step    bool     `arg:"--step"`
 		MaxIdle string   `arg:"--max-idle"`
@@ -66,6 +77,15 @@ func parsePlayArgs(args []string) (string, play.Options) {
 	}
 	if parsed.Speed != nil {
 		opts.Speed = *parsed.Speed
+	}
+	if parsed.Backend != "" {
+		opts.Backend = play.Backend(parsed.Backend)
+	}
+	if opts.Backend == "" {
+		opts.Backend = play.BackendAuto
+	}
+	if !play.ValidBackend(opts.Backend) {
+		fatalUsage("play: bad --backend value %q", parsed.Backend)
 	}
 	if !play.ValidSpeed(opts.Speed) {
 		fatalUsage("play: bad --speed value %q", fmt.Sprint(opts.Speed))
