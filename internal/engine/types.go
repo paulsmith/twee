@@ -22,13 +22,15 @@ type Line struct{ Cells []Cell }
 // Cell is one display cell. The second cell of a wide character has
 // Width=0 and Text="".
 type Cell struct {
-	Text      string
-	Width     int
-	Fg, Bg    Color
-	Bold      bool
-	Dim       bool
-	Underline bool
-	Inverse   bool
+	Text          string
+	Width         int
+	Fg, Bg        Color
+	Bold          bool
+	Dim           bool
+	Italic        bool
+	Underline     bool
+	Inverse       bool
+	Strikethrough bool
 }
 
 // Color identifies a cell color.
@@ -62,8 +64,9 @@ func fromVT(s vt.Snapshot) Snapshot {
 			cells[j] = Cell{
 				Text: c.Text, Width: c.Width,
 				Fg: fromVTColor(c.Fg), Bg: fromVTColor(c.Bg),
-				Bold: c.Bold, Dim: c.Dim,
+				Bold: c.Bold, Dim: c.Dim, Italic: c.Italic,
 				Underline: c.Underline, Inverse: c.Inverse,
+				Strikethrough: c.Strikethrough,
 			}
 		}
 		out.Lines[i] = Line{Cells: cells}
@@ -71,10 +74,22 @@ func fromVT(s vt.Snapshot) Snapshot {
 	return out
 }
 
+// fromVTColor converts a vt.Color to the engine's Color. vt.ColorKind and
+// ColorKind are deliberately not identical enums (ColorKind additionally
+// distinguishes ColorIndexed from ColorPalette for rendering purposes), so
+// this must switch on the meaning of each kind rather than cast the
+// numeric value directly — a previous version of this function did
+// `ColorKind(c.Kind)`, which silently relabeled every real vt.ColorPalette
+// value (iota 1) as ColorIndexed (also iota 1), causing screenshot
+// rendering to run every palette color through the 16-color ANSI table
+// instead of the full 256-color palette.
 func fromVTColor(c vt.Color) Color {
-	return Color{
-		Kind:  ColorKind(c.Kind),
-		Index: c.Index,
-		R:     c.R, G: c.G, B: c.B,
+	switch c.Kind {
+	case vt.ColorPalette:
+		return Color{Kind: ColorPalette, Index: c.Index}
+	case vt.ColorRGB:
+		return Color{Kind: ColorRGB, R: c.R, G: c.G, B: c.B}
+	default:
+		return Color{Kind: ColorDefault}
 	}
 }

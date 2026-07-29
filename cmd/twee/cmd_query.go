@@ -36,9 +36,12 @@ always returns an empty list.`)
 	registerUsage("snapshot", `twee snapshot [--name <name>]
 Full snapshot: {size, cursor, lines: [{cells: [Cell]}]}.`)
 	registerUsage("cell", `twee cell <x> <y> [--name <name>]
-Single cell at (x, y) with style.`)
+Single cell at (x, y): {text, width, fg, bg, bold, dim, italic,
+underline, inverse, strikethrough}. fg/bg are {"kind":"default"},
+{"kind":"palette","index":N}, or {"kind":"rgb","r":N,"g":N,"b":N}.`)
 	registerUsage("region", `twee region <x> <y> <w> <h> [--name <name>]
-Rectangle of cells at (x, y) with width w and height h.`)
+Rectangle of cells at (x, y) with width w and height h: an array of
+rows, each an array of cell objects shaped like "cell"'s output.`)
 	registerUsage("find", `twee find --pattern TEXT [--regex] [--name <name>]
 Find matches in the visible viewport. Returns an array of
 {x, y, w, h, line, text} matches.`)

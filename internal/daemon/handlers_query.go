@@ -46,7 +46,7 @@ func handleCell(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	if a.X < 0 || a.X >= len(row) {
 		return nil, invalidArgumentMessage("x out of range")
 	}
-	return row[a.X], nil
+	return cellData(row[a.X]), nil
 }
 
 func handleRegion(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
@@ -58,7 +58,7 @@ func handleRegion(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 		return nil, invalidArgumentMessage("w and h must be > 0")
 	}
 	snap := t.Snapshot()
-	out := make([][]engine.Cell, 0, a.H)
+	out := make([][]rpc.CellData, 0, a.H)
 	for y := a.Y; y < a.Y+a.H && y < len(snap.Lines); y++ {
 		row := snap.Lines[y].Cells
 		end := a.X + a.W
@@ -66,12 +66,46 @@ func handleRegion(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 			end = len(row)
 		}
 		if a.X < 0 || a.X > end {
-			out = append(out, []engine.Cell{})
+			out = append(out, []rpc.CellData{})
 			continue
 		}
-		out = append(out, row[a.X:end])
+		cells := make([]rpc.CellData, len(row[a.X:end]))
+		for i, c := range row[a.X:end] {
+			cells[i] = cellData(c)
+		}
+		out = append(out, cells)
 	}
 	return out, nil
+}
+
+// cellData converts an internal engine.Cell into its stable, snake_case
+// wire shape for the "cell" and "region" ops.
+func cellData(c engine.Cell) rpc.CellData {
+	return rpc.CellData{
+		Text: c.Text, Width: c.Width,
+		Fg: colorData(c.Fg), Bg: colorData(c.Bg),
+		Bold: c.Bold, Dim: c.Dim, Italic: c.Italic,
+		Underline: c.Underline, Inverse: c.Inverse,
+		Strikethrough: c.Strikethrough,
+	}
+}
+
+// colorData converts an internal engine.Color into its wire shape. Kind is
+// a string enum rather than the bare int engine uses internally.
+// engine.ColorIndexed is folded into "palette": both represent an
+// xterm-palette index, just rendered at different granularity (16 vs 256
+// colors) by the screenshot renderer — a distinction that isn't part of
+// the terminal-state model this op reports on.
+func colorData(c engine.Color) rpc.ColorData {
+	switch c.Kind {
+	case engine.ColorPalette, engine.ColorIndexed:
+		idx := c.Index
+		return rpc.ColorData{Kind: rpc.ColorKindPalette, Index: &idx}
+	case engine.ColorRGB:
+		return rpc.ColorData{Kind: rpc.ColorKindRGB, R: c.R, G: c.G, B: c.B}
+	default:
+		return rpc.ColorData{Kind: rpc.ColorKindDefault}
+	}
 }
 
 func handleCursor(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {

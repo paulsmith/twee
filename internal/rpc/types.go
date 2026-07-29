@@ -151,6 +151,44 @@ type CursorData struct {
 	Visible bool `json:"visible"`
 }
 
+// Color kind values for ColorData.Kind.
+const (
+	ColorKindDefault = "default"
+	ColorKindPalette = "palette"
+	ColorKindRGB     = "rgb"
+)
+
+// ColorData is the wire shape of a cell's foreground/background color.
+// Kind selects which of the other fields are meaningful:
+//
+//   - "default": no other field set.
+//   - "palette": Index set (as a pointer, always present — palette index 0
+//     is a valid color, so a bare zero value must not read as "absent").
+//   - "rgb": R, G, B set.
+type ColorData struct {
+	Kind  string `json:"kind"`
+	Index *uint8 `json:"index,omitempty"`
+	R     uint8  `json:"r,omitempty"`
+	G     uint8  `json:"g,omitempty"`
+	B     uint8  `json:"b,omitempty"`
+}
+
+// CellData is the wire shape of one terminal cell: the "cell" op's data,
+// and each element of a "region" row. Style booleans are always present
+// (no omitempty) so a cell's full attribute set is explicit on the wire.
+type CellData struct {
+	Text          string    `json:"text"`
+	Width         int       `json:"width"`
+	Fg            ColorData `json:"fg"`
+	Bg            ColorData `json:"bg"`
+	Bold          bool      `json:"bold"`
+	Dim           bool      `json:"dim"`
+	Italic        bool      `json:"italic"`
+	Underline     bool      `json:"underline"`
+	Inverse       bool      `json:"inverse"`
+	Strikethrough bool      `json:"strikethrough"`
+}
+
 type SizeData struct {
 	Cols int `json:"cols"`
 	Rows int `json:"rows"`
