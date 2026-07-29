@@ -37,7 +37,11 @@ func handleWaitText(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 		return nil, invalidArgument(err)
 	}
 	if a.Regex {
-		re, err := regexp.Compile(a.Text)
+		// Multi-line mode: the pattern is matched against the whole
+		// viewport joined by "\n" (see WaitForTextRegex), so without
+		// (?m) a bare ^/$ would only anchor at the start/end of the
+		// entire viewport rather than each line.
+		re, err := regexp.Compile("(?m)" + a.Text)
 		if err != nil {
 			return nil, invalidArgument(err)
 		}

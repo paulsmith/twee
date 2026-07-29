@@ -27,7 +27,12 @@ On timeout the verb exits non-zero with code TIMEOUT.
 exited and the daemon torn down its socket). data.daemon_already_gone
 is true in that case.`)
 	registerUsage("wait text", `twee wait text --pattern TEXT [--regex] [--timeout <dur>] [--name <name>]
-Wait for substr (or regex with --regex) to appear in the viewport.`)
+Wait for substr (or regex with --regex) to appear in the viewport.
+
+With --regex, the pattern is matched against the whole viewport joined
+by newlines, compiled in multi-line mode: ^ and $ anchor at the start
+and end of each line, not just the start/end of the whole viewport.
+wait no-text has no --regex option.`)
 	registerUsage("wait no-text", `twee wait no-text --pattern TEXT [--timeout <dur>] [--name <name>]
 Wait for substr to disappear from the viewport.`)
 	registerUsage("wait stable", `twee wait stable [--quiet <dur>] [--timeout <dur>] [--name <name>]

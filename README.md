@@ -202,6 +202,14 @@ exit` which defaults to 30s). Failure exits non-zero with code
 `TIMEOUT`. `wait stable` also accepts `--quiet <dur>` — how long the
 screen must hold still (default 100ms).
 
+`wait text --regex` matches against the whole viewport joined by
+newlines, compiled in multi-line mode: `^` and `$` anchor at each
+line's start/end, not just the start/end of the whole viewport, so
+`--pattern '^bravo'` matches a line reading `bravo` anywhere on screen.
+`wait no-text` has no `--regex` option. `find --regex` matches per line
+already, so its `^`/`$` anchor per line with no special handling
+needed.
+
 ### Flag syntax
 
 Long options only; `-n`-style short flags are usage errors. `start`,

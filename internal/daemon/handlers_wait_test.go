@@ -35,6 +35,36 @@ func TestWaitHandlers(t *testing.T) {
 	}
 }
 
+// TestWaitTextRegexAnchorsPerLine pins down that --regex patterns are
+// compiled in multi-line mode: "^bravo" must match a "bravo" line even
+// though it isn't the first line of the viewport. Without (?m), Go's
+// default ^/$ only anchor at the start/end of the whole joined
+// viewport string, so this would time out instead.
+func TestWaitTextRegexAnchorsPerLine(t *testing.T) {
+	te, err := engine.Start(context.Background(), engine.Config{
+		Cmd:  []string{"/bin/sh", "-c", "printf 'alpha\\r\\nbravo\\r\\n'; sleep 30"},
+		Cols: 40, Rows: 5,
+	})
+	if err != nil {
+		t.Fatalf("engine.Start: %v", err)
+	}
+	t.Cleanup(func() { _ = te.Close() })
+	if err := te.WaitForText("bravo"); err != nil {
+		t.Fatalf("WaitForText(bravo): %v", err)
+	}
+
+	if _, errResp := handleWaitText(te, mustJSON(t, rpc.WaitTextArgs{
+		Text: "^bravo", Regex: true, Timeout: "1s",
+	})); errResp != nil {
+		t.Fatalf("wait text --regex '^bravo': %+v", errResp)
+	}
+	if _, errResp := handleWaitText(te, mustJSON(t, rpc.WaitTextArgs{
+		Text: "bravo$", Regex: true, Timeout: "1s",
+	})); errResp != nil {
+		t.Fatalf("wait text --regex 'bravo$': %+v", errResp)
+	}
+}
+
 func TestWaitExitHandler(t *testing.T) {
 	te, err := engine.Start(context.Background(), engine.Config{
 		Cmd:  []string{"/bin/sh", "-c", "exit 7"},
