@@ -221,6 +221,34 @@ func hintDashValue(err error, args []string) error {
 	return err
 }
 
+// rejectDuplicateFlags reports an error if any of the given long-option
+// flags (e.g. "--cols") appears more than once in args, whether given as
+// "--flag value" or "--flag=value". go-arg silently keeps the last value
+// for a repeated scalar flag; for required numeric flags like coordinates
+// and sizes that's more likely a typo than an intentional override, so we
+// reject it explicitly instead.
+func rejectDuplicateFlags(args []string, flags ...string) error {
+	want := make(map[string]bool, len(flags))
+	for _, f := range flags {
+		want[f] = true
+	}
+	seen := make(map[string]bool, len(flags))
+	for _, a := range args {
+		name := a
+		if idx := strings.IndexByte(a, '='); idx >= 0 {
+			name = a[:idx]
+		}
+		if !want[name] {
+			continue
+		}
+		if seen[name] {
+			return fmt.Errorf("duplicate %s", name)
+		}
+		seen[name] = true
+	}
+	return nil
+}
+
 func positiveIntFlag(flag string, value *string) (int, bool, error) {
 	if value == nil {
 		return 0, false, nil

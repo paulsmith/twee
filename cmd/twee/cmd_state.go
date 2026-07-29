@@ -11,7 +11,7 @@ func init() {
 	register("sleep", runSleep)
 	register("screenshot", runScreenshot)
 
-	registerUsage("resize", `twee resize <cols> <rows> [--name <name>]
+	registerUsage("resize", `twee resize --cols <n> --rows <n> [--name <name>]
 TIOCSWINSZ + SIGWINCH + model resize.`)
 	registerUsage("sleep", `twee sleep <duration>
 Client-side sleep (e.g. "200ms", "1s"). Emits an empty OK envelope.`)
@@ -42,10 +42,13 @@ func runScreenshot(args []string) {
 }
 
 func runResize(args []string) {
+	if err := rejectDuplicateFlags(args, "--cols", "--rows"); err != nil {
+		fatalUsage("resize: %v", err)
+	}
 	var opts struct {
 		Name *string `arg:"--name"`
-		Cols int     `arg:"positional,required"`
-		Rows int     `arg:"positional,required"`
+		Cols int     `arg:"--cols,required"`
+		Rows int     `arg:"--rows,required"`
 	}
 	if err := parseArg("resize", &opts, args); err != nil {
 		fatalUsage("resize: %v", err)

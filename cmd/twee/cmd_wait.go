@@ -17,7 +17,7 @@ Subverbs:
   wait text --pattern TEXT [--regex] [--timeout <dur>] [--name <name>]
   wait no-text --pattern TEXT [--timeout <dur>] [--name <name>]
   wait stable [--quiet <dur>] [--timeout <dur>] [--name <name>]
-  wait cursor <x> <y> [--timeout <dur>] [--name <name>]
+  wait cursor --x <n> --y <n> [--timeout <dur>] [--name <name>]
   wait exit [--timeout <dur>] [--name <name>]
 
 Default --timeout is 5s for text/no-text/stable/cursor, 30s for exit.
@@ -53,7 +53,7 @@ If the session ends while waiting, this reports success rather than
 SESSION_ENDED: a screen that will never change again is trivially
 "stable". (This differs from wait text/no-text/cursor, which do
 distinguish session-ended from timeout.)`)
-	registerUsage("wait cursor", `twee wait cursor <x> <y> [--timeout <dur>] [--name <name>]
+	registerUsage("wait cursor", `twee wait cursor --x <n> --y <n> [--timeout <dur>] [--name <name>]
 Wait for the cursor to land at (x, y). Fails with code SESSION_ENDED,
 not TIMEOUT, if the session ends before it does.`)
 	registerUsage("wait exit", `twee wait exit [--timeout <dur>] [--name <name>]
@@ -126,11 +126,14 @@ func runWaitStable(args []string) {
 }
 
 func runWaitCursor(args []string) {
+	if err := rejectDuplicateFlags(args, "--x", "--y"); err != nil {
+		fatalUsage("wait cursor: %v", err)
+	}
 	var opts struct {
 		Name    *string `arg:"--name"`
 		Timeout string  `arg:"--timeout"`
-		X       int     `arg:"positional,required"`
-		Y       int     `arg:"positional,required"`
+		X       int     `arg:"--x,required"`
+		Y       int     `arg:"--y,required"`
 	}
 	if err := parseArg("wait cursor", &opts, args); err != nil {
 		fatalUsage("wait cursor: %v", err)

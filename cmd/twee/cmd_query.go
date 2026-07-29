@@ -35,11 +35,11 @@ Scrollback lines. Retention is not yet implemented; this currently
 always returns an empty list.`)
 	registerUsage("snapshot", `twee snapshot [--name <name>]
 Full snapshot: {size, cursor, lines: [{cells: [Cell]}]}.`)
-	registerUsage("cell", `twee cell <x> <y> [--name <name>]
+	registerUsage("cell", `twee cell --x <n> --y <n> [--name <name>]
 Single cell at (x, y): {text, width, fg, bg, bold, dim, italic,
 underline, inverse, strikethrough}. fg/bg are {"kind":"default"},
 {"kind":"palette","index":N}, or {"kind":"rgb","r":N,"g":N,"b":N}.`)
-	registerUsage("region", `twee region <x> <y> <w> <h> [--name <name>]
+	registerUsage("region", `twee region --x <n> --y <n> --w <n> --h <n> [--name <name>]
 Rectangle of cells at (x, y) with width w and height h: an array of
 rows, each an array of cell objects shaped like "cell"'s output.`)
 	registerUsage("find", `twee find --pattern TEXT [--regex] [--name <name>]
@@ -58,10 +58,13 @@ func runQuery(verb, op string, args []string) {
 }
 
 func runCell(args []string) {
+	if err := rejectDuplicateFlags(args, "--x", "--y"); err != nil {
+		fatalUsage("cell: %v", err)
+	}
 	var opts struct {
 		Name *string `arg:"--name"`
-		X    int     `arg:"positional,required"`
-		Y    int     `arg:"positional,required"`
+		X    int     `arg:"--x,required"`
+		Y    int     `arg:"--y,required"`
 	}
 	if err := parseArg("cell", &opts, args); err != nil {
 		fatalUsage("cell: %v", err)
@@ -70,12 +73,15 @@ func runCell(args []string) {
 }
 
 func runRegion(args []string) {
+	if err := rejectDuplicateFlags(args, "--x", "--y", "--w", "--h"); err != nil {
+		fatalUsage("region: %v", err)
+	}
 	var opts struct {
 		Name *string `arg:"--name"`
-		X    int     `arg:"positional,required"`
-		Y    int     `arg:"positional,required"`
-		W    int     `arg:"positional,required"`
-		H    int     `arg:"positional,required"`
+		X    int     `arg:"--x,required"`
+		Y    int     `arg:"--y,required"`
+		W    int     `arg:"--w,required"`
+		H    int     `arg:"--h,required"`
 	}
 	if err := parseArg("region", &opts, args); err != nil {
 		fatalUsage("region: %v", err)
