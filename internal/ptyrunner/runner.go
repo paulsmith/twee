@@ -122,15 +122,35 @@ func (r *Runner) ExitedCh() <-chan struct{} { return r.exited }
 // ExitCode is valid after ExitedCh fires.
 func (r *Runner) ExitCode() int { return r.exit.code }
 
-// Close terminates the child gracefully (SIGTERM, then SIGKILL after a
-// grace period) and closes the PTY master. Safe to call multiple times.
+// DefaultGrace is the SIGTERM-to-SIGKILL escalation window used by
+// Close. Exported so callers (engine.Term) can name the same default
+// explicitly instead of duplicating the literal.
+const DefaultGrace = 250 * time.Millisecond
+
+// Close terminates the child gracefully (SIGTERM, then SIGKILL after
+// DefaultGrace) and closes the PTY master. Safe to call multiple times.
 func (r *Runner) Close() error {
+	return r.CloseWithGrace(DefaultGrace)
+}
+
+// CloseWithGrace terminates the child and closes the PTY master, like
+// Close, but lets the caller override the SIGTERM-to-SIGKILL escalation
+// window. grace <= 0 means "SIGKILL immediately": SIGTERM is still sent
+// first (harmless if the process dies from it instead), but there is no
+// wait before escalating. Safe to call multiple times.
+func (r *Runner) CloseWithGrace(grace time.Duration) error {
 	if r.cmd.Process != nil {
 		_ = r.cmd.Process.Signal(syscall.SIGTERM)
 	}
-	select {
-	case <-r.exited:
-	case <-time.After(250 * time.Millisecond):
+	exited := false
+	if grace > 0 {
+		select {
+		case <-r.exited:
+			exited = true
+		case <-time.After(grace):
+		}
+	}
+	if !exited {
 		if r.cmd.Process != nil {
 			_ = r.cmd.Process.Kill()
 		}

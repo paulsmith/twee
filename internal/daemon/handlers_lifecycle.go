@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/paulsmith/twee/internal/engine"
 	"github.com/paulsmith/twee/internal/rpc"
@@ -31,8 +32,23 @@ func handleStatus(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
 	return data, nil
 }
 
-func handleStop(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
-	if err := t.Close(); err != nil {
+func handleStop(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
+	a, errResp := decodeOptionalArgs[rpc.StopArgs](raw)
+	if errResp != nil {
+		return nil, errResp
+	}
+	grace := engine.DefaultCloseGrace
+	if a.Grace != "" {
+		d, err := time.ParseDuration(a.Grace)
+		if err != nil {
+			return nil, invalidArgument(err)
+		}
+		if d < 0 {
+			return nil, invalidArgumentMessage("grace must not be negative")
+		}
+		grace = d
+	}
+	if err := t.CloseWithGrace(grace); err != nil {
 		return nil, ioFailure(err)
 	}
 	return nil, nil

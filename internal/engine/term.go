@@ -13,6 +13,13 @@ import (
 	"github.com/paulsmith/twee/internal/vt"
 )
 
+// DefaultCloseGrace is the SIGTERM-to-SIGKILL escalation window Close
+// uses when no explicit grace is given. Mirrors ptyrunner.DefaultGrace
+// (the two are kept in sync deliberately, not merged into one constant,
+// so each package documents its own default independently of the other's
+// internals).
+const DefaultCloseGrace = ptyrunner.DefaultGrace
+
 // Term is a running TUI under PTY.
 type Term struct {
 	cfg Config
@@ -92,10 +99,19 @@ func Start(ctx context.Context, cfg Config) (*Term, error) {
 	return t, nil
 }
 
-// Close terminates the child and the pump, then finalizes artifacts.
+// Close terminates the child and the pump, then finalizes artifacts,
+// using DefaultCloseGrace as the SIGTERM-to-SIGKILL escalation window.
 func (t *Term) Close() error {
+	return t.CloseWithGrace(DefaultCloseGrace)
+}
+
+// CloseWithGrace is Close with an overridable escalation window; see
+// ptyrunner.Runner.CloseWithGrace for how grace is interpreted (<= 0
+// means SIGKILL immediately). Idempotent like Close: the grace passed by
+// whichever caller wins the race to run first is the one that applies.
+func (t *Term) CloseWithGrace(grace time.Duration) error {
 	t.closeOnce.Do(func() {
-		ferr := t.FinalizeArtifacts()
+		ferr := t.FinalizeArtifactsWithGrace(grace)
 		t.closeErr = errors.Join(t.drainErr, ferr)
 	})
 	return t.closeErr
@@ -104,10 +120,17 @@ func (t *Term) Close() error {
 // DrainOutput terminates the child if it is still running, closes the
 // PTY, and waits for the output pump to deliver everything it read.
 // Idempotent. After it returns, Snapshot reflects the final terminal
-// state. The runner shutdown error is reported by Close.
+// state. The runner shutdown error is reported by Close. Uses
+// DefaultCloseGrace; see DrainOutputWithGrace to override it.
 func (t *Term) DrainOutput() {
+	t.DrainOutputWithGrace(DefaultCloseGrace)
+}
+
+// DrainOutputWithGrace is DrainOutput with an overridable
+// SIGTERM-to-SIGKILL escalation window.
+func (t *Term) DrainOutputWithGrace(grace time.Duration) {
 	t.drainOnce.Do(func() {
-		t.drainErr = t.runner.Close()
+		t.drainErr = t.runner.CloseWithGrace(grace)
 		<-t.pumpDone
 	})
 }
@@ -115,10 +138,17 @@ func (t *Term) DrainOutput() {
 // FinalizeArtifacts drains output, then closes the active trace so its
 // file is durable on disk. Idempotent; ArtifactsDone
 // is closed once finalization completes. The returned error covers only
-// artifact closing; runner shutdown errors are reported by Close.
+// artifact closing; runner shutdown errors are reported by Close. Uses
+// DefaultCloseGrace; see FinalizeArtifactsWithGrace to override it.
 func (t *Term) FinalizeArtifacts() error {
+	return t.FinalizeArtifactsWithGrace(DefaultCloseGrace)
+}
+
+// FinalizeArtifactsWithGrace is FinalizeArtifacts with an overridable
+// SIGTERM-to-SIGKILL escalation window, passed through to DrainOutput.
+func (t *Term) FinalizeArtifactsWithGrace(grace time.Duration) error {
 	t.finalizeOnce.Do(func() {
-		t.DrainOutput()
+		t.DrainOutputWithGrace(grace)
 		t.cfgMu.Lock()
 		t.finalized = true
 		var err error

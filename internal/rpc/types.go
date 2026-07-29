@@ -43,6 +43,16 @@ type StatusData struct {
 	ExitCode  *int      `json:"exit_code,omitempty"`
 }
 
+// Lifecycle args.
+
+// StopArgs carries stop's optional grace override: a Go duration string
+// (e.g. "500ms"), same convention as the wait ops' Timeout/Quiet fields.
+// Empty means "use the daemon's default grace period"; "0" or "0s" means
+// SIGKILL immediately, skipping the SIGTERM wait.
+type StopArgs struct {
+	Grace string `json:"grace,omitempty"`
+}
+
 // Input args.
 
 type TypeArgs struct {

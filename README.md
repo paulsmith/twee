@@ -137,13 +137,22 @@ $ twee start -- /bin/sh -c 'exit 3'
 {"ok":false,"error":{"code":"CHILD_EXITED","message":"child exited during startup","details":{"name":"default","child_argv":["/bin/sh","-c","exit 3"],"exit_code":3,"socket_created":true}}}
 ```
 
-Sessions end one of two ways. `twee stop` SIGTERMs the child, waits
-250ms, escalates to SIGKILL, and removes the socket and lock file. Or
-the child exits on its own: the daemon finalizes any active trace or
-recording, answers in-flight `wait exit` calls — which block until
-artifacts are durable and report `{"trace_path": ...}` — then removes
-its socket and lock file and exits. A `wait exit` on a session that is
-already gone succeeds with `{"exit_code":null,"daemon_already_gone":true}`.
+Sessions end one of two ways. `twee stop` SIGTERMs the child, waits a
+grace period (250ms by default; override with `--grace <dur>`),
+escalates to SIGKILL, and removes the socket and lock file. `--grace 0`
+means SIGKILL immediately, skipping the SIGTERM wait entirely; a
+negative grace is `INVALID_ARGUMENT`. Or the child exits on its own: the
+daemon finalizes any active trace or recording, answers in-flight `wait
+exit` calls — which block until artifacts are durable and report
+`{"trace_path": ...}` — then removes its socket and lock file and exits.
+A `wait exit` on a session that is already gone succeeds with
+`{"exit_code":null,"daemon_already_gone":true}`.
+
+`twee stop --all` stops every live session and cleans up every stale one
+in one call, instead of naming one: `{"ok":true,"data":[{...}, ...]}`,
+each element shaped like a single stop's data plus `"name"` — `[]` when
+no sessions exist at all, still exit 0. It's mutually exclusive with
+`--name` (local or global) — combining them is a usage error.
 
 If a daemon is killed abruptly (e.g. `kill -9`) instead of exiting
 cleanly, its socket and lock file can be left behind. `twee stop --name
@@ -276,7 +285,7 @@ stdout.
 | `NOT_FOUND` | Session unreachable: no daemon socket for that name (any verb). Also `trace stop` with no active trace. |
 | `ALREADY_RUNNING` | `start` collided with an existing daemon of that name. Also `trace start` while a trace is already active (`details.path` names the active trace); stop it first. |
 | `CHILD_EXITED` | `start` observed the child exit during startup (within ~100ms); `details` carries `child_argv`, `exit_code`, `socket_created`, and `trace_path` when `--trace` was given. |
-| `INVALID_ARGUMENT` | Bad op argument: malformed duration/regex, out-of-range coords, unknown op, unknown or missing arg key, malformed script. |
+| `INVALID_ARGUMENT` | Bad op argument: malformed duration/regex, out-of-range coords, unknown op, unknown or missing arg key, malformed script. Also a negative `stop --grace`. |
 | `IO` | Socket / PTY / file error. |
 | `INTERNAL` | Bug in twee (e.g. render or marshal failure). |
 | `SESSION_ENDED` | `wait text`/`wait no-text`/`wait cursor` was still pending when the session ended (child exited, or `twee stop`) instead of its deadline firing. `wait exit` never uses this — the session ending is its success path. `wait stable` doesn't either, by design: a dead screen is trivially "stable" (see the waits section). |
