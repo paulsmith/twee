@@ -39,6 +39,9 @@ type Options struct {
 	// sink is an internal lifecycle test hook. Production callers use the
 	// backend-selected sink constructed by Run.
 	sink playbackSink
+
+	// termOps is an internal preflight test hook.
+	termOps terminalOps
 }
 
 // Run plays path until the user quits, stdin closes, or an error occurs.
@@ -72,15 +75,25 @@ func Run(path string, opts Options) error {
 	}
 
 	pf := defaultPreflightOptions(opts.Stdin, opts.Stdout)
+	if opts.termOps != nil {
+		pf.Term = opts.termOps
+	}
 	pf.Pixels = displayPixels{Width: opts.DisplayPixelWidth, Height: opts.DisplayPixelHeight}
 	terminal := terminalSize{}
 	backend := opts.Backend
+	if !opts.SkipPreflight {
+		var err error
+		terminal, err = preflightTerminal(pf)
+		if err != nil {
+			return err
+		}
+	}
 	bundle, err := OpenBundle(path)
 	if err != nil {
 		return err
 	}
 	if !opts.SkipPreflight {
-		backend, terminal, err = preflightForBackend(pf, opts.Backend)
+		backend, err = selectBackend(pf, opts.Backend)
 		if err != nil {
 			return err
 		}

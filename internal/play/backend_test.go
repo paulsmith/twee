@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"image"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -35,6 +36,16 @@ type lifecycleSink struct {
 	emitErr error
 	panic   bool
 	closed  bool
+}
+
+type capturePlaybackSink struct {
+	fakeSink
+	closed bool
+}
+
+func (s *capturePlaybackSink) Close() error {
+	s.closed = true
+	return nil
 }
 
 func (s *lifecycleSink) Emit(*image.RGBA, int, int, string, string) error {
@@ -76,6 +87,57 @@ func TestRunRestoresTerminalAndClosesSinkOnPanic(t *testing.T) {
 	}
 	if !bytes.Contains(out, []byte("\x1b[?25h\x1b[?1049l")) {
 		t.Fatalf("terminal restore missing from %q", out)
+	}
+}
+
+func TestRunUsesPreflightTerminalSizeToFitRecording(t *testing.T) {
+	path := writeTestBundle(t, map[string]string{
+		"manifest.json": `{"version":1,"cols":100,"rows":40}`,
+		"events.jsonl":  "",
+	})
+	in, reply, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close()
+	if _, err := io.WriteString(reply, "\x1b_Gi=31;OK\x1b\\"); err != nil {
+		t.Fatal(err)
+	}
+	if err := reply.Close(); err != nil {
+		t.Fatal(err)
+	}
+	out, err := os.CreateTemp(t.TempDir(), "terminal-*.out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+
+	termOps := &fakeTermOps{isTTY: true, width: 80, height: 24}
+	sink := &capturePlaybackSink{}
+	err = Run(path, Options{
+		Backend:           BackendKitty,
+		DisplayPixelWidth: 800, DisplayPixelHeight: 480,
+		Stdin: in, Stdout: out, Stderr: io.Discard,
+		SkipRaw: true, sink: sink, termOps: termOps,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if termOps.sizeCalls != 1 {
+		t.Fatalf("terminal size calls = %d, want 1", termOps.sizeCalls)
+	}
+	if len(sink.frames) == 0 {
+		t.Fatal("Run emitted no frames")
+	}
+	frame := sink.frames[len(sink.frames)-1]
+	if frame.cols != 55 || frame.rows != 22 {
+		t.Fatalf("placement = %dx%d, want 55x22", frame.cols, frame.rows)
+	}
+	if frame.size.Dx() != 550 || frame.size.Dy() != 440 {
+		t.Fatalf("frame size = %dx%d, want 550x440", frame.size.Dx(), frame.size.Dy())
+	}
+	if !sink.closed {
+		t.Fatal("sink was not closed")
 	}
 }
 
