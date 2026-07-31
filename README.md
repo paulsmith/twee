@@ -25,6 +25,9 @@ $ twee key Down
 $ twee type -- "hello, world"
 {"ok":true,"data":null}
 
+$ twee click --x 12 --y 4
+{"ok":true,"data":null}
+
 $ twee text
 {"ok":true,"data":{"text":"...visible viewport..."}}
 
@@ -210,14 +213,17 @@ command list is:
 |---|---|
 | `bundle` | Inspect or verify a `.twee` trace bundle. |
 | `cell` | Show one cell at x,y. |
+| `click` | Click a viewport cell. |
 | `codegen` | Interactively author a run script. |
 | `completion` | Print shell completion setup (currently a placeholder). |
 | `cursor` | Show cursor state. |
 | `diff` | Compare the viewport to a saved text snapshot. |
 | `do` | Run an op script against a running session. |
+| `drag` | Drag between viewport cells. |
 | `export` | Export a `.twee` trace bundle to GIF, self-contained HTML, MP4, or WebM. |
 | `find` | Find text in the viewport. |
 | `help` | Print top-level or per-command help. |
+| `hover` | Move the mouse to a viewport cell. |
 | `key` | Send one named key. |
 | `keys` | Send multiple named keys. |
 | `lines` | Show visible viewport lines. |
@@ -229,6 +235,7 @@ command list is:
 | `resize` | Resize the terminal. |
 | `run` | Run a one-shot ephemeral session. |
 | `screenshot` | Render the current screen to PNG. |
+| `scroll` | Send vertical wheel input. |
 | `scrollback` | Show retained scrollback. |
 | `signal` | Send a signal to the child process. |
 | `size` | Show terminal dimensions. |
@@ -271,6 +278,60 @@ line's start/end, not just the start/end of the whole viewport, so
 `wait no-text` has no `--regex` option. `find --regex` matches per line
 already, so its `^`/`$` anchor per line with no special handling
 needed.
+
+`find` reports `x` and `w` in terminal cells, not UTF-8 bytes or Unicode
+code points. This remains true for narrow non-ASCII text, double-width
+characters, and combining graphemes, so a result can be used directly:
+
+```sh
+match="$(twee find --pattern Submit)"
+twee click \
+  --x "$(jq -r '.data[0].x' <<<"$match")" \
+  --y "$(jq -r '.data[0].y' <<<"$match")"
+```
+
+### Mouse input
+
+Mouse coordinates are required, zero-based cells in the current visible
+viewport. They are not pixels or scrollback coordinates:
+
+```sh
+twee click --x 12 --y 4
+twee click --x 12 --y 4 --button right --modifier ctrl
+twee hover --x 20 --y 8
+twee scroll --x 20 --y 8 --direction down --ticks 3
+twee drag --from-x 4 --from-y 2 --to-x 30 --to-y 12
+```
+
+Click and drag default to the left button; scroll defaults to one tick and
+accepts at most 100 ticks. `--modifier` is repeatable and accepts `shift`,
+`alt`, and `ctrl`; unknown or duplicate modifiers are errors. The child TUI
+must enable a compatible mouse tracking mode: click accepts modes 9, 1000,
+1002, or 1003; scroll accepts 1000, 1002, or 1003; drag accepts 1002 or 1003;
+and hover requires 1003. Disabled or incompatible tracking fails without
+writing a partial gesture.
+
+`twee mode` always reports `mouse` and the raw mouse-mode booleans. When the
+pinned VT API can identify one unambiguous effective state it also reports
+`mouse_tracking` (`none`, `x10`, `normal`, `button`, or `any`) and
+`mouse_format` (`x10`, `utf8`, `sgr`, `urxvt`, or `sgr_pixels`). SGR-Pixels
+input is rejected until twee has real terminal pixel geometry.
+
+The public Go harness mirrors the same gestures:
+
+```go
+term.Click(12, 4)
+term.Click(12, 4,
+    tuitest.WithButton(tuitest.RightButton),
+    tuitest.WithMouseModifiers(tuitest.CtrlModifier),
+)
+term.Hover(20, 8)
+term.Scroll(20, 8, tuitest.ScrollDown, 3)
+term.Drag(4, 2, 30, 12)
+```
+
+All four methods return an error. Supplying an option to a gesture that
+cannot use it, such as `WithButton` on `Hover`, is also an error.
 
 ### Flag syntax
 
@@ -321,6 +382,7 @@ stdout.
 | `ALREADY_RUNNING` | `start` collided with an existing daemon of that name (pass `--force` to stop it and proceed instead of failing). Also `trace start` while a trace is already active (`details.path` names the active trace); stop it first. |
 | `CHILD_EXITED` | `start` observed the child exit during startup (within ~100ms); `details` carries `child_argv`, `exit_code`, `socket_created`, and `trace_path` when `--trace` was given. |
 | `INVALID_ARGUMENT` | Bad op argument: malformed duration/regex, out-of-range coords, unknown op, unknown or missing arg key, malformed script. Also a negative `stop --grace`. |
+| `FAILED_PRECONDITION` | The requested operation is valid but the current terminal state cannot perform it, such as disabled/incompatible mouse tracking, legacy-format coordinate limits, SGR-Pixels without pixel geometry, or a VT backend without mouse encoding. |
 | `IO` | Socket / PTY / file error. |
 | `INTERNAL` | Bug in twee (e.g. render or marshal failure). |
 | `SESSION_ENDED` | `wait text`/`wait no-text`/`wait cursor` was still pending when the session ended (child exited, or `twee stop`) instead of its deadline firing. `wait exit` never uses this — the session ending is its success path. `wait stable` doesn't either, by design: a dead screen is trivially "stable" (see the waits section). |
@@ -375,6 +437,21 @@ the empty string and succeeding instantly). `wait_text`, `wait_no_text`,
 and `find` also reject an empty/missing `"text"` in literal (non-regex)
 mode with `INVALID_ARGUMENT: "text or regex required"`, for the same
 reason.
+
+Mouse operations use the same vocabulary as the CLI and are available in
+both `run` and `do` scripts:
+
+```json
+[
+  {"op":"click","args":{"x":12,"y":4}},
+  {"op":"hover","args":{"x":20,"y":8}},
+  {"op":"scroll","args":{"x":20,"y":8,"direction":"down","ticks":3}},
+  {"op":"drag","args":{"from_x":4,"from_y":2,"to_x":30,"to_y":12}}
+]
+```
+
+Every coordinate is required even when its value is zero. Button defaults to
+`"left"` and scroll ticks default to `1`.
 
 Pass `--script -` (or omit `--script`) to read from stdin. With
 `--emit results`, each op's response is streamed as NDJSON (each line
@@ -649,15 +726,17 @@ twee: export: --quality is not supported for .html output (the pure-Go encoder h
 
 ## Limitations
 
-- No mouse input (`click`/`hover`/`drag`). Keys, paste, type, signal
-  only.
+- Mouse input is synthetic and application-directed only: twee does not
+  capture a physical host mouse, scroll its own viewport, retain scrollback,
+  send horizontal wheel input, expose separate stateful press/release RPCs,
+  or support SGR-Pixels yet.
 - One TUI per daemon (see Model).
 - `wait stable` will hang on apps with always-running spinners. Use
   `wait text --pattern ...` instead. Region-exclusion is a future feature.
 - No Kitty keyboard protocol, no DECCKM-aware cursor keys, and no
   scrollback retention (`scrollback` always returns an empty list).
-- Title and mode reporting beyond `alt_screen` return defaults until
-  the underlying VT layer exposes more state.
+- Title reporting and non-mouse modes beyond `alt_screen` return defaults
+  until the underlying VT layer exposes more state.
 - Screenshots use synthetic bold and render emoji cells as the
   leftmost glyph plus space.
 - macOS-tested. Linux should work but isn't exercised yet.

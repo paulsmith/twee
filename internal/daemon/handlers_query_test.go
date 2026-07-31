@@ -82,6 +82,17 @@ func TestQueryHandlers(t *testing.T) {
 	if modeData.(rpc.ModeData).AltScreen {
 		t.Fatalf("alt screen = true, want false")
 	}
+	if got := modeData.(rpc.ModeData); got.Mouse ||
+		got.MouseTracking != "none" || got.MouseFormat != "x10" {
+		t.Fatalf("default mouse mode = %+v, want disabled none/x10", got)
+	}
+	rawMode, err := json.Marshal(modeData)
+	if err != nil {
+		t.Fatalf("marshal mode: %v", err)
+	}
+	if !strings.Contains(string(rawMode), `"mouse":false`) {
+		t.Fatalf("mode JSON omits explicit false mouse state: %s", rawMode)
+	}
 
 	scrollbackData, rpcErr := handleScrollback(te, nil)
 	if rpcErr != nil {
@@ -99,6 +110,35 @@ func TestQueryHandlers(t *testing.T) {
 	}
 	if got := snapshotData.(engine.Snapshot); got.Cols != 40 || got.Rows != 5 {
 		t.Fatalf("snapshot size = %dx%d, want 40x5", got.Cols, got.Rows)
+	}
+}
+
+func TestModeHandlerReportsMouseState(t *testing.T) {
+	te, err := engine.Start(context.Background(), engine.Config{
+		Cmd: []string{
+			"/bin/sh", "-c",
+			"printf '\\033[?1003h\\033[?1006hREADY'; sleep 30",
+		},
+		Cols: 40, Rows: 5,
+	})
+	if err != nil {
+		t.Fatalf("engine.Start: %v", err)
+	}
+	t.Cleanup(func() { _ = te.Close() })
+	if err := te.WaitForText("READY"); err != nil {
+		t.Fatalf("WaitForText: %v", err)
+	}
+
+	data, rpcErr := handleMode(te, nil)
+	if rpcErr != nil {
+		t.Fatalf("handleMode: %+v", rpcErr)
+	}
+	got := data.(rpc.ModeData)
+	if !got.Mouse || got.MouseTracking != "any" || got.MouseFormat != "sgr" {
+		t.Fatalf("mouse mode = %+v, want enabled any/sgr", got)
+	}
+	if !got.MouseTrackingAny || !got.MouseFormatSGR {
+		t.Fatalf("raw mouse modes = %+v, want any and SGR", got)
 	}
 }
 
@@ -219,6 +259,94 @@ func TestFindHandlerLiteralAndRegex(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFindSearchLineUsesCellCoordinates(t *testing.T) {
+	tests := []struct {
+		name      string
+		cells     []engine.Cell
+		pattern   string
+		wantText  string
+		wantX     int
+		wantWidth int
+	}{
+		{
+			name:      "ASCII",
+			cells:     textCells("Submit"),
+			pattern:   "Submit",
+			wantText:  "Submit",
+			wantX:     0,
+			wantWidth: 6,
+		},
+		{
+			name: "multibyte narrow",
+			cells: append([]engine.Cell{
+				{Text: "é", Width: 1},
+			}, textCells("x")...),
+			pattern:   "é",
+			wantText:  "é",
+			wantX:     0,
+			wantWidth: 1,
+		},
+		{
+			name: "double width",
+			cells: append([]engine.Cell{
+				{Text: "界", Width: 2},
+				{Width: 0},
+			}, textCells("x")...),
+			pattern:   "界",
+			wantText:  "界",
+			wantX:     0,
+			wantWidth: 2,
+		},
+		{
+			name: "combining grapheme",
+			cells: []engine.Cell{
+				{Text: "e\u0301", Width: 1},
+				{Text: "x", Width: 1},
+			},
+			pattern:   "\u0301",
+			wantText:  "\u0301",
+			wantX:     0,
+			wantWidth: 1,
+		},
+		{
+			name: "after non-ASCII cells",
+			cells: append([]engine.Cell{
+				{Text: "é", Width: 1},
+				{Text: "界", Width: 2},
+				{Width: 0},
+			}, textCells("Submit")...),
+			pattern:   "Submit",
+			wantText:  "Submit",
+			wantX:     3,
+			wantWidth: 6,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			line := newSearchLine(engine.Line{Cells: tt.cells})
+			idx := strings.Index(line.text, tt.pattern)
+			if idx < 0 {
+				t.Fatalf("pattern %q not found in %q", tt.pattern, line.text)
+			}
+			got := line.match(4, idx, idx+len(tt.pattern))
+			if got.Text != tt.wantText || got.X != tt.wantX || got.W != tt.wantWidth ||
+				got.Y != 4 || got.Line != 4 || got.H != 1 {
+				t.Fatalf("match = %+v, want text=%q x=%d y=4 w=%d h=1",
+					got, tt.wantText, tt.wantX, tt.wantWidth)
+			}
+		})
+	}
+}
+
+func textCells(s string) []engine.Cell {
+	cells := make([]engine.Cell, 0, len(s))
+	for _, r := range s {
+		cells = append(cells, engine.Cell{Text: string(r), Width: 1})
+	}
+	return cells
 }
 
 func TestQueryHandlersRejectInvalidArgs(t *testing.T) {

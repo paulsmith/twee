@@ -121,38 +121,131 @@ func handleFind(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	if a.Text == "" && !a.Regex {
 		return nil, invalidArgumentMessage("text or regex required")
 	}
-	lines := t.Lines()
+	snap := t.Snapshot()
 	matches := make([]rpc.FindMatch, 0)
 	if a.Regex {
 		re, err := regexp.Compile(a.Text)
 		if err != nil {
 			return nil, invalidArgument(err)
 		}
-		for y, ln := range lines {
-			for _, idx := range re.FindAllStringIndex(ln, -1) {
-				matches = append(matches, rpc.FindMatch{
-					X: idx[0], Y: y, W: idx[1] - idx[0], H: 1,
-					Line: y, Text: ln[idx[0]:idx[1]],
-				})
+		for y, line := range snap.Lines {
+			ln := newSearchLine(line)
+			for _, idx := range re.FindAllStringIndex(ln.text, -1) {
+				matches = append(matches, ln.match(y, idx[0], idx[1]))
 			}
 		}
 	} else {
-		for y, ln := range lines {
+		for y, line := range snap.Lines {
+			ln := newSearchLine(line)
 			start := 0
 			for {
-				i := strings.Index(ln[start:], a.Text)
+				i := strings.Index(ln.text[start:], a.Text)
 				if i < 0 {
 					break
 				}
-				matches = append(matches, rpc.FindMatch{
-					X: start + i, Y: y, W: len(a.Text), H: 1,
-					Line: y, Text: a.Text,
-				})
+				matches = append(matches, ln.match(y, start+i, start+i+len(a.Text)))
 				start = start + i + len(a.Text)
 			}
 		}
 	}
 	return matches, nil
+}
+
+// searchLine retains the relationship between a rendered line's UTF-8 byte
+// offsets (which strings.Index and regexp return) and terminal cell
+// coordinates. A grapheme may contain several runes and bytes while occupying
+// one or two cells, so rune counts are no more suitable here than byte counts.
+type searchLine struct {
+	text     string
+	spans    []searchCellSpan
+	finalCol int
+}
+
+type searchCellSpan struct {
+	byteStart, byteEnd int
+	colStart, colEnd   int
+}
+
+func newSearchLine(line engine.Line) searchLine {
+	var b strings.Builder
+	spans := make([]searchCellSpan, 0, len(line.Cells))
+	for col, cell := range line.Cells {
+		if cell.Width == 0 {
+			continue
+		}
+		text := cell.Text
+		if text == "" {
+			text = " "
+		}
+		start := b.Len()
+		b.WriteString(text)
+		spans = append(spans, searchCellSpan{
+			byteStart: start,
+			byteEnd:   b.Len(),
+			colStart:  col,
+			colEnd:    col + cell.Width,
+		})
+	}
+
+	// Match engine.Lines/VisibleText semantics: terminal padding at the end of
+	// the row is not searchable.
+	text := strings.TrimRight(b.String(), " ")
+	ln := searchLine{text: text, spans: spans}
+	ln.finalCol = ln.endCol(len(text))
+	return ln
+}
+
+func (ln searchLine) match(row, byteStart, byteEnd int) rpc.FindMatch {
+	startCol := ln.startCol(byteStart)
+	endCol := ln.endCol(byteEnd)
+	if byteStart == byteEnd {
+		endCol = startCol
+	}
+	return rpc.FindMatch{
+		X: startCol, Y: row, W: endCol - startCol, H: 1,
+		Line: row, Text: ln.text[byteStart:byteEnd],
+	}
+}
+
+func (ln searchLine) startCol(byteOffset int) int {
+	if byteOffset <= 0 {
+		if len(ln.spans) > 0 {
+			return ln.spans[0].colStart
+		}
+		return 0
+	}
+	if byteOffset >= len(ln.text) {
+		return ln.finalCol
+	}
+	for _, span := range ln.spans {
+		switch {
+		case byteOffset <= span.byteStart:
+			return span.colStart
+		case byteOffset < span.byteEnd:
+			return span.colStart
+		case byteOffset == span.byteEnd:
+			return span.colEnd
+		}
+	}
+	return ln.finalCol
+}
+
+func (ln searchLine) endCol(byteOffset int) int {
+	if byteOffset <= 0 {
+		return 0
+	}
+	for _, span := range ln.spans {
+		switch {
+		case byteOffset <= span.byteStart:
+			return span.colStart
+		case byteOffset <= span.byteEnd:
+			return span.colEnd
+		}
+	}
+	if len(ln.spans) == 0 {
+		return 0
+	}
+	return ln.spans[len(ln.spans)-1].colEnd
 }
 
 func handleSize(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
@@ -168,10 +261,32 @@ func handleTitle(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
 
 func handleMode(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
 	snap := t.Snapshot()
-	return rpc.ModeData{
+	mouse, err := t.MouseState()
+	if err != nil {
+		return nil, internalFailure(err)
+	}
+	data := rpc.ModeData{
 		AltScreen: snap.AltScreen,
+		Mouse:     mouse.Enabled,
+
+		MouseTrackingX10:    mouse.Raw.TrackingX10,
+		MouseTrackingNormal: mouse.Raw.TrackingNormal,
+		MouseTrackingButton: mouse.Raw.TrackingButton,
+		MouseTrackingAny:    mouse.Raw.TrackingAny,
+
+		MouseFormatUTF8:      mouse.Raw.FormatUTF8,
+		MouseFormatSGR:       mouse.Raw.FormatSGR,
+		MouseFormatURxvt:     mouse.Raw.FormatURxvt,
+		MouseFormatSGRPixels: mouse.Raw.FormatSGRPixels,
 		// DECCKM and BracketedPaste are not exposed; default false.
-	}, nil
+	}
+	if mouse.TrackingKnown {
+		data.MouseTracking = string(mouse.Tracking)
+	}
+	if mouse.FormatKnown {
+		data.MouseFormat = string(mouse.Format)
+	}
+	return data, nil
 }
 
 func handleScrollback(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {

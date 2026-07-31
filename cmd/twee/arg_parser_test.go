@@ -119,6 +119,15 @@ func TestParseRootArgsGlobalNameAndHelp(t *testing.T) {
 	if _, err := parseRootArgs([]string{"--name", "s", "run"}); err == nil {
 		t.Fatal("global --name for run unexpectedly succeeded")
 	}
+	for _, verb := range []string{"click", "hover", "scroll", "drag"} {
+		root, err := parseRootArgs([]string{"--name", "s", verb})
+		if err != nil {
+			t.Fatalf("global --name for %s: %v", verb, err)
+		}
+		if !root.GlobalName.Present || root.GlobalName.Value != "s" {
+			t.Fatalf("global --name for %s not retained: %+v", verb, root)
+		}
+	}
 }
 
 func TestRejectShortOptionsBeforeBoundary(t *testing.T) {

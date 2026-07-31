@@ -151,7 +151,8 @@ func verbAcceptsGlobalName(verb string) bool {
 	switch verb {
 	case "start", "status", "stop", "diff", "text", "lines", "cursor", "size", "title", "mode",
 		"scrollback", "snapshot", "cell", "region", "find", "resize", "screenshot", "signal",
-		"key", "keys", "type", "paste", "wait", "record", "trace", "do":
+		"key", "keys", "type", "paste", "click", "hover", "scroll", "drag",
+		"wait", "record", "trace", "do":
 		return true
 	default:
 		return false

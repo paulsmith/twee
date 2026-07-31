@@ -5,6 +5,15 @@ import "github.com/paulsmith/twee/internal/input"
 // Key is a named key.
 type Key = input.Key
 
+// MouseButton selects the button used by Click and Drag.
+type MouseButton = input.MouseButton
+
+// MouseModifier is a modifier held for a mouse gesture.
+type MouseModifier = input.MouseModifier
+
+// ScrollDirection is the direction of a vertical wheel gesture.
+type ScrollDirection = input.ScrollDirection
+
 // Named keys.
 const (
 	Enter     = input.KeyEnter
@@ -20,6 +29,26 @@ const (
 	End       = input.KeyEnd
 	PageUp    = input.KeyPageUp
 	PageDown  = input.KeyPageDown
+)
+
+// Mouse buttons accepted by WithButton.
+const (
+	LeftButton   = input.ButtonLeft
+	MiddleButton = input.ButtonMiddle
+	RightButton  = input.ButtonRight
+)
+
+// Mouse modifiers accepted by WithMouseModifiers.
+const (
+	ShiftModifier = input.ModifierShift
+	AltModifier   = input.ModifierAlt
+	CtrlModifier  = input.ModifierCtrl
+)
+
+// Vertical scroll directions.
+const (
+	ScrollUp   = input.ScrollUp
+	ScrollDown = input.ScrollDown
 )
 
 // Common control shortcuts.
