@@ -224,17 +224,6 @@ func (g *ghosttyTerm) EncodeMouse(events []input.MouseEvent) (MouseEncodingResul
 			TrackingCandidate: tracking, FormatCandidate: MouseFormatSGRPixels,
 		}
 	}
-	if trackingCount > 1 {
-		return MouseEncodingResult{}, &MouseEncodeError{
-			Reason: MouseErrorAmbiguousTracking, Gesture: gesture,
-		}
-	}
-	if formatCount > 1 {
-		return MouseEncodingResult{}, &MouseEncodeError{
-			Reason: MouseErrorAmbiguousFormat, Gesture: gesture,
-			Tracking: state.Tracking, TrackingCandidate: tracking,
-		}
-	}
 	if trackingCount == 0 {
 		return MouseEncodingResult{}, &MouseEncodeError{
 			Reason: MouseErrorTrackingDisabled, Gesture: gesture,
@@ -243,22 +232,45 @@ func (g *ghosttyTerm) EncodeMouse(events []input.MouseEvent) (MouseEncodingResul
 		}
 	}
 
+	// ModeGet exposes retained DECSET bits, not Ghostty's effective scalar
+	// tracking mode. Applications such as Herdr deliberately enable several
+	// compatible tracking bits at once, so a raw-bit priority would either lie
+	// or reject a valid session. Probe the configured encoder entirely in
+	// memory instead: the four tracking modes have distinct filtering behavior
+	// for press, release, pressed motion, and buttonless motion. The observation
+	// is command-local and is never published by MouseState as authoritative.
+	observedTracking, probeErr := g.probeMouseTracking(size)
+	if probeErr != nil {
+		return MouseEncodingResult{}, &MouseEncodeError{
+			Reason: MouseErrorEncoding, Gesture: gesture, Event: -1,
+			Tracking: state.Tracking, Format: state.Format,
+			TrackingCandidate: tracking, FormatCandidate: format, Err: probeErr,
+		}
+	}
+	if observedTracking == MouseTrackingNone {
+		return MouseEncodingResult{}, &MouseEncodeError{
+			Reason: MouseErrorTrackingDisabled, Gesture: gesture,
+			Tracking: state.Tracking, Format: state.Format,
+			TrackingCandidate: tracking, FormatCandidate: format,
+		}
+	}
+
 	required := requiredTracking(gesture)
-	if !containsTracking(required, tracking) {
+	if !containsTracking(required, observedTracking) {
 		return MouseEncodingResult{}, &MouseEncodeError{
 			Reason: MouseErrorIncompatible, Gesture: gesture,
 			Tracking: state.Tracking, Format: state.Format, Required: required,
 			TrackingCandidate: tracking, FormatCandidate: format,
 		}
 	}
-	if tracking == MouseTrackingX10 && batchHasModifiers(events) {
+	if observedTracking == MouseTrackingX10 && batchHasModifiers(events) {
 		return MouseEncodingResult{}, &MouseEncodeError{
 			Reason: MouseErrorX10Modifiers, Gesture: gesture,
 			Tracking: state.Tracking, Format: state.Format,
 			TrackingCandidate: tracking, FormatCandidate: format,
 		}
 	}
-	if format == MouseFormatX10 {
+	if formatCount == 0 {
 		for i, event := range events {
 			if event.X > 222 || event.Y > 222 {
 				return MouseEncodingResult{}, &MouseEncodeError{
@@ -319,7 +331,7 @@ func (g *ghosttyTerm) EncodeMouse(events []input.MouseEvent) (MouseEncodingResul
 			}
 		}
 		produced := len(report) != 0
-		expected := expectedReport(tracking, event)
+		expected := expectedReport(observedTracking, event)
 		if expected && !produced {
 			return MouseEncodingResult{}, &MouseEncodeError{
 				Reason: MouseErrorMissingReport, Gesture: gesture, Event: i,
@@ -341,6 +353,81 @@ func (g *ghosttyTerm) EncodeMouse(events []input.MouseEvent) (MouseEncodingResul
 		}
 	}
 	return result, nil
+}
+
+// probeMouseTracking observes the effective tracking mode copied by
+// SetOptFromTerminal without exposing it as terminal state or producing PTY
+// input. Ghostty's modes have distinct report filters:
+//
+//   - none: even a press is filtered;
+//   - x10: release and motion are filtered;
+//   - normal: release is reported, motion is filtered;
+//   - button: pressed motion is reported, buttonless motion is filtered;
+//   - any: buttonless motion is reported.
+//
+// Each probe starts from a fresh encoder state so last-cell deduplication and
+// button state cannot influence the observation.
+func (g *ghosttyTerm) probeMouseTracking(size Size) (MouseTracking, error) {
+	probe := func(
+		action libghostty.MouseAction,
+		button *libghostty.MouseButton,
+		anyButtonPressed bool,
+	) (bool, error) {
+		encoder := g.mouseEncoder
+		event := g.mouseEvent
+		encoder.Reset()
+		encoder.SetOptFromTerminal(g.t)
+		encoder.SetOptSize(libghostty.MouseEncoderSize{
+			ScreenWidth: uint32(size.Cols), ScreenHeight: uint32(size.Rows),
+			CellWidth: 1, CellHeight: 1,
+		})
+		encoder.SetOptTrackLastCell(false)
+		encoder.SetOptAnyButtonPressed(anyButtonPressed)
+		event.SetAction(action)
+		if button == nil {
+			event.ClearButton()
+		} else {
+			event.SetButton(*button)
+		}
+		event.SetMods(0)
+		event.SetPosition(libghostty.MousePosition{X: 0.5, Y: 0.5})
+		report, err := encoder.Encode(event)
+		encoder.SetOptAnyButtonPressed(false)
+		encoder.Reset()
+		event.ClearButton()
+		return len(report) != 0, err
+	}
+
+	left := libghostty.MouseButtonLeft
+	press, err := probe(libghostty.MouseActionPress, &left, false)
+	if err != nil {
+		return "", err
+	}
+	if !press {
+		return MouseTrackingNone, nil
+	}
+	buttonlessMotion, err := probe(libghostty.MouseActionMotion, nil, false)
+	if err != nil {
+		return "", err
+	}
+	if buttonlessMotion {
+		return MouseTrackingAny, nil
+	}
+	pressedMotion, err := probe(libghostty.MouseActionMotion, &left, true)
+	if err != nil {
+		return "", err
+	}
+	if pressedMotion {
+		return MouseTrackingButton, nil
+	}
+	release, err := probe(libghostty.MouseActionRelease, &left, false)
+	if err != nil {
+		return "", err
+	}
+	if release {
+		return MouseTrackingNormal, nil
+	}
+	return MouseTrackingX10, nil
 }
 
 func validateMouseBatch(events []input.MouseEvent, size Size) (input.MouseGestureKind, *MouseEncodeError) {

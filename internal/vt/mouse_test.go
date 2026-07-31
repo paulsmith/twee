@@ -99,8 +99,8 @@ func TestMouseStateTrackingSingletonTransitionIsNotAuthoritative(t *testing.T) {
 	result, err := term.EncodeMouse(expandMouse(t,
 		input.NewClick(1, 1, input.ButtonLeft, nil),
 	))
-	if !errors.Is(err, ErrMouseMissingReport) {
-		t.Fatalf("error = %v, want missing report precondition", err)
+	if !errors.Is(err, ErrMouseTrackingDisabled) {
+		t.Fatalf("error = %v, want disabled tracking precondition", err)
 	}
 	if len(result.Bytes) != 0 || result.ReportCount != 0 || len(result.Events) != 0 {
 		t.Fatalf("failed encoding leaked partial result: %#v", result)
@@ -278,6 +278,29 @@ func TestEncodeMouseMode9ClickFiltersOnlyRelease(t *testing.T) {
 	}
 }
 
+func TestEncodeMouseHerdrModeCombinationAndRightClick(t *testing.T) {
+	term := newMouseTestTerm(t, 120, 36)
+	// Herdr enables normal, button-event, and any-event tracking together,
+	// plus both SGR and URxvt formats. The effective modes are the last ones
+	// processed even though all raw DECSET bits remain visible.
+	enableMouse(t, term,
+		"\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h\x1b[?1015h",
+	)
+
+	result, err := term.EncodeMouse(expandMouse(t,
+		input.NewClick(21, 17, input.ButtonRight, nil),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(result.Bytes), "\x1b[34;22;18M\x1b[35;22;18M"; got != want {
+		t.Fatalf("right click = %q, want effective URxvt %q", got, want)
+	}
+	if result.State.TrackingKnown || result.State.FormatKnown {
+		t.Fatalf("multi-bit state was published as authoritative: %#v", result.State)
+	}
+}
+
 func TestEncodeMouseTrackingAcceptance(t *testing.T) {
 	gestures := []struct {
 		name    string
@@ -358,25 +381,43 @@ func TestEncodeMousePreconditionErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("ambiguous tracking", func(t *testing.T) {
+	t.Run("multiple raw tracking bits follow effective last mode", func(t *testing.T) {
 		term := newMouseTestTerm(t, 80, 24)
-		enableMouse(t, term, "\x1b[?1000h\x1b[?1003h")
-		_, err := term.EncodeMouse(expandMouse(t,
-			input.NewClick(1, 1, input.ButtonLeft, nil),
+		enableMouse(t, term, "\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h")
+		result, err := term.EncodeMouse(expandMouse(t,
+			input.NewHover(1, 1, nil),
 		))
-		if !errors.Is(err, ErrMouseAmbiguousTracking) {
-			t.Fatalf("error = %v", err)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := string(result.Bytes), "\x1b[<35;2;2M"; got != want {
+			t.Fatalf("hover bytes = %q, want %q", got, want)
+		}
+
+		term = newMouseTestTerm(t, 80, 24)
+		enableMouse(t, term, "\x1b[?1003h\x1b[?1002h\x1b[?1000h\x1b[?1006h")
+		result, err = term.EncodeMouse(expandMouse(t,
+			input.NewHover(1, 1, nil),
+		))
+		if !errors.Is(err, ErrMouseIncompatible) {
+			t.Fatalf("normal-last hover error = %v, want incompatible", err)
+		}
+		if len(result.Bytes) != 0 {
+			t.Fatalf("failed hover leaked bytes %q", result.Bytes)
 		}
 	})
 
-	t.Run("ambiguous format", func(t *testing.T) {
+	t.Run("multiple raw format bits use encoder effective format", func(t *testing.T) {
 		term := newMouseTestTerm(t, 80, 24)
 		enableMouse(t, term, "\x1b[?1000h\x1b[?1005h\x1b[?1006h")
-		_, err := term.EncodeMouse(expandMouse(t,
+		result, err := term.EncodeMouse(expandMouse(t,
 			input.NewClick(1, 1, input.ButtonLeft, nil),
 		))
-		if !errors.Is(err, ErrMouseAmbiguousFormat) {
-			t.Fatalf("error = %v", err)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := string(result.Bytes), "\x1b[<0;2;2M\x1b[<0;2;2m"; got != want {
+			t.Fatalf("click bytes = %q, want effective SGR %q", got, want)
 		}
 	})
 

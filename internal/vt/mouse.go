@@ -40,8 +40,9 @@ const (
 	MouseFormatSGRPixels MouseFormat = "sgr_pixels"
 )
 
-// MouseRawModes exposes the individual DECSET mode bits. Ghostty retains
-// these independently even though its encoder uses scalar effective state.
+// MouseRawModes exposes the individual retained DECSET mode bits. Multiple
+// bits may be true at once, so they do not identify the scalar tracking or
+// format state used by Ghostty's encoder.
 type MouseRawModes struct {
 	TrackingX10    bool
 	TrackingNormal bool
@@ -56,10 +57,11 @@ type MouseRawModes struct {
 
 // MouseState is a truthful view of the mouse state available from the pinned
 // libghostty API. Tracking and Format are authoritative only when their
-// matching Known field is true. Candidate fields hold a single conservative
-// interpretation of the raw bits for encoding preflight; they are not
-// effective state and must never be published as such. Raw always contains
-// the individual mode bits.
+// matching Known field is true. Candidate fields hold conservative singleton
+// interpretations of the raw bits; they are not effective state and must never
+// be published as such. EncodeMouse may probe the configured encoder's
+// tracking behavior for one command, but that observation is deliberately not
+// stored in MouseState. Raw always contains the individual mode bits.
 type MouseState struct {
 	// Enabled is libghostty's aggregate raw tracking-bit state. Without
 	// effective getters it can remain true after the effective scalar mode
@@ -70,14 +72,15 @@ type MouseState struct {
 	// Tracking and Format are safe to publish only when Known is true.
 	Tracking      MouseTracking
 	TrackingKnown bool
-	// TrackingCandidate is non-authoritative and used only for conservative
-	// encoding preflight when exactly one raw tracking bit is set.
+	// TrackingCandidate is a non-authoritative diagnostic label populated when
+	// exactly one raw tracking bit is set. Encoding compatibility uses a
+	// command-local behavioral probe instead.
 	TrackingCandidate MouseTracking
 
 	Format      MouseFormat
 	FormatKnown bool
-	// FormatCandidate is non-authoritative and used only for conservative
-	// encoding preflight when exactly one raw format bit is set.
+	// FormatCandidate is a non-authoritative singleton interpretation used for
+	// diagnostics and limited conservative format preflight.
 	FormatCandidate MouseFormat
 }
 
@@ -95,8 +98,10 @@ type MouseEncodingResult struct {
 	Bytes       []byte
 	Events      []MouseEventEncoding
 	ReportCount int
-	State       MouseState
-	Size        Size
+	// State is the externally reportable state returned by MouseState; it does
+	// not include any command-local tracking observation used during encoding.
+	State MouseState
+	Size  Size
 }
 
 // MouseErrorReason classifies failures before an encoded batch is returned.
@@ -135,9 +140,10 @@ type MouseEncodeError struct {
 	Format   MouseFormat
 	Required []MouseTracking
 
-	// Candidate fields are conservative raw-bit interpretations used during
-	// preflight. Unlike Tracking and Format, they are not authoritative
-	// effective state and should not be exposed as such in RPC details.
+	// Candidate fields record conservative singleton raw-bit interpretations
+	// available during preflight. Unlike Tracking and Format, they are not
+	// authoritative effective state and should not be exposed as such in RPC
+	// details.
 	TrackingCandidate MouseTracking
 	FormatCandidate   MouseFormat
 
