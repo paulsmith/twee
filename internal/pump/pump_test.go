@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/paulsmith/twee/internal/input"
 	"github.com/paulsmith/twee/internal/vt"
 )
 
@@ -198,10 +199,129 @@ func TestRunUnexpectedError(t *testing.T) {
 	}
 }
 
+func TestMouseCapabilityForwardingAndUnsupported(t *testing.T) {
+	events, err := input.NewClick(2, 3, input.ButtonLeft, nil).Expand()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantResult := vt.MouseEncodingResult{
+		Bytes: []byte("encoded"), ReportCount: 2,
+		State: vt.MouseState{
+			Enabled: true, Tracking: vt.MouseTrackingNormal, TrackingKnown: true,
+			Format: vt.MouseFormatSGR, FormatKnown: true,
+		},
+		Size: vt.Size{Cols: 10, Rows: 5},
+	}
+	model := &fakeMouseModel{result: wantResult, state: wantResult.State}
+	p := New(model, bytes.NewReader(nil))
+
+	got, err := p.EncodeMouse(events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got.Bytes, wantResult.Bytes) || got.ReportCount != 2 ||
+		got.Size != wantResult.Size {
+		t.Fatalf("result = %#v", got)
+	}
+	if len(model.events) != len(events) || model.events[0] != events[0] {
+		t.Fatalf("forwarded events = %#v", model.events)
+	}
+	state, err := p.MouseState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state != wantResult.State {
+		t.Fatalf("state = %#v, want %#v", state, wantResult.State)
+	}
+
+	unsupported := New(&noMouseModel{}, bytes.NewReader(nil))
+	if _, err := unsupported.EncodeMouse(events); !errors.Is(err, vt.ErrMouseUnsupportedBackend) {
+		t.Fatalf("EncodeMouse unsupported error = %v", err)
+	}
+	if _, err := unsupported.MouseState(); !errors.Is(err, vt.ErrMouseUnsupportedBackend) {
+		t.Fatalf("MouseState unsupported error = %v", err)
+	}
+}
+
+func TestEncodeMouseSerializedWithModelMutation(t *testing.T) {
+	model := &fakeMouseModel{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	p := New(model, bytes.NewReader(nil))
+	events, err := input.NewClick(1, 1, input.ButtonLeft, nil).Expand()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	encodeDone := make(chan error, 1)
+	go func() {
+		_, encodeErr := p.EncodeMouse(events)
+		encodeDone <- encodeErr
+	}()
+	select {
+	case <-model.entered:
+	case <-time.After(time.Second):
+		t.Fatal("EncodeMouse did not enter model")
+	}
+
+	resizeDone := make(chan error, 1)
+	go func() { resizeDone <- p.Resize(20, 10) }()
+	select {
+	case err := <-resizeDone:
+		t.Fatalf("Resize completed while EncodeMouse held pump mutex: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(model.release)
+	if err := <-encodeDone; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-resizeDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Resize did not continue after EncodeMouse")
+	}
+}
+
 type errReader struct {
 	err error
 }
 
 func (r errReader) Read([]byte) (int, error) {
 	return 0, r.err
+}
+
+type noMouseModel struct{}
+
+func (*noMouseModel) Feed([]byte) error     { return nil }
+func (*noMouseModel) Resize(int, int) error { return nil }
+func (*noMouseModel) Snapshot() vt.Snapshot { return vt.Snapshot{} }
+
+type fakeMouseModel struct {
+	events  []input.MouseEvent
+	result  vt.MouseEncodingResult
+	state   vt.MouseState
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (*fakeMouseModel) Feed([]byte) error     { return nil }
+func (*fakeMouseModel) Resize(int, int) error { return nil }
+func (*fakeMouseModel) Snapshot() vt.Snapshot {
+	return vt.Snapshot{}
+}
+func (m *fakeMouseModel) EncodeMouse(events []input.MouseEvent) (vt.MouseEncodingResult, error) {
+	m.events = append([]input.MouseEvent(nil), events...)
+	if m.entered != nil {
+		close(m.entered)
+		<-m.release
+	}
+	return m.result, nil
+}
+func (m *fakeMouseModel) MouseState() (vt.MouseState, error) {
+	return m.state, nil
 }

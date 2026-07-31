@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/paulsmith/twee/internal/input"
 	"github.com/paulsmith/twee/internal/vt"
 )
 
@@ -171,6 +172,36 @@ func (p *Pump) Resize(cols, rows int) error {
 	p.gen++
 	p.cond.Broadcast()
 	return err
+}
+
+// EncodeMouse inspects the current model state and preflights/encodes an
+// entire normalized mouse event batch while holding the model mutex. It
+// returns bytes but never writes them to the PTY.
+func (p *Pump) EncodeMouse(events []input.MouseEvent) (vt.MouseEncodingResult, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	model, ok := p.model.(vt.MouseModel)
+	if !ok {
+		return vt.MouseEncodingResult{}, &vt.MouseEncodeError{
+			Reason: vt.MouseErrorUnsupportedBackend,
+		}
+	}
+	return model.EncodeMouse(events)
+}
+
+// MouseState returns the mouse capability's state under the same mutex used
+// for Feed and encoding. It is intended for truthful mode queries; callers
+// must check TrackingKnown and FormatKnown before publishing derived values.
+func (p *Pump) MouseState() (vt.MouseState, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	model, ok := p.model.(vt.MouseModel)
+	if !ok {
+		return vt.MouseState{}, &vt.MouseEncodeError{
+			Reason: vt.MouseErrorUnsupportedBackend,
+		}
+	}
+	return model.MouseState()
 }
 
 // Wait blocks until pred(snapshot) returns true, the deadline fires,
