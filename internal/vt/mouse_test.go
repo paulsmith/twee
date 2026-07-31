@@ -395,7 +395,12 @@ func TestEncodeMousePreconditionErrors(t *testing.T) {
 func TestEncodeMouseCoordinatesAndLiveResize(t *testing.T) {
 	term := newMouseTestTerm(t, 10, 5)
 	enableMouse(t, term, "\x1b[?1000h\x1b[?1006h")
-	for _, point := range []input.MousePoint{{-1, 0}, {0, -1}, {10, 0}, {0, 5}} {
+	for _, point := range []input.MousePoint{
+		{X: -1, Y: 0},
+		{X: 0, Y: -1},
+		{X: 10, Y: 0},
+		{X: 0, Y: 5},
+	} {
 		_, err := term.EncodeMouse(expandMouse(t,
 			input.NewClick(point.X, point.Y, input.ButtonLeft, nil),
 		))
