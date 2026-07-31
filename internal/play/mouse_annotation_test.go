@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"testing"
+	"time"
 
 	"github.com/paulsmith/twee/internal/trace"
 )
@@ -60,6 +61,76 @@ func TestDrawMouseAnnotationAnimationChangesFrame(t *testing.T) {
 	}
 }
 
+func TestDrawMouseAnnotationHasContrastOnDarkAndLightBackgrounds(t *testing.T) {
+	x, y := 2, 1
+	mouse := &trace.MouseInput{Gesture: "click", X: &x, Y: &y, Button: "left"}
+	tests := []struct {
+		name       string
+		background color.RGBA
+		contrast   func(color.RGBA) bool
+	}{
+		{
+			name:       "dark background has white outline",
+			background: color.RGBA{A: 255},
+			contrast: func(c color.RGBA) bool {
+				return c.R >= 230 && c.G >= 230 && c.B >= 230
+			},
+		},
+		{
+			name:       "light background has black outline",
+			background: color.RGBA{R: 255, G: 255, B: 255, A: 255},
+			contrast: func(c color.RGBA) bool {
+				return c.R <= 25 && c.G <= 25 && c.B <= 25
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			img := annotationCanvasWithBackground(tt.background)
+			if !drawMouseAnnotation(img, mouse, 5, 3, 0.25) {
+				t.Fatal("drawMouseAnnotation returned false")
+			}
+			var sawContrast, sawColor bool
+			for py := img.Bounds().Min.Y; py < img.Bounds().Max.Y; py++ {
+				for px := img.Bounds().Min.X; px < img.Bounds().Max.X; px++ {
+					c := img.RGBAAt(px, py)
+					sawContrast = sawContrast || tt.contrast(c)
+					sawColor = sawColor || (c.R < 140 && c.G > 160 && c.B > 190)
+				}
+			}
+			if !sawContrast || !sawColor {
+				t.Fatalf("outline/color present = %v/%v, want true/true", sawContrast, sawColor)
+			}
+		})
+	}
+}
+
+func TestDrawMouseAnnotationHasBlackAndWhiteOutlines(t *testing.T) {
+	x, y := 2, 1
+	img := annotationCanvasWithBackground(color.RGBA{R: 128, G: 128, B: 128, A: 255})
+	if !drawMouseAnnotation(img, &trace.MouseInput{Gesture: "click", X: &x, Y: &y, Button: "left"}, 5, 3, 0.25) {
+		t.Fatal("drawMouseAnnotation returned false")
+	}
+
+	var sawBlack, sawWhite bool
+	for py := img.Bounds().Min.Y; py < img.Bounds().Max.Y; py++ {
+		for px := img.Bounds().Min.X; px < img.Bounds().Max.X; px++ {
+			c := img.RGBAAt(px, py)
+			sawBlack = sawBlack || (c.R <= 25 && c.G <= 25 && c.B <= 25)
+			sawWhite = sawWhite || (c.R >= 230 && c.G >= 230 && c.B >= 230)
+		}
+	}
+	if !sawBlack || !sawWhite {
+		t.Fatalf("black/white outlines present = %v/%v, want true/true", sawBlack, sawWhite)
+	}
+}
+
+func TestMouseAnnotationTimingIsQuicker(t *testing.T) {
+	if mouseAnnotationDuration != 500*time.Millisecond {
+		t.Fatalf("mouseAnnotationDuration = %v, want 500ms", mouseAnnotationDuration)
+	}
+}
+
 func TestDrawMouseAnnotationRejectsMalformedOrOutOfBoundsMetadata(t *testing.T) {
 	point := func(v int) *int { return &v }
 	tests := []*trace.MouseInput{
@@ -93,10 +164,14 @@ func TestMouseCellCenterMapsZeroBasedCellToImageCenter(t *testing.T) {
 }
 
 func annotationCanvas() *image.RGBA {
+	return annotationCanvasWithBackground(color.RGBA{R: 12, G: 16, B: 24, A: 255})
+}
+
+func annotationCanvasWithBackground(background color.RGBA) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, 100, 60))
 	for y := 0; y < 60; y++ {
 		for x := 0; x < 100; x++ {
-			img.SetRGBA(x, y, color.RGBA{R: 12, G: 16, B: 24, A: 255})
+			img.SetRGBA(x, y, background)
 		}
 	}
 	return img

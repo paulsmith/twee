@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	mouseAnnotationDuration    = 700 * time.Millisecond
-	mouseAnnotationFramePeriod = time.Second / 15
+	mouseAnnotationDuration    = 500 * time.Millisecond
+	mouseAnnotationFramePeriod = time.Second / 18
 )
 
 type activeMouseAnnotation struct {
@@ -36,15 +36,16 @@ func drawMouseAnnotation(img *image.RGBA, mouse *trace.MouseInput, cols, rows in
 		}
 		color, shape := mouseButtonStyle(mouse.Button)
 		scale := mouseCellScale(img, cols, rows)
-		radius := scale * (0.32 + 0.75*phase)
-		alpha := uint8(math.Round(220 * (1 - phase)))
+		radius := scale * (0.45 + phase)
+		width := math.Max(1.25, scale*0.12)
+		alpha := mouseAnnotationAlpha(245, phase)
 		switch shape {
 		case mouseShapeDiamond:
-			drawDiamond(img, x, y, radius, math.Max(1, scale*0.09), color, alpha)
+			drawOutlinedDiamond(img, x, y, radius, width, scale, color, alpha)
 		case mouseShapeSquare:
-			drawSquare(img, x, y, radius, math.Max(1, scale*0.09), color, alpha)
+			drawOutlinedSquare(img, x, y, radius, width, scale, color, alpha)
 		default:
-			drawRing(img, x, y, radius, math.Max(1, scale*0.09), color, alpha)
+			drawOutlinedRing(img, x, y, radius, width, scale, color, alpha)
 		}
 		return true
 	case "hover":
@@ -53,7 +54,11 @@ func drawMouseAnnotation(img *image.RGBA, mouse *trace.MouseInput, cols, rows in
 			return false
 		}
 		scale := mouseCellScale(img, cols, rows)
-		drawCrosshair(img, x, y, scale*(0.32+0.24*phase), math.Max(1, scale*0.08), mouseCyan, uint8(math.Round(170*(1-phase))))
+		drawOutlinedCrosshair(
+			img, x, y,
+			scale*(0.45+0.32*phase), math.Max(1.25, scale*0.10), scale,
+			mouseCyan, mouseAnnotationAlpha(225, phase),
+		)
 		return true
 	case "scroll":
 		x, y, ok := mouseCellCenter(img, cols, rows, mouse.X, mouse.Y)
@@ -61,7 +66,10 @@ func drawMouseAnnotation(img *image.RGBA, mouse *trace.MouseInput, cols, rows in
 			return false
 		}
 		scale := mouseCellScale(img, cols, rows)
-		drawScrollChevrons(img, x, y, scale*(0.34+0.12*phase), mouse.Direction == "up", uint8(math.Round(210*(1-phase))))
+		drawScrollChevrons(
+			img, x, y, scale*(0.48+0.18*phase), mouse.Direction == "up",
+			mouseAnnotationAlpha(235, phase),
+		)
 		return true
 	case "drag":
 		x0, y0, ok := mouseCellCenter(img, cols, rows, mouse.FromX, mouse.FromY)
@@ -75,10 +83,13 @@ func drawMouseAnnotation(img *image.RGBA, mouse *trace.MouseInput, cols, rows in
 		color, _ := mouseButtonStyle(mouse.Button)
 		scale := mouseCellScale(img, cols, rows)
 		ex, ey := x0+(x1-x0)*phase, y0+(y1-y0)*phase
-		alpha := uint8(math.Round(220 * (1 - phase)))
-		drawLine(img, x0, y0, ex, ey, math.Max(1, scale*0.10), color, alpha)
-		drawDisk(img, x0, y0, math.Max(2, scale*0.14), color, alpha)
-		drawRing(img, ex, ey, math.Max(2, scale*0.22), math.Max(1, scale*0.08), color, alpha)
+		alpha := mouseAnnotationAlpha(245, phase)
+		drawOutlinedLine(img, x0, y0, ex, ey, math.Max(1.5, scale*0.14), scale, color, alpha)
+		drawOutlinedDisk(img, x0, y0, math.Max(2.5, scale*0.20), scale, color, alpha)
+		drawOutlinedRing(
+			img, ex, ey, math.Max(3, scale*0.30), math.Max(1.25, scale*0.10), scale,
+			color, alpha,
+		)
 		return true
 	default:
 		return false
@@ -149,10 +160,12 @@ const (
 type mouseColor struct{ r, g, b uint8 }
 
 var (
-	mouseCyan    = mouseColor{53, 220, 245}
-	mouseMagenta = mouseColor{241, 78, 205}
-	mouseAmber   = mouseColor{250, 184, 55}
-	mouseGreen   = mouseColor{89, 220, 136}
+	mouseBlack   = mouseColor{0, 0, 0}
+	mouseWhite   = mouseColor{255, 255, 255}
+	mouseCyan    = mouseColor{20, 230, 255}
+	mouseMagenta = mouseColor{255, 60, 220}
+	mouseAmber   = mouseColor{255, 190, 30}
+	mouseGreen   = mouseColor{55, 245, 125}
 )
 
 func mouseButtonStyle(button string) (mouseColor, mouseShape) {
@@ -187,6 +200,90 @@ func clamp01(v float64) float64 {
 		return 1
 	}
 	return v
+}
+
+// mouseAnnotationAlpha keeps annotations vivid through most of their short
+// lifetime, then fades them quickly at the end. A linear fade made the middle
+// frames unnecessarily subtle against busy terminal backgrounds.
+func mouseAnnotationAlpha(base float64, phase float64) uint8 {
+	phase = clamp01(phase)
+	return uint8(math.Round(base * (1 - phase*phase)))
+}
+
+func mouseOutlineWidth(scale float64) float64 {
+	return math.Max(0.75, scale*0.045)
+}
+
+func drawOutlinedRing(
+	img *image.RGBA,
+	cx, cy, radius, width, scale float64,
+	color mouseColor,
+	alpha uint8,
+) {
+	outline := mouseOutlineWidth(scale)
+	drawRing(img, cx, cy, radius, width+2*outline, mouseBlack, alpha)
+	drawRing(img, cx, cy, radius, width+outline, mouseWhite, alpha)
+	drawRing(img, cx, cy, radius, width, color, alpha)
+}
+
+func drawOutlinedDiamond(
+	img *image.RGBA,
+	cx, cy, radius, width, scale float64,
+	color mouseColor,
+	alpha uint8,
+) {
+	outline := mouseOutlineWidth(scale)
+	drawDiamond(img, cx, cy, radius, width+2*outline, mouseBlack, alpha)
+	drawDiamond(img, cx, cy, radius, width+outline, mouseWhite, alpha)
+	drawDiamond(img, cx, cy, radius, width, color, alpha)
+}
+
+func drawOutlinedSquare(
+	img *image.RGBA,
+	cx, cy, radius, width, scale float64,
+	color mouseColor,
+	alpha uint8,
+) {
+	outline := mouseOutlineWidth(scale)
+	drawSquare(img, cx, cy, radius, width+2*outline, mouseBlack, alpha)
+	drawSquare(img, cx, cy, radius, width+outline, mouseWhite, alpha)
+	drawSquare(img, cx, cy, radius, width, color, alpha)
+}
+
+func drawOutlinedCrosshair(
+	img *image.RGBA,
+	cx, cy, radius, width, scale float64,
+	color mouseColor,
+	alpha uint8,
+) {
+	outline := mouseOutlineWidth(scale)
+	drawCrosshair(img, cx, cy, radius, width+2*outline, mouseBlack, alpha)
+	drawCrosshair(img, cx, cy, radius, width+outline, mouseWhite, alpha)
+	drawCrosshair(img, cx, cy, radius, width, color, alpha)
+}
+
+func drawOutlinedLine(
+	img *image.RGBA,
+	x0, y0, x1, y1, width, scale float64,
+	color mouseColor,
+	alpha uint8,
+) {
+	outline := mouseOutlineWidth(scale)
+	drawLine(img, x0, y0, x1, y1, width+2*outline, mouseBlack, alpha)
+	drawLine(img, x0, y0, x1, y1, width+outline, mouseWhite, alpha)
+	drawLine(img, x0, y0, x1, y1, width, color, alpha)
+}
+
+func drawOutlinedDisk(
+	img *image.RGBA,
+	cx, cy, radius, scale float64,
+	color mouseColor,
+	alpha uint8,
+) {
+	outline := mouseOutlineWidth(scale)
+	drawDisk(img, cx, cy, radius+2*outline, mouseBlack, alpha)
+	drawDisk(img, cx, cy, radius+outline, mouseWhite, alpha)
+	drawDisk(img, cx, cy, radius, color, alpha)
 }
 
 func drawRing(img *image.RGBA, cx, cy, radius, width float64, color mouseColor, alpha uint8) {
@@ -227,8 +324,15 @@ func drawScrollChevrons(img *image.RGBA, cx, cy, scale float64, up bool, alpha u
 	}
 	for _, offset := range []float64{-0.42, 0.08, 0.58} {
 		y := cy + direction*offset*scale
-		drawLine(img, cx-scale*0.34, y-direction*scale*0.16, cx, y+direction*scale*0.16, math.Max(1, scale*0.07), mouseGreen, alpha)
-		drawLine(img, cx, y+direction*scale*0.16, cx+scale*0.34, y-direction*scale*0.16, math.Max(1, scale*0.07), mouseGreen, alpha)
+		width := math.Max(1.25, scale*0.09)
+		drawOutlinedLine(
+			img, cx-scale*0.34, y-direction*scale*0.16, cx, y+direction*scale*0.16,
+			width, scale, mouseGreen, alpha,
+		)
+		drawOutlinedLine(
+			img, cx, y+direction*scale*0.16, cx+scale*0.34, y-direction*scale*0.16,
+			width, scale, mouseGreen, alpha,
+		)
 	}
 }
 
