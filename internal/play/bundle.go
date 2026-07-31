@@ -33,6 +33,7 @@ type Event struct {
 	Cols  int
 	Rows  int
 	Code  int
+	Mouse *trace.MouseInput
 }
 
 func (e Event) traceTime() time.Duration {
@@ -107,14 +108,15 @@ func openZipFile(zr *zip.Reader, name string) (io.ReadCloser, error) {
 }
 
 type eventJSON struct {
-	TMS   int64  `json:"t_ms"`
-	Type  string `json:"type"`
-	Bytes string `json:"bytes_b64,omitempty"`
-	Kind  string `json:"kind,omitempty"`
-	Key   string `json:"key,omitempty"`
-	Cols  int    `json:"cols,omitempty"`
-	Rows  int    `json:"rows,omitempty"`
-	Code  int    `json:"code,omitempty"`
+	TMS   int64             `json:"t_ms"`
+	Type  string            `json:"type"`
+	Bytes string            `json:"bytes_b64,omitempty"`
+	Kind  string            `json:"kind,omitempty"`
+	Key   string            `json:"key,omitempty"`
+	Cols  int               `json:"cols,omitempty"`
+	Rows  int               `json:"rows,omitempty"`
+	Code  int               `json:"code,omitempty"`
+	Mouse *trace.MouseInput `json:"mouse,omitempty"`
 }
 
 func decodeEvents(r io.Reader) ([]Event, error) {
@@ -144,6 +146,7 @@ func decodeEvents(r io.Reader) ([]Event, error) {
 		events = append(events, Event{
 			TMS: raw.TMS, Type: strings.TrimSpace(raw.Type), Bytes: decoded,
 			Kind: raw.Kind, Key: raw.Key, Cols: raw.Cols, Rows: raw.Rows, Code: raw.Code,
+			Mouse: raw.Mouse,
 		})
 	}
 	if err := sc.Err(); err != nil {

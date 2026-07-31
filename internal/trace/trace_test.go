@@ -32,6 +32,11 @@ func TestTraceRoundTrip(t *testing.T) {
 	tr.WriteOutput([]byte("hello\r\n"), time.Now())
 	tr.WriteInput("type", "", []byte("h"))
 	tr.WriteInput("key", "Enter", []byte("\r"))
+	x, y := 0, 2
+	tr.WriteMouseInput(MouseInput{
+		Gesture: "click", X: &x, Y: &y, Button: "left",
+		Modifiers: []string{},
+	}, []byte("\x1b[<0;1;3M\x1b[<0;1;3m"))
 	tr.WriteResize(20, 5)
 	tr.WriteOutput([]byte("world"), time.Now())
 	tr.WriteExit(7)
@@ -101,6 +106,7 @@ func TestTraceRoundTrip(t *testing.T) {
 	sc := bufio.NewScanner(ef)
 	nEvents := 0
 	sawExit := false
+	sawMouse := false
 	for sc.Scan() {
 		line := sc.Bytes()
 		if len(bytes.TrimSpace(line)) == 0 {
@@ -116,14 +122,26 @@ func TestTraceRoundTrip(t *testing.T) {
 				t.Errorf("exit code = %d, want 7", ev.Code)
 			}
 		}
+		if ev.Kind == "mouse" {
+			sawMouse = true
+			if ev.Mouse == nil || ev.Mouse.Gesture != "click" || ev.Mouse.X == nil || *ev.Mouse.X != 0 {
+				t.Errorf("mouse event = %+v, want click at x=0", ev.Mouse)
+			}
+			if ev.Mouse.Modifiers == nil {
+				t.Errorf("mouse modifiers = nil, want explicit empty array")
+			}
+		}
 		nEvents++
 	}
 	ef.Close()
-	if nEvents != 6 { // 2 output + 2 input + 1 resize + 1 exit
-		t.Errorf("events count = %d, want 6", nEvents)
+	if nEvents != 7 { // 2 output + 3 input + 1 resize + 1 exit
+		t.Errorf("events count = %d, want 7", nEvents)
 	}
 	if !sawExit {
 		t.Error("events missing exit event")
+	}
+	if !sawMouse {
+		t.Error("events missing mouse event")
 	}
 }
 

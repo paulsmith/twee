@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"unicode/utf8"
+
+	"github.com/paulsmith/twee/internal/trace"
 )
 
 type toast struct {
@@ -31,6 +33,8 @@ func FormatEventToast(ev Event) string {
 			return prefix + "type " + strconv.Quote(string(ev.Bytes))
 		case "paste":
 			return prefix + "paste " + strconv.Quote(displayPaste(ev.Bytes))
+		case "mouse":
+			return prefix + formatMouseToast(ev.Mouse)
 		default:
 			if ev.Kind != "" {
 				return prefix + ev.Kind
@@ -42,6 +46,45 @@ func FormatEventToast(ev Event) string {
 	default:
 		return ""
 	}
+}
+
+func formatMouseToast(mouse *trace.MouseInput) string {
+	if mouse == nil {
+		return "mouse"
+	}
+	switch mouse.Gesture {
+	case "click":
+		return fmt.Sprintf("click %s @(%d,%d)", defaultMouseButton(mouse.Button), coord(mouse.X), coord(mouse.Y))
+	case "hover":
+		return fmt.Sprintf("hover @(%d,%d)", coord(mouse.X), coord(mouse.Y))
+	case "scroll":
+		return fmt.Sprintf("scroll %s x%d @(%d,%d)", mouse.Direction, mouse.Ticks, coord(mouse.X), coord(mouse.Y))
+	case "drag":
+		return fmt.Sprintf(
+			"drag %s (%d,%d)->(%d,%d)",
+			defaultMouseButton(mouse.Button),
+			coord(mouse.FromX), coord(mouse.FromY), coord(mouse.ToX), coord(mouse.ToY),
+		)
+	default:
+		if mouse.Gesture != "" {
+			return mouse.Gesture
+		}
+		return "mouse"
+	}
+}
+
+func defaultMouseButton(button string) string {
+	if button == "" {
+		return "left"
+	}
+	return button
+}
+
+func coord(v *int) int {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 func displayPaste(b []byte) string {

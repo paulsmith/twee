@@ -37,6 +37,24 @@ type HostInfo struct {
 	Hostname string `json:"hostname"`
 }
 
+// MouseInput describes one high-level mouse gesture. Coordinates are pointers
+// because zero is a valid cell while an omitted coordinate belongs to a
+// different gesture shape (for example, click uses X/Y while drag uses
+// FromX/FromY/ToX/ToY).
+type MouseInput struct {
+	Gesture   string   `json:"gesture"`
+	X         *int     `json:"x,omitempty"`
+	Y         *int     `json:"y,omitempty"`
+	FromX     *int     `json:"from_x,omitempty"`
+	FromY     *int     `json:"from_y,omitempty"`
+	ToX       *int     `json:"to_x,omitempty"`
+	ToY       *int     `json:"to_y,omitempty"`
+	Button    string   `json:"button,omitempty"`
+	Modifiers []string `json:"modifiers"`
+	Direction string   `json:"direction,omitempty"`
+	Ticks     int      `json:"ticks,omitempty"`
+}
+
 // DefaultHostInfo returns HostInfo populated from the current machine.
 func DefaultHostInfo() HostInfo {
 	h, _ := os.Hostname()
@@ -49,14 +67,15 @@ func DefaultHostInfo() HostInfo {
 
 // event is the JSONL shape stored in events.jsonl inside a .twee bundle.
 type event struct {
-	TMS   int64  `json:"t_ms"`
-	Type  string `json:"type"`
-	Bytes string `json:"bytes_b64,omitempty"`
-	Kind  string `json:"kind,omitempty"`
-	Key   string `json:"key,omitempty"`
-	Cols  int    `json:"cols,omitempty"`
-	Rows  int    `json:"rows,omitempty"`
-	Code  int    `json:"code,omitempty"`
+	TMS   int64       `json:"t_ms"`
+	Type  string      `json:"type"`
+	Bytes string      `json:"bytes_b64,omitempty"`
+	Kind  string      `json:"kind,omitempty"`
+	Key   string      `json:"key,omitempty"`
+	Cols  int         `json:"cols,omitempty"`
+	Rows  int         `json:"rows,omitempty"`
+	Code  int         `json:"code,omitempty"`
+	Mouse *MouseInput `json:"mouse,omitempty"`
 }
 
 // Trace streams session artifacts into a temporary work directory and
@@ -149,6 +168,27 @@ func (tr *Trace) WriteInput(kind, key string, b []byte) {
 		Kind:  kind,
 		Key:   key,
 		Bytes: base64.StdEncoding.EncodeToString(b),
+	}); err != nil && tr.err == nil {
+		tr.err = err
+	}
+}
+
+// WriteMouseInput records one successfully encoded high-level mouse gesture.
+// The encoded reports stay attached to the single semantic event so playback
+// and export can annotate the gesture without feeding the bytes to the VT.
+func (tr *Trace) WriteMouseInput(mouse MouseInput, b []byte) {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	if tr.closed {
+		return
+	}
+	mouse.Modifiers = append([]string{}, mouse.Modifiers...)
+	if err := tr.evEnc.Encode(event{
+		TMS:   tr.ms(time.Now()),
+		Type:  "input",
+		Kind:  "mouse",
+		Bytes: base64.StdEncoding.EncodeToString(b),
+		Mouse: &mouse,
 	}); err != nil && tr.err == nil {
 		tr.err = err
 	}

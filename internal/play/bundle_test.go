@@ -15,6 +15,7 @@ func TestOpenBundleRoundTrip(t *testing.T) {
 		"events.jsonl": strings.Join([]string{
 			`{"t_ms":0,"type":"output","bytes_b64":"` + base64.StdEncoding.EncodeToString([]byte("hi")) + `"}`,
 			`{"t_ms":10,"type":"input","kind":"key","key":"Enter","bytes_b64":"DQ=="}`,
+			`{"t_ms":15,"type":"input","kind":"mouse","bytes_b64":"G1s8MDsxOzFN","mouse":{"gesture":"click","x":0,"y":0,"button":"left","modifiers":[]}}`,
 			`{"t_ms":20,"type":"resize","cols":100,"rows":40}`,
 			`{"t_ms":30,"type":"exit","code":0}`,
 		}, "\n"),
@@ -27,14 +28,33 @@ func TestOpenBundleRoundTrip(t *testing.T) {
 	if b.Manifest.Version != 1 || b.Manifest.Cols != 80 || b.Manifest.Rows != 24 {
 		t.Fatalf("manifest = %+v", b.Manifest)
 	}
-	if len(b.Events) != 4 {
-		t.Fatalf("events = %d, want 4", len(b.Events))
+	if len(b.Events) != 5 {
+		t.Fatalf("events = %d, want 5", len(b.Events))
 	}
 	if got := string(b.Events[0].Bytes); got != "hi" {
 		t.Fatalf("decoded bytes = %q", got)
 	}
+	mouse := b.Events[2].Mouse
+	if mouse == nil || mouse.Gesture != "click" || mouse.X == nil || *mouse.X != 0 ||
+		mouse.Y == nil || *mouse.Y != 0 || mouse.Modifiers == nil {
+		t.Fatalf("mouse event = %+v, want click at (0,0) with explicit modifiers", mouse)
+	}
 	if b.MaxCols != 100 || b.MaxRows != 40 {
 		t.Fatalf("max size = %dx%d, want 100x40", b.MaxCols, b.MaxRows)
+	}
+}
+
+func TestOpenBundleVersionOneWithoutMouseMetadata(t *testing.T) {
+	path := writeTestBundle(t, map[string]string{
+		"manifest.json": `{"version":1,"command":["old"],"cols":80,"rows":24}`,
+		"events.jsonl":  `{"t_ms":10,"type":"input","kind":"key","key":"Enter","bytes_b64":"DQ=="}`,
+	})
+	b, err := OpenBundle(path)
+	if err != nil {
+		t.Fatalf("OpenBundle old v1 bundle: %v", err)
+	}
+	if len(b.Events) != 1 || b.Events[0].Mouse != nil || b.Events[0].Key != "Enter" {
+		t.Fatalf("old bundle events = %+v", b.Events)
 	}
 }
 
