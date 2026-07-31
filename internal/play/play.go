@@ -19,6 +19,10 @@ type Options struct {
 	Verbose bool
 	Backend Backend
 
+	// DisableMouseAnnotations suppresses the transient visual feedback drawn
+	// for recorded semantic mouse input. The zero value leaves it enabled.
+	DisableMouseAnnotations bool
+
 	// DisplayPixelWidth and DisplayPixelHeight are the host terminal's native
 	// pixel dimensions. When set, frames are rendered to the pixel size of
 	// their graphics placement area instead of the renderer's default font size.
@@ -172,6 +176,7 @@ func Run(path string, opts Options) error {
 			Cols: terminalCols,
 			Rows: terminalRows,
 		},
+		DisableMouseAnnotations: opts.DisableMouseAnnotations,
 	})
 
 	ticker := time.NewTicker(33 * time.Millisecond)

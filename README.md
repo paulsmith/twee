@@ -649,7 +649,9 @@ instead.
 session. It uses the recorded event timing, compressing idle gaps
 longer than 2s by default, supports accelerated playback, and shows a
 footer for the latest input or resize event so you can correlate user
-actions with screen changes.
+actions with screen changes. Recorded mouse gestures also receive a brief
+visual annotation on the replayed terminal by default; this includes click,
+hover, scroll, and drag feedback.
 
 ```
 $ twee play /tmp/myapp.twee --speed 2
@@ -677,6 +679,7 @@ Flags:
 | `--speed N` | Playback speed multiplier (default `1.0`). `0.5` is half-speed, `4` is 4x. |
 | `--step` | Start paused and advance with `.`. |
 | `--max-idle <dur>` | Cap long idle gaps between events (default `2s`; `0` disables compression). |
+| `--no-mouse-annotations` | Hide transient visual feedback for recorded mouse gestures. |
 | `--verbose` | Print a one-line summary to stderr after exit. |
 
 Playback owns the terminal for its lifetime: it switches to the alt screen,

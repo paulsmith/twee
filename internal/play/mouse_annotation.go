@@ -24,7 +24,7 @@ type activeMouseAnnotation struct {
 // gesture is received. It returns false for incomplete, unknown, or
 // out-of-bounds metadata so a bad trace cannot interrupt playback.
 func drawMouseAnnotation(img *image.RGBA, mouse *trace.MouseInput, cols, rows int, phase float64) bool {
-	if img == nil || mouse == nil || cols <= 0 || rows <= 0 || img.Bounds().Empty() {
+	if img == nil || img.Bounds().Empty() || !validMouseAnnotation(mouse, cols, rows) {
 		return false
 	}
 	phase = clamp01(phase)
@@ -37,7 +37,7 @@ func drawMouseAnnotation(img *image.RGBA, mouse *trace.MouseInput, cols, rows in
 		color, shape := mouseButtonStyle(mouse.Button)
 		scale := mouseCellScale(img, cols, rows)
 		radius := scale * (0.32 + 0.75*phase)
-		alpha := uint8(math.Round(220 * (1 - 0.72*phase)))
+		alpha := uint8(math.Round(220 * (1 - phase)))
 		switch shape {
 		case mouseShapeDiamond:
 			drawDiamond(img, x, y, radius, math.Max(1, scale*0.09), color, alpha)
@@ -61,7 +61,7 @@ func drawMouseAnnotation(img *image.RGBA, mouse *trace.MouseInput, cols, rows in
 			return false
 		}
 		scale := mouseCellScale(img, cols, rows)
-		drawScrollChevrons(img, x, y, scale*(0.34+0.12*phase), mouse.Direction == "up", uint8(math.Round(210*(1-0.65*phase))))
+		drawScrollChevrons(img, x, y, scale*(0.34+0.12*phase), mouse.Direction == "up", uint8(math.Round(210*(1-phase))))
 		return true
 	case "drag":
 		x0, y0, ok := mouseCellCenter(img, cols, rows, mouse.FromX, mouse.FromY)
@@ -75,7 +75,7 @@ func drawMouseAnnotation(img *image.RGBA, mouse *trace.MouseInput, cols, rows in
 		color, _ := mouseButtonStyle(mouse.Button)
 		scale := mouseCellScale(img, cols, rows)
 		ex, ey := x0+(x1-x0)*phase, y0+(y1-y0)*phase
-		alpha := uint8(math.Round(220 * (1 - 0.55*phase)))
+		alpha := uint8(math.Round(220 * (1 - phase)))
 		drawLine(img, x0, y0, ex, ey, math.Max(1, scale*0.10), color, alpha)
 		drawDisk(img, x0, y0, math.Max(2, scale*0.14), color, alpha)
 		drawRing(img, ex, ey, math.Max(2, scale*0.22), math.Max(1, scale*0.08), color, alpha)
@@ -93,12 +93,23 @@ func validMouseAnnotation(mouse *trace.MouseInput, cols, rows int) bool {
 		return x != nil && y != nil && *x >= 0 && *x < cols && *y >= 0 && *y < rows
 	}
 	switch strings.ToLower(mouse.Gesture) {
-	case "click", "hover":
+	case "click":
+		return validPoint(mouse.X, mouse.Y) && validMouseButton(mouse.Button)
+	case "hover":
 		return validPoint(mouse.X, mouse.Y)
 	case "scroll":
-		return validPoint(mouse.X, mouse.Y) && (mouse.Direction == "up" || mouse.Direction == "down")
+		return validPoint(mouse.X, mouse.Y) && mouse.Ticks > 0 && (mouse.Direction == "up" || mouse.Direction == "down")
 	case "drag":
-		return validPoint(mouse.FromX, mouse.FromY) && validPoint(mouse.ToX, mouse.ToY)
+		return validPoint(mouse.FromX, mouse.FromY) && validPoint(mouse.ToX, mouse.ToY) && validMouseButton(mouse.Button)
+	default:
+		return false
+	}
+}
+
+func validMouseButton(button string) bool {
+	switch strings.ToLower(button) {
+	case "", "left", "middle", "right":
+		return true
 	default:
 		return false
 	}

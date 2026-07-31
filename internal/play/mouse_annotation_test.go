@@ -19,8 +19,8 @@ func TestDrawMouseAnnotationDrawsEveryRecordedGesture(t *testing.T) {
 		{"right click", trace.MouseInput{Gesture: "click", X: point(2), Y: point(1), Button: "right"}},
 		{"middle click", trace.MouseInput{Gesture: "click", X: point(2), Y: point(1), Button: "middle"}},
 		{"hover", trace.MouseInput{Gesture: "hover", X: point(2), Y: point(1)}},
-		{"scroll up", trace.MouseInput{Gesture: "scroll", X: point(2), Y: point(1), Direction: "up"}},
-		{"scroll down", trace.MouseInput{Gesture: "scroll", X: point(2), Y: point(1), Direction: "down"}},
+		{"scroll up", trace.MouseInput{Gesture: "scroll", X: point(2), Y: point(1), Direction: "up", Ticks: 1}},
+		{"scroll down", trace.MouseInput{Gesture: "scroll", X: point(2), Y: point(1), Direction: "down", Ticks: 1}},
 		{"drag", trace.MouseInput{Gesture: "drag", FromX: point(1), FromY: point(1), ToX: point(3), ToY: point(1), Button: "left"}},
 	}
 	for _, tt := range tests {

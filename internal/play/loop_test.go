@@ -442,6 +442,21 @@ func TestLoopMouseAnnotationReplacementAndInvalidMetadata(t *testing.T) {
 	}
 }
 
+func TestValidMouseAnnotationRejectsInvalidScrollTicksAndButtons(t *testing.T) {
+	for _, mouse := range []*trace.MouseInput{
+		{Gesture: "scroll", X: intPtr(1), Y: intPtr(1), Direction: "up"},
+		{Gesture: "click", X: intPtr(1), Y: intPtr(1), Button: "fourth"},
+		{Gesture: "drag", FromX: intPtr(1), FromY: intPtr(1), ToX: intPtr(2), ToY: intPtr(1), Button: "fourth"},
+	} {
+		if validMouseAnnotation(mouse, 10, 3) {
+			t.Fatalf("validMouseAnnotation(%+v) = true, want false", mouse)
+		}
+	}
+	if !validMouseAnnotation(testMouseClick(1, 1, ""), 10, 3) {
+		t.Fatal("empty click button should default to left")
+	}
+}
+
 func TestLoopResizeClearsMouseAnnotationAndDisableOptionSkipsIt(t *testing.T) {
 	t.Run("resize", func(t *testing.T) {
 		sink := &fakeSink{}

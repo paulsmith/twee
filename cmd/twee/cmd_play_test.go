@@ -66,7 +66,7 @@ func TestPlayFakeExperimentalBackendsEmitProtocolBytes(t *testing.T) {
 }
 
 func TestParsePlayArgsAcceptsFlagsAfterBundle(t *testing.T) {
-	path, opts := parsePlayArgs([]string{"demo.twee", "--backend", "sixel", "--speed", "2.5", "--step", "--max-idle=500ms", "--verbose"})
+	path, opts := parsePlayArgs([]string{"demo.twee", "--backend", "sixel", "--speed", "2.5", "--step", "--max-idle=500ms", "--no-mouse-annotations", "--verbose"})
 	if path != "demo.twee" {
 		t.Fatalf("path = %q, want demo.twee", path)
 	}
@@ -84,6 +84,16 @@ func TestParsePlayArgsAcceptsFlagsAfterBundle(t *testing.T) {
 	}
 	if !opts.Verbose {
 		t.Fatal("verbose = false, want true")
+	}
+	if !opts.DisableMouseAnnotations {
+		t.Fatal("DisableMouseAnnotations = false, want true")
+	}
+}
+
+func TestParsePlayArgsEnablesMouseAnnotationsByDefault(t *testing.T) {
+	_, opts := parsePlayArgs([]string{"demo.twee"})
+	if opts.DisableMouseAnnotations {
+		t.Fatal("DisableMouseAnnotations = true, want false by default")
 	}
 }
 
@@ -104,7 +114,7 @@ func TestPlayHelpDocumentsBackendConstraints(t *testing.T) {
 	help := usages["play"]
 	for _, want := range []string{
 		"auto tries Kitty, then iTerm2, then Sixel",
-		"direct terminal", "tmux and screen", "native pixel geometry",
+		"direct terminal", "tmux and screen", "native pixel geometry", "--no-mouse-annotations",
 	} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("play help missing %q:\n%s", want, help)

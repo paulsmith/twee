@@ -10,7 +10,7 @@ import (
 
 func init() {
 	register("play", runPlay)
-	registerUsage("play", `twee play <bundle.twee> [--backend auto|kitty|iterm2|sixel] [--speed N] [--step] [--max-idle 2s]
+	registerUsage("play", `twee play <bundle.twee> [--backend auto|kitty|iterm2|sixel] [--speed N] [--step] [--max-idle 2s] [--no-mouse-annotations]
 Play a .twee trace bundle in the current terminal.
 
 Controls:
@@ -27,6 +27,8 @@ Flags:
   --step               start paused; use . to advance one event
   --max-idle <duration>
                        cap long gaps between events (default 2s; 0 disables)
+  --no-mouse-annotations
+                       hide transient visual feedback for recorded mouse input
   --verbose            print a summary to stderr after exit
 
 Backend selection:
@@ -69,12 +71,13 @@ func runPlay(args []string) {
 func parsePlayArgs(args []string) (string, play.Options) {
 	opts := play.Options{Speed: 1, MaxIdle: 2 * time.Second}
 	var parsed struct {
-		Backend string   `arg:"--backend"`
-		Speed   *float64 `arg:"--speed"`
-		Step    bool     `arg:"--step"`
-		MaxIdle string   `arg:"--max-idle"`
-		Verbose bool     `arg:"--verbose"`
-		Path    string   `arg:"positional,required"`
+		Backend            string   `arg:"--backend"`
+		Speed              *float64 `arg:"--speed"`
+		Step               bool     `arg:"--step"`
+		MaxIdle            string   `arg:"--max-idle"`
+		NoMouseAnnotations bool     `arg:"--no-mouse-annotations"`
+		Verbose            bool     `arg:"--verbose"`
+		Path               string   `arg:"positional,required"`
 	}
 	if err := parseArg("play", &parsed, args); err != nil {
 		fatalUsage("play: %v", err)
@@ -99,6 +102,7 @@ func parsePlayArgs(args []string) (string, play.Options) {
 	}
 	opts.Step = parsed.Step
 	opts.Verbose = parsed.Verbose
+	opts.DisableMouseAnnotations = parsed.NoMouseAnnotations
 	return parsed.Path, opts
 }
 

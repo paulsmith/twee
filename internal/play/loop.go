@@ -288,7 +288,7 @@ func (l *loop) emitFrame(now time.Time) {
 	if mouse != nil {
 		// Metadata was validated when dispatched; retaining this guard makes
 		// frame emission safe if a future event source bypasses that path.
-		_ = drawMouseAnnotation(img, mouse, l.cols, l.rows, phase)
+		_ = drawMouseAnnotation(img, mouse, snap.Size.Cols, snap.Size.Rows, phase)
 	}
 	if err := l.sink.Emit(img, placement.Cols, placement.Rows, toastText, status); err != nil {
 		l.err = err
