@@ -49,6 +49,16 @@ func (t *Term) mouseInput(gesture input.MouseGesture) error {
 	t.inputMu.Lock()
 	defer t.inputMu.Unlock()
 
+	// Validate endpoints against the live model before gesture expansion.
+	// Drag expansion allocates one event per Bresenham cell, so letting a
+	// hostile MinInt/MaxInt endpoint reach Expand could overflow its distance
+	// arithmetic or attempt an enormous allocation. EncodeMouse repeats this
+	// check under the pump lock as the authoritative preflight.
+	size := t.pump.Snapshot().Size
+	if err := prevalidateMouseCoordinates(gesture, size); err != nil {
+		return err
+	}
+
 	events, err := gesture.Expand()
 	if err != nil {
 		return invalidRequest(err.Error(), mouseGestureDetails(gesture), err)
@@ -61,7 +71,7 @@ func (t *Term) mouseInput(gesture input.MouseGesture) error {
 	if err != nil {
 		return classifyMouseEncodeError(err, gesture.Kind)
 	}
-	if err := writeAll(t.runner.Master(), encoded.Bytes); err != nil {
+	if err := writeAll(t.inputWriter, encoded.Bytes); err != nil {
 		return inputIO(err)
 	}
 
@@ -73,6 +83,41 @@ func (t *Term) mouseInput(gesture input.MouseGesture) error {
 		tr.WriteMouseInput(mouseTraceInput(gesture), encoded.Bytes)
 	}
 	return nil
+}
+
+func prevalidateMouseCoordinates(gesture input.MouseGesture, size vt.Size) error {
+	validate := func(point input.MousePoint) error {
+		if point.X >= 0 && point.Y >= 0 && point.X < size.Cols && point.Y < size.Rows {
+			return nil
+		}
+		details := map[string]any{
+			"gesture": gesture.Kind.String(),
+			"x":       point.X,
+			"y":       point.Y,
+			"cols":    size.Cols,
+			"rows":    size.Rows,
+		}
+		return invalidRequest(
+			fmt.Sprintf(
+				"mouse coordinate (%d,%d) outside %dx%d viewport",
+				point.X, point.Y, size.Cols, size.Rows,
+			),
+			details,
+			nil,
+		)
+	}
+
+	switch gesture.Kind {
+	case input.MouseGestureClick, input.MouseGestureHover, input.MouseGestureScroll:
+		return validate(gesture.Point)
+	case input.MouseGestureDrag:
+		if err := validate(gesture.From); err != nil {
+			return err
+		}
+		return validate(gesture.To)
+	default:
+		return nil
+	}
 }
 
 func classifyMouseEncodeError(err error, gesture input.MouseGestureKind) error {

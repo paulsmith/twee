@@ -2,6 +2,7 @@ package engine
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/paulsmith/twee/internal/input"
@@ -138,5 +139,47 @@ func TestMouseGestureDescriptions(t *testing.T) {
 		if got := mouseGestureDescription(tt.gesture); got != tt.want {
 			t.Errorf("description = %q, want %q", got, tt.want)
 		}
+	}
+}
+
+func TestDragExtremeEndpointsRejectedBeforeExpansion(t *testing.T) {
+	term := startEngineTerm(t, []string{"/bin/sh", "-c", "sleep 30"}, 10, 3)
+	tests := []struct {
+		name                         string
+		fromX, fromY, toX, toY, x, y int
+	}{
+		{"max from x", math.MaxInt, 0, 0, 0, math.MaxInt, 0},
+		{"min from y", 0, math.MinInt, 0, 0, 0, math.MinInt},
+		{"max to x", 0, 0, math.MaxInt, 0, math.MaxInt, 0},
+		{"min to y", 0, 0, 0, math.MinInt, 0, math.MinInt},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := term.Drag(
+				tt.fromX, tt.fromY, tt.toX, tt.toY,
+				input.ButtonLeft, nil,
+			)
+			var requestErr *RequestError
+			if !errors.As(err, &requestErr) {
+				t.Fatalf("Drag error = %v (%T), want *RequestError", err, err)
+			}
+			if requestErr.Kind != RequestErrorInvalidArgument {
+				t.Fatalf("error kind = %v, want invalid argument", requestErr.Kind)
+			}
+			details, ok := requestErr.Details.(map[string]any)
+			if !ok {
+				t.Fatalf("details type = %T", requestErr.Details)
+			}
+			for key, want := range map[string]int{
+				"x": tt.x, "y": tt.y, "cols": 10, "rows": 3,
+			} {
+				if got := details[key]; got != want {
+					t.Fatalf("details[%q] = %#v, want %d", key, got, want)
+				}
+			}
+		})
+	}
+	if got := len(term.RecentInputs()); got != 0 {
+		t.Fatalf("failed extreme drags recorded %d diagnostics, want 0", got)
 	}
 }

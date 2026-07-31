@@ -93,6 +93,16 @@ func TestQueryHandlers(t *testing.T) {
 	if !strings.Contains(string(rawMode), `"mouse":false`) {
 		t.Fatalf("mode JSON omits explicit false mouse state: %s", rawMode)
 	}
+	for _, field := range []string{
+		`"mouse_tracking_x10":false`,
+		`"mouse_tracking_any":false`,
+		`"mouse_format_sgr":false`,
+		`"mouse_format_sgr_pixels":false`,
+	} {
+		if !strings.Contains(string(rawMode), field) {
+			t.Fatalf("mode JSON omits explicit raw state %s: %s", field, rawMode)
+		}
+	}
 
 	scrollbackData, rpcErr := handleScrollback(te, nil)
 	if rpcErr != nil {
@@ -134,8 +144,8 @@ func TestModeHandlerReportsMouseState(t *testing.T) {
 		t.Fatalf("handleMode: %+v", rpcErr)
 	}
 	got := data.(rpc.ModeData)
-	if !got.Mouse || got.MouseTracking != "any" || got.MouseFormat != "sgr" {
-		t.Fatalf("mouse mode = %+v, want enabled any/sgr", got)
+	if !got.Mouse || got.MouseTracking != "" || got.MouseFormat != "" {
+		t.Fatalf("mouse mode = %+v, want enabled with unproven effective fields omitted", got)
 	}
 	if !got.MouseTrackingAny || !got.MouseFormatSGR {
 		t.Fatalf("raw mouse modes = %+v, want any and SGR", got)

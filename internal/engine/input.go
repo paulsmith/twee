@@ -13,7 +13,7 @@ func (t *Term) Type(s string) error {
 	t.inputMu.Lock()
 	defer t.inputMu.Unlock()
 
-	if err := writeAll(t.runner.Master(), []byte(s)); err != nil {
+	if err := writeAll(t.inputWriter, []byte(s)); err != nil {
 		return err
 	}
 	t.recordInput(fmt.Sprintf("Type %q", s))
@@ -35,7 +35,7 @@ func (t *Term) Key(k input.Key) error {
 	if len(b) == 0 {
 		return nil
 	}
-	if err := writeAll(t.runner.Master(), b); err != nil {
+	if err := writeAll(t.inputWriter, b); err != nil {
 		return err
 	}
 	t.recordInput("Key " + input.Name(k))
@@ -54,7 +54,7 @@ func (t *Term) Paste(text string) error {
 	defer t.inputMu.Unlock()
 
 	b := input.EncodePaste(text)
-	if err := writeAll(t.runner.Master(), b); err != nil {
+	if err := writeAll(t.inputWriter, b); err != nil {
 		return err
 	}
 	t.recordInput(fmt.Sprintf("Paste %q", text))

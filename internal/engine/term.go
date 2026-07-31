@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,9 +32,12 @@ type Term struct {
 	// briefly takes pump.mu underneath this lock; pump code must never try
 	// to acquire inputMu.
 	inputMu sync.Mutex
-	runner  *ptyrunner.Runner
-	pump    *pump.Pump
-	tr      *trace.Trace
+	// inputWriter is runner.Master in production. Keeping the writer as the
+	// input boundary permits deterministic short-write serialization tests.
+	inputWriter io.Writer
+	runner      *ptyrunner.Runner
+	pump        *pump.Pump
+	tr          *trace.Trace
 
 	closeOnce sync.Once
 	closeErr  error
@@ -95,6 +99,7 @@ func Start(ctx context.Context, cfg Config) (*Term, error) {
 
 	t := &Term{
 		cfg:           cfg,
+		inputWriter:   runner.Master(),
 		runner:        runner,
 		pump:          p,
 		pumpDone:      make(chan struct{}),
@@ -164,6 +169,12 @@ func (t *Term) FinalizeArtifacts() error {
 func (t *Term) FinalizeArtifactsWithGrace(grace time.Duration) error {
 	t.finalizeOnce.Do(func() {
 		t.DrainOutputWithGrace(grace)
+		// Do not hold inputMu while draining: closing the PTY is what
+		// unblocks an input already stuck in Write. Once draining finishes,
+		// take the input boundary before closing the trace so every input
+		// whose write succeeded has completed its diagnostic and trace
+		// bookkeeping.
+		t.inputMu.Lock()
 		t.cfgMu.Lock()
 		t.finalized = true
 		var err error
@@ -172,6 +183,7 @@ func (t *Term) FinalizeArtifactsWithGrace(grace time.Duration) error {
 			err = t.closeTraceLocked()
 		}
 		t.cfgMu.Unlock()
+		t.inputMu.Unlock()
 		t.finalizeErr = err
 		close(t.artifactsDone)
 	})
@@ -226,6 +238,9 @@ func (t *Term) TracePath() string {
 
 // EnableTrace starts a trace recording to path.
 func (t *Term) EnableTrace(path string) error {
+	t.inputMu.Lock()
+	defer t.inputMu.Unlock()
+
 	t.cfgMu.Lock()
 	defer t.cfgMu.Unlock()
 	if t.finalized {
@@ -257,6 +272,9 @@ func (t *Term) EnableTrace(path string) error {
 
 // DisableTrace stops tracing and writes the zip bundle.
 func (t *Term) DisableTrace() error {
+	t.inputMu.Lock()
+	defer t.inputMu.Unlock()
+
 	t.cfgMu.Lock()
 	defer t.cfgMu.Unlock()
 	if t.tr == nil {

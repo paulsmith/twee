@@ -34,3 +34,33 @@ func TestMouseArgsPreserveRequiredZeroAndOptionalTicksPresence(t *testing.T) {
 		t.Fatalf("explicit-zero scroll JSON = %s, want ticks present", scroll)
 	}
 }
+
+func TestModeDataAlwaysIncludesRawMouseBooleans(t *testing.T) {
+	raw, err := json.Marshal(ModeData{})
+	if err != nil {
+		t.Fatalf("marshal mode data: %v", err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatalf("decode mode data: %v", err)
+	}
+	for _, key := range []string{
+		"mouse_tracking_x10",
+		"mouse_tracking_normal",
+		"mouse_tracking_button",
+		"mouse_tracking_any",
+		"mouse_format_utf8",
+		"mouse_format_sgr",
+		"mouse_format_urxvt",
+		"mouse_format_sgr_pixels",
+	} {
+		value, ok := fields[key]
+		if !ok {
+			t.Errorf("ModeData JSON missing %q: %s", key, raw)
+			continue
+		}
+		if value != false {
+			t.Errorf("ModeData JSON %q = %#v, want false", key, value)
+		}
+	}
+}

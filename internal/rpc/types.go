@@ -249,15 +249,15 @@ type ModeData struct {
 	MouseTracking string `json:"mouse_tracking,omitempty"`
 	MouseFormat   string `json:"mouse_format,omitempty"`
 
-	MouseTrackingX10    bool `json:"mouse_tracking_x10,omitempty"`
-	MouseTrackingNormal bool `json:"mouse_tracking_normal,omitempty"`
-	MouseTrackingButton bool `json:"mouse_tracking_button,omitempty"`
-	MouseTrackingAny    bool `json:"mouse_tracking_any,omitempty"`
+	MouseTrackingX10    bool `json:"mouse_tracking_x10"`
+	MouseTrackingNormal bool `json:"mouse_tracking_normal"`
+	MouseTrackingButton bool `json:"mouse_tracking_button"`
+	MouseTrackingAny    bool `json:"mouse_tracking_any"`
 
-	MouseFormatUTF8      bool `json:"mouse_format_utf8,omitempty"`
-	MouseFormatSGR       bool `json:"mouse_format_sgr,omitempty"`
-	MouseFormatURxvt     bool `json:"mouse_format_urxvt,omitempty"`
-	MouseFormatSGRPixels bool `json:"mouse_format_sgr_pixels,omitempty"`
+	MouseFormatUTF8      bool `json:"mouse_format_utf8"`
+	MouseFormatSGR       bool `json:"mouse_format_sgr"`
+	MouseFormatURxvt     bool `json:"mouse_format_urxvt"`
+	MouseFormatSGRPixels bool `json:"mouse_format_sgr_pixels"`
 }
 
 type FindMatch struct {
