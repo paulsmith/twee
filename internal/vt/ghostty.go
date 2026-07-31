@@ -122,12 +122,28 @@ func (g *ghosttyTerm) MouseState() (MouseState, error) {
 	}
 
 	state := MouseState{Enabled: enabled, Raw: raw}
-	state.Tracking, state.TrackingKnown = trackingFromRaw(raw)
-	state.Format, state.FormatKnown = formatFromRaw(raw)
+	tracking, trackingCount := trackingCandidateFromRaw(raw)
+	switch trackingCount {
+	case 0:
+		state.Tracking = MouseTrackingNone
+		state.TrackingKnown = true
+		state.TrackingCandidate = MouseTrackingNone
+	case 1:
+		state.TrackingCandidate = tracking
+	}
+	format, formatCount := formatCandidateFromRaw(raw)
+	switch formatCount {
+	case 0:
+		state.Format = MouseFormatX10
+		state.FormatKnown = true
+		state.FormatCandidate = MouseFormatX10
+	case 1:
+		state.FormatCandidate = format
+	}
 	return state, nil
 }
 
-func trackingFromRaw(raw MouseRawModes) (MouseTracking, bool) {
+func trackingCandidateFromRaw(raw MouseRawModes) (MouseTracking, int) {
 	var tracking MouseTracking
 	count := 0
 	for _, candidate := range []struct {
@@ -145,12 +161,15 @@ func trackingFromRaw(raw MouseRawModes) (MouseTracking, bool) {
 		}
 	}
 	if count == 0 {
-		return MouseTrackingNone, true
+		return MouseTrackingNone, 0
 	}
-	return tracking, count == 1
+	if count > 1 {
+		return "", count
+	}
+	return tracking, 1
 }
 
-func formatFromRaw(raw MouseRawModes) (MouseFormat, bool) {
+func formatCandidateFromRaw(raw MouseRawModes) (MouseFormat, int) {
 	var format MouseFormat
 	count := 0
 	for _, candidate := range []struct {
@@ -168,9 +187,12 @@ func formatFromRaw(raw MouseRawModes) (MouseFormat, bool) {
 		}
 	}
 	if count == 0 {
-		return MouseFormatX10, true
+		return MouseFormatX10, 0
 	}
-	return format, count == 1
+	if count > 1 {
+		return "", count
+	}
+	return format, 1
 }
 
 func (g *ghosttyTerm) EncodeMouse(events []input.MouseEvent) (MouseEncodingResult, error) {
@@ -193,50 +215,57 @@ func (g *ghosttyTerm) EncodeMouse(events []input.MouseEvent) (MouseEncodingResul
 	if err != nil {
 		return MouseEncodingResult{}, err
 	}
+	tracking, trackingCount := trackingCandidateFromRaw(state.Raw)
+	format, formatCount := formatCandidateFromRaw(state.Raw)
 	if state.Raw.FormatSGRPixels {
 		return MouseEncodingResult{}, &MouseEncodeError{
 			Reason: MouseErrorSGRPixels, Gesture: gesture,
-			Tracking: state.Tracking, Format: MouseFormatSGRPixels,
+			Tracking: state.Tracking, Format: state.Format,
+			TrackingCandidate: tracking, FormatCandidate: MouseFormatSGRPixels,
 		}
 	}
-	if !state.TrackingKnown {
+	if trackingCount > 1 {
 		return MouseEncodingResult{}, &MouseEncodeError{
 			Reason: MouseErrorAmbiguousTracking, Gesture: gesture,
 		}
 	}
-	if !state.FormatKnown {
+	if formatCount > 1 {
 		return MouseEncodingResult{}, &MouseEncodeError{
 			Reason: MouseErrorAmbiguousFormat, Gesture: gesture,
-			Tracking: state.Tracking,
+			Tracking: state.Tracking, TrackingCandidate: tracking,
 		}
 	}
-	if !state.Enabled || state.Tracking == MouseTrackingNone {
+	if trackingCount == 0 {
 		return MouseEncodingResult{}, &MouseEncodeError{
 			Reason: MouseErrorTrackingDisabled, Gesture: gesture,
 			Tracking: MouseTrackingNone, Format: state.Format,
+			FormatCandidate: format,
 		}
 	}
 
 	required := requiredTracking(gesture)
-	if !containsTracking(required, state.Tracking) {
+	if !containsTracking(required, tracking) {
 		return MouseEncodingResult{}, &MouseEncodeError{
 			Reason: MouseErrorIncompatible, Gesture: gesture,
 			Tracking: state.Tracking, Format: state.Format, Required: required,
+			TrackingCandidate: tracking, FormatCandidate: format,
 		}
 	}
-	if state.Tracking == MouseTrackingX10 && batchHasModifiers(events) {
+	if tracking == MouseTrackingX10 && batchHasModifiers(events) {
 		return MouseEncodingResult{}, &MouseEncodeError{
 			Reason: MouseErrorX10Modifiers, Gesture: gesture,
 			Tracking: state.Tracking, Format: state.Format,
+			TrackingCandidate: tracking, FormatCandidate: format,
 		}
 	}
-	if state.Format == MouseFormatX10 {
+	if format == MouseFormatX10 {
 		for i, event := range events {
 			if event.X > 222 || event.Y > 222 {
 				return MouseEncodingResult{}, &MouseEncodeError{
 					Reason: MouseErrorLegacyCoordinate, Gesture: gesture, Event: i,
 					X: event.X, Y: event.Y, Cols: size.Cols, Rows: size.Rows,
 					Tracking: state.Tracking, Format: state.Format,
+					TrackingCandidate: tracking, FormatCandidate: format,
 				}
 			}
 		}
@@ -285,21 +314,24 @@ func (g *ghosttyTerm) EncodeMouse(events []input.MouseEvent) (MouseEncodingResul
 		if encodeErr != nil {
 			return MouseEncodingResult{}, &MouseEncodeError{
 				Reason: MouseErrorEncoding, Gesture: gesture, Event: i,
-				Tracking: state.Tracking, Format: state.Format, Err: encodeErr,
+				Tracking: state.Tracking, Format: state.Format,
+				TrackingCandidate: tracking, FormatCandidate: format, Err: encodeErr,
 			}
 		}
 		produced := len(report) != 0
-		expected := expectedReport(state.Tracking, event)
+		expected := expectedReport(tracking, event)
 		if expected && !produced {
 			return MouseEncodingResult{}, &MouseEncodeError{
 				Reason: MouseErrorMissingReport, Gesture: gesture, Event: i,
 				Tracking: state.Tracking, Format: state.Format,
+				TrackingCandidate: tracking, FormatCandidate: format,
 			}
 		}
 		if !expected && produced {
 			return MouseEncodingResult{}, &MouseEncodeError{
 				Reason: MouseErrorUnexpectedReport, Gesture: gesture, Event: i,
 				Tracking: state.Tracking, Format: state.Format,
+				TrackingCandidate: tracking, FormatCandidate: format,
 			}
 		}
 		result.Events[i] = MouseEventEncoding{Produced: produced, Bytes: report}

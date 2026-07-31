@@ -44,7 +44,9 @@ func TestMouseStateRawAndConservativeDerivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if state.Enabled || !state.TrackingKnown || state.Tracking != MouseTrackingNone ||
-		!state.FormatKnown || state.Format != MouseFormatX10 {
+		state.TrackingCandidate != MouseTrackingNone ||
+		!state.FormatKnown || state.Format != MouseFormatX10 ||
+		state.FormatCandidate != MouseFormatX10 {
 		t.Fatalf("initial state = %#v", state)
 	}
 
@@ -53,8 +55,10 @@ func TestMouseStateRawAndConservativeDerivation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !state.Enabled || !state.TrackingKnown || state.Tracking != MouseTrackingButton ||
-		!state.FormatKnown || state.Format != MouseFormatSGR ||
+	if !state.Enabled || state.TrackingKnown || state.Tracking != "" ||
+		state.TrackingCandidate != MouseTrackingButton ||
+		state.FormatKnown || state.Format != "" ||
+		state.FormatCandidate != MouseFormatSGR ||
 		!state.Raw.TrackingButton || !state.Raw.FormatSGR {
 		t.Fatalf("button/SGR state = %#v", state)
 	}
@@ -67,9 +71,68 @@ func TestMouseStateRawAndConservativeDerivation(t *testing.T) {
 	if state.TrackingKnown || state.FormatKnown {
 		t.Fatalf("ambiguous raw state claimed effective values: %#v", state)
 	}
+	if state.TrackingCandidate != "" || state.FormatCandidate != "" {
+		t.Fatalf("ambiguous raw state claimed candidates: %#v", state)
+	}
 	if !state.Raw.TrackingNormal || !state.Raw.TrackingButton ||
 		!state.Raw.FormatUTF8 || !state.Raw.FormatSGR {
 		t.Fatalf("raw bits = %#v", state.Raw)
+	}
+}
+
+func TestMouseStateTrackingSingletonTransitionIsNotAuthoritative(t *testing.T) {
+	term := newMouseTestTerm(t, 80, 24)
+
+	// Ghostty retains the normal-mode raw bit but disabling the most recently
+	// enabled any-event mode resets its effective scalar state to none.
+	enableMouse(t, term, "\x1b[?1000h\x1b[?1003h\x1b[?1003l")
+	state, err := term.MouseState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Enabled || state.TrackingKnown || state.Tracking != "" ||
+		state.TrackingCandidate != MouseTrackingNormal ||
+		!state.Raw.TrackingNormal || state.Raw.TrackingAny {
+		t.Fatalf("state = %#v", state)
+	}
+
+	result, err := term.EncodeMouse(expandMouse(t,
+		input.NewClick(1, 1, input.ButtonLeft, nil),
+	))
+	if !errors.Is(err, ErrMouseMissingReport) {
+		t.Fatalf("error = %v, want missing report precondition", err)
+	}
+	if len(result.Bytes) != 0 || result.ReportCount != 0 || len(result.Events) != 0 {
+		t.Fatalf("failed encoding leaked partial result: %#v", result)
+	}
+}
+
+func TestMouseStateFormatSingletonTransitionIsNotAuthoritative(t *testing.T) {
+	term := newMouseTestTerm(t, 300, 24)
+
+	// The raw UTF-8 bit remains set, while disabling the later SGR mode resets
+	// Ghostty's effective scalar format to legacy X10.
+	enableMouse(t, term, "\x1b[?1000h\x1b[?1005h\x1b[?1006h\x1b[?1006l")
+	state, err := term.MouseState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.FormatKnown || state.Format != "" ||
+		state.FormatCandidate != MouseFormatUTF8 ||
+		!state.Raw.FormatUTF8 || state.Raw.FormatSGR {
+		t.Fatalf("state = %#v", state)
+	}
+
+	// The raw UTF-8 candidate allows preflight, but the effective X10 encoder
+	// cannot represent x=223. Report verification rejects the whole batch.
+	result, err := term.EncodeMouse(expandMouse(t,
+		input.NewClick(223, 0, input.ButtonLeft, nil),
+	))
+	if !errors.Is(err, ErrMouseMissingReport) {
+		t.Fatalf("error = %v, want missing report precondition", err)
+	}
+	if len(result.Bytes) != 0 || result.ReportCount != 0 || len(result.Events) != 0 {
+		t.Fatalf("failed encoding leaked partial result: %#v", result)
 	}
 }
 

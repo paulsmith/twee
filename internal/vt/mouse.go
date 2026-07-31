@@ -55,17 +55,30 @@ type MouseRawModes struct {
 }
 
 // MouseState is a truthful view of the mouse state available from the pinned
-// libghostty API. Tracking and Format are populated only when their raw bits
-// have a single conservative interpretation; callers must check the matching
-// Known field. Raw always contains the individual mode bits.
+// libghostty API. Tracking and Format are authoritative only when their
+// matching Known field is true. Candidate fields hold a single conservative
+// interpretation of the raw bits for encoding preflight; they are not
+// effective state and must never be published as such. Raw always contains
+// the individual mode bits.
 type MouseState struct {
+	// Enabled is libghostty's aggregate raw tracking-bit state. Without
+	// effective getters it can remain true after the effective scalar mode
+	// has returned to none.
 	Enabled bool
 	Raw     MouseRawModes
 
+	// Tracking and Format are safe to publish only when Known is true.
 	Tracking      MouseTracking
 	TrackingKnown bool
-	Format        MouseFormat
-	FormatKnown   bool
+	// TrackingCandidate is non-authoritative and used only for conservative
+	// encoding preflight when exactly one raw tracking bit is set.
+	TrackingCandidate MouseTracking
+
+	Format      MouseFormat
+	FormatKnown bool
+	// FormatCandidate is non-authoritative and used only for conservative
+	// encoding preflight when exactly one raw format bit is set.
+	FormatCandidate MouseFormat
 }
 
 // MouseEventEncoding records whether one input event produced a report and
@@ -122,6 +135,12 @@ type MouseEncodeError struct {
 	Format   MouseFormat
 	Required []MouseTracking
 
+	// Candidate fields are conservative raw-bit interpretations used during
+	// preflight. Unlike Tracking and Format, they are not authoritative
+	// effective state and should not be exposed as such in RPC details.
+	TrackingCandidate MouseTracking
+	FormatCandidate   MouseFormat
+
 	Err error
 }
 
@@ -139,12 +158,19 @@ func (e *MouseEncodeError) Error() string {
 	case MouseErrorTrackingDisabled:
 		return "vt: mouse tracking is disabled"
 	case MouseErrorIncompatible:
+		tracking := string(e.Tracking)
+		if tracking == "" && e.TrackingCandidate != "" {
+			tracking = "raw " + string(e.TrackingCandidate) + " candidate"
+		}
 		return fmt.Sprintf(
 			"vt: %s is incompatible with mouse tracking mode %s",
-			e.Gesture, e.Tracking,
+			e.Gesture, tracking,
 		)
 	case MouseErrorX10Modifiers:
-		return "vt: mouse tracking mode x10 does not support modifiers"
+		if e.TrackingKnown() {
+			return "vt: mouse tracking mode x10 does not support modifiers"
+		}
+		return "vt: raw x10 mouse tracking candidate does not support modifiers"
 	case MouseErrorAmbiguousTracking:
 		return "vt: effective mouse tracking mode is ambiguous"
 	case MouseErrorAmbiguousFormat:
@@ -167,6 +193,12 @@ func (e *MouseEncodeError) Error() string {
 	default:
 		return fmt.Sprintf("vt: mouse encoding failed (%s)", e.Reason)
 	}
+}
+
+// TrackingKnown reports whether the error carries authoritative tracking
+// state rather than only a raw-bit candidate.
+func (e *MouseEncodeError) TrackingKnown() bool {
+	return e.Tracking != ""
 }
 
 func (e *MouseEncodeError) Unwrap() error {
