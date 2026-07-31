@@ -311,11 +311,20 @@ must enable a compatible mouse tracking mode: click accepts modes 9, 1000,
 and hover requires 1003. Disabled or incompatible tracking fails without
 writing a partial gesture.
 
-`twee mode` always reports `mouse` and the raw mouse-mode booleans. When the
-pinned VT API can identify one unambiguous effective state it also reports
-`mouse_tracking` (`none`, `x10`, `normal`, `button`, or `any`) and
-`mouse_format` (`x10`, `utf8`, `sgr`, `urxvt`, or `sgr_pixels`). SGR-Pixels
-input is rejected until twee has real terminal pixel geometry.
+`twee mode` always reports the aggregate `mouse` boolean and explicit raw
+DECSET booleans: `mouse_tracking_x10`, `mouse_tracking_normal`,
+`mouse_tracking_button`, `mouse_tracking_any`, `mouse_format_utf8`,
+`mouse_format_sgr`, `mouse_format_urxvt`, and
+`mouse_format_sgr_pixels`. Each raw field is present even when false.
+
+The pinned VT API cannot always prove the effective scalar mode from those
+independently retained raw bits. `mouse_tracking` (`none`, `x10`, `normal`,
+`button`, or `any`) and `mouse_format` (`x10`, `utf8`, `sgr`, `urxvt`, or
+`sgr_pixels`) are therefore included only when the backend can prove them;
+automation must tolerate either field being omitted. A gesture whose effective
+tracking or format is ambiguous fails conservatively without writing bytes.
+Any raw SGR-Pixels (1016) bit also causes conservative rejection, even if
+another raw format bit is set, until twee has real terminal pixel geometry.
 
 The public Go harness mirrors the same gestures:
 
@@ -542,6 +551,29 @@ $ twee wait text --pattern "Choose an option"
 $ twee key Down
 $ twee trace stop
 {"ok":true,"data":{"path":"/tmp/myapp.twee"}}
+```
+
+Each successful high-level mouse gesture is one structured input event, with
+the complete encoded report batch in `bytes_b64` and gesture semantics under
+`mouse`. Valid zero coordinates remain explicit:
+
+```json
+{"t_ms":1250,"type":"input","kind":"mouse","bytes_b64":"...","mouse":{"gesture":"click","x":0,"y":4,"button":"left","modifiers":[]}}
+```
+
+Hover and scroll use `x`/`y`; scroll additionally records `direction` and
+`ticks`. Drag uses `from_x`, `from_y`, `to_x`, and `to_y`. Button and the
+explicit modifiers array are recorded where applicable. Failed gestures
+produce no trace event.
+
+Playback treats these bytes as an annotation rather than feeding them back
+into the VT model. `twee play` and export's `--input-overlay` render stable
+gesture toasts such as:
+
+```text
+[01.250s] → click left @(0,4)
+[02.100s] → scroll down x3 @(20,8)
+[03.000s] → drag left (4,2)->(30,12)
 ```
 
 If `--out` is omitted, `trace start` chooses a temporary `.twee` path
