@@ -490,6 +490,50 @@ func TestLoopResizeClearsMouseAnnotationAndDisableOptionSkipsIt(t *testing.T) {
 	})
 }
 
+func TestLoopMouseAnnotationMapsFinalCellWithFittedPixelPlacement(t *testing.T) {
+	makeLoop := func(disable bool) (*loop, *fakeSink) {
+		sink := &fakeSink{}
+		l := newLoop(loopConfig{
+			Events: []Event{{TMS: 0, Type: "input", Kind: "mouse", Mouse: testMouseClick(9, 2, "left")}},
+			Cols:   10, Rows: 3, Speed: 1, Sink: sink,
+			NewModel:                func(cols, rows int) vt.Model { return &fakeModel{cols: cols, rows: rows} },
+			DisplayPixels:           displayPixels{Width: 200, Height: 100},
+			TerminalSize:            terminalSize{Cols: 20, Rows: 10},
+			DisableMouseAnnotations: disable,
+		})
+		return l, sink
+	}
+	now := time.Unix(0, 0)
+	withAnnotation, annotatedSink := makeLoop(false)
+	withoutAnnotation, cleanSink := makeLoop(true)
+	withAnnotation.tick(now)
+	withoutAnnotation.tick(now)
+	annotated := lastFrame(t, annotatedSink)
+	clean := lastFrame(t, cleanSink)
+	if annotated.cols != 20 || annotated.rows != 6 || annotated.size.Dx() != 200 || annotated.size.Dy() != 60 {
+		t.Fatalf("fitted frame = %dx%d pixels=%dx%d, want 20x6 cells and 200x60 pixels",
+			annotated.cols, annotated.rows, annotated.size.Dx(), annotated.size.Dy())
+	}
+	// The logical final cell (9,2) is the lower-right 20x20 pixel area of
+	// the fitted 200x60 image. The annotation must use the logical 10x3
+	// snapshot grid, not the 20x6 graphics placement grid.
+	if pixelsEqual(annotated.img, clean.img, image.Rect(180, 40, 200, 60)) {
+		t.Fatal("annotation did not affect the final logical cell image region")
+	}
+}
+
+func pixelsEqual(a, b *image.RGBA, region image.Rectangle) bool {
+	region = region.Intersect(a.Bounds()).Intersect(b.Bounds())
+	for y := region.Min.Y; y < region.Max.Y; y++ {
+		for x := region.Min.X; x < region.Max.X; x++ {
+			if a.RGBAAt(x, y) != b.RGBAAt(x, y) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func testMouseClick(x, y int, button string) *trace.MouseInput {
 	return &trace.MouseInput{Gesture: "click", X: intPtr(x), Y: intPtr(y), Button: button}
 }

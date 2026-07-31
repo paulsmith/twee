@@ -65,6 +65,23 @@ func TestPlayFakeExperimentalBackendsEmitProtocolBytes(t *testing.T) {
 	}
 }
 
+func TestPlayFakeKittyHandlesMouseAnnotationsAndOptOut(t *testing.T) {
+	bin := buildBinary(t)
+	path := writeMousePlayBundle(t)
+	for _, args := range [][]string{
+		{"play", "--speed", "100", path},
+		{"play", "--speed", "100", "--no-mouse-annotations", path},
+	} {
+		t.Run(strings.Join(args[1:len(args)-1], " "), func(t *testing.T) {
+			cmd := exec.Command(bin, args...)
+			cmd.Env = append(os.Environ(), append(testEnv(t), "TWEE_PLAY_FAKE_KITTY=1")...)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("play %v: %v\n%s", args[1:len(args)-1], err, out)
+			}
+		})
+	}
+}
+
 func TestParsePlayArgsAcceptsFlagsAfterBundle(t *testing.T) {
 	path, opts := parsePlayArgs([]string{"demo.twee", "--backend", "sixel", "--speed", "2.5", "--step", "--max-idle=500ms", "--no-mouse-annotations", "--verbose"})
 	if path != "demo.twee" {
@@ -123,6 +140,14 @@ func TestPlayHelpDocumentsBackendConstraints(t *testing.T) {
 }
 
 func writePlayBundle(t *testing.T) string {
+	return writePlayBundleEvents(t, `{"t_ms":0,"type":"output","bytes_b64":"`+base64.StdEncoding.EncodeToString([]byte("hi"))+`"}`)
+}
+
+func writeMousePlayBundle(t *testing.T) string {
+	return writePlayBundleEvents(t, `{"t_ms":0,"type":"input","kind":"mouse","mouse":{"gesture":"click","x":9,"y":2,"button":"left","modifiers":[]}}`)
+}
+
+func writePlayBundleEvents(t *testing.T, events ...string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "session.twee")
 	f, err := os.Create(path)
@@ -141,9 +166,10 @@ func writePlayBundle(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	event := `{"t_ms":0,"type":"output","bytes_b64":"` + base64.StdEncoding.EncodeToString([]byte("hi")) + `"}`
-	if _, err := ew.Write([]byte(event + "\n")); err != nil {
-		t.Fatal(err)
+	for _, event := range events {
+		if _, err := ew.Write([]byte(event + "\n")); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := zw.Close(); err != nil {
 		t.Fatal(err)
