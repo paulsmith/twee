@@ -10,6 +10,7 @@ import (
 
 	"github.com/paulsmith/twee/internal/engine"
 	"github.com/paulsmith/twee/internal/render"
+	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/vt"
 )
 
@@ -32,21 +33,26 @@ type loop struct {
 	cursor int
 	model  vt.Model
 
-	snapHash      []byte
-	emittedToast  string
-	emittedStatus string
+	snapHash               []byte
+	emittedToast           string
+	emittedStatus          string
+	emittedMouseFrame      int
+	emittedMouseGeneration uint64
 
-	playT    time.Duration
-	wallPrev time.Time
-	speed    float64
-	maxIdle  time.Duration
-	paused   bool
-	stepMode bool
-	atEnd    bool
-	toast    toast
-	cmds     <-chan command
-	sink     frameSink
-	quitNext bool
+	playT                   time.Duration
+	wallPrev                time.Time
+	speed                   float64
+	maxIdle                 time.Duration
+	paused                  bool
+	stepMode                bool
+	atEnd                   bool
+	toast                   toast
+	mouse                   *activeMouseAnnotation
+	mouseGeneration         uint64
+	disableMouseAnnotations bool
+	cmds                    <-chan command
+	sink                    frameSink
+	quitNext                bool
 
 	cols, rows         int
 	initCols, initRows int
@@ -69,18 +75,19 @@ type terminalSize struct {
 }
 
 type loopConfig struct {
-	Events        []Event
-	Cols          int
-	Rows          int
-	Speed         float64
-	MaxIdle       time.Duration
-	Step          bool
-	Cmds          <-chan command
-	Sink          frameSink
-	NewModel      func(int, int) vt.Model
-	RenderOptions render.Options
-	DisplayPixels displayPixels
-	TerminalSize  terminalSize
+	Events                  []Event
+	Cols                    int
+	Rows                    int
+	Speed                   float64
+	MaxIdle                 time.Duration
+	Step                    bool
+	Cmds                    <-chan command
+	Sink                    frameSink
+	NewModel                func(int, int) vt.Model
+	RenderOptions           render.Options
+	DisplayPixels           displayPixels
+	TerminalSize            terminalSize
+	DisableMouseAnnotations bool
 }
 
 func newLoop(cfg loopConfig) *loop {
@@ -97,23 +104,25 @@ func newLoop(cfg loopConfig) *loop {
 		cfg.NewModel = vt.New
 	}
 	return &loop{
-		events:        append([]Event(nil), cfg.Events...),
-		model:         cfg.NewModel(cfg.Cols, cfg.Rows),
-		speed:         cfg.Speed,
-		maxIdle:       cfg.MaxIdle,
-		paused:        cfg.Step,
-		stepMode:      cfg.Step,
-		cmds:          cfg.Cmds,
-		sink:          cfg.Sink,
-		cols:          cfg.Cols,
-		rows:          cfg.Rows,
-		initCols:      cfg.Cols,
-		initRows:      cfg.Rows,
-		initStep:      cfg.Step,
-		newModel:      cfg.NewModel,
-		renderOptions: cfg.RenderOptions,
-		displayPixels: cfg.DisplayPixels,
-		terminalSize:  cfg.TerminalSize,
+		events:                  append([]Event(nil), cfg.Events...),
+		model:                   cfg.NewModel(cfg.Cols, cfg.Rows),
+		speed:                   cfg.Speed,
+		maxIdle:                 cfg.MaxIdle,
+		paused:                  cfg.Step,
+		stepMode:                cfg.Step,
+		cmds:                    cfg.Cmds,
+		sink:                    cfg.Sink,
+		cols:                    cfg.Cols,
+		rows:                    cfg.Rows,
+		initCols:                cfg.Cols,
+		initRows:                cfg.Rows,
+		initStep:                cfg.Step,
+		newModel:                cfg.NewModel,
+		renderOptions:           cfg.RenderOptions,
+		displayPixels:           cfg.DisplayPixels,
+		terminalSize:            cfg.TerminalSize,
+		disableMouseAnnotations: cfg.DisableMouseAnnotations,
+		emittedMouseFrame:       -2,
 	}
 }
 
@@ -147,7 +156,7 @@ func (l *loop) tick(now time.Time) (done bool) {
 	}
 
 	if dispatchReady {
-		l.dispatchReady()
+		l.dispatchReady(now)
 	}
 	if l.cursor == len(l.events) {
 		l.atEnd = true
@@ -176,7 +185,7 @@ func (l *loop) drainCommands(now time.Time) (skipAdvance, dispatchReady, done bo
 				if l.cursor < len(l.events) {
 					ev := l.events[l.cursor]
 					l.playT = ev.TraceTime()
-					l.dispatch(ev)
+					l.dispatch(ev, now)
 					l.cursor++
 				}
 			case cmdFwd1s:
@@ -194,6 +203,8 @@ func (l *loop) drainCommands(now time.Time) (skipAdvance, dispatchReady, done bo
 				l.atEnd = false
 				l.toast = toast{}
 				l.snapHash = nil
+				l.mouse = nil
+				l.emittedMouseFrame = -2
 				l.cols, l.rows = l.initCols, l.initRows
 				skipAdvance = true
 			case cmdQuit:
@@ -208,14 +219,14 @@ func (l *loop) drainCommands(now time.Time) (skipAdvance, dispatchReady, done bo
 	}
 }
 
-func (l *loop) dispatchReady() {
+func (l *loop) dispatchReady(now time.Time) {
 	for l.cursor < len(l.events) && l.events[l.cursor].TraceTime() <= l.playT {
-		l.dispatch(l.events[l.cursor])
+		l.dispatch(l.events[l.cursor], now)
 		l.cursor++
 	}
 }
 
-func (l *loop) dispatch(ev Event) {
+func (l *loop) dispatch(ev Event, now time.Time) {
 	switch ev.Type {
 	case "output":
 		if err := l.model.Feed(ev.Bytes); err != nil && l.err == nil {
@@ -227,10 +238,17 @@ func (l *loop) dispatch(ev Event) {
 				l.err = err
 			}
 			l.cols, l.rows = ev.Cols, ev.Rows
+			// A coordinate belongs to the viewport that existed when it
+			// was recorded. Do not carry it across a later resize.
+			l.mouse = nil
 		}
 		l.setToast(ev)
 	case "input":
 		l.setToast(ev)
+		if ev.Kind == "mouse" && !l.disableMouseAnnotations && validMouseAnnotation(ev.Mouse, l.cols, l.rows) {
+			l.mouse = &activeMouseAnnotation{mouse: cloneMouseInput(ev.Mouse), started: now}
+			l.mouseGeneration++
+		}
 	case "exit":
 		// Exit records are metadata in playback v0.
 	}
@@ -244,7 +262,7 @@ func (l *loop) setToast(ev Event) {
 	l.toast = toast{text: text}
 }
 
-func (l *loop) emitFrame(time.Time) {
+func (l *loop) emitFrame(now time.Time) {
 	if l.sink == nil || l.err != nil {
 		return
 	}
@@ -252,7 +270,9 @@ func (l *loop) emitFrame(time.Time) {
 	hash := hashSnapshot(snap)
 	toastText := l.toast.text
 	status := l.status()
-	if bytes.Equal(hash, l.snapHash) && toastText == l.emittedToast && status == l.emittedStatus {
+	mouse, phase, mouseFrame, mouseGeneration := l.mouseFrame(now)
+	if bytes.Equal(hash, l.snapHash) && toastText == l.emittedToast && status == l.emittedStatus &&
+		mouseFrame == l.emittedMouseFrame && mouseGeneration == l.emittedMouseGeneration {
 		return
 	}
 	placement := l.placementForSnapshot(snap)
@@ -265,6 +285,11 @@ func (l *loop) emitFrame(time.Time) {
 		l.err = err
 		return
 	}
+	if mouse != nil {
+		// Metadata was validated when dispatched; retaining this guard makes
+		// frame emission safe if a future event source bypasses that path.
+		_ = drawMouseAnnotation(img, mouse, l.cols, l.rows, phase)
+	}
 	if err := l.sink.Emit(img, placement.Cols, placement.Rows, toastText, status); err != nil {
 		l.err = err
 		return
@@ -272,6 +297,23 @@ func (l *loop) emitFrame(time.Time) {
 	l.snapHash = hash
 	l.emittedToast = toastText
 	l.emittedStatus = status
+	l.emittedMouseFrame = mouseFrame
+	l.emittedMouseGeneration = mouseGeneration
+}
+
+func (l *loop) mouseFrame(now time.Time) (*trace.MouseInput, float64, int, uint64) {
+	if l.mouse == nil {
+		return nil, 0, -1, l.mouseGeneration
+	}
+	elapsed := now.Sub(l.mouse.started)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	if elapsed >= mouseAnnotationDuration {
+		l.mouse = nil
+		return nil, 0, -1, l.mouseGeneration
+	}
+	return l.mouse.mouse, float64(elapsed) / float64(mouseAnnotationDuration), int(elapsed / mouseAnnotationFramePeriod), l.mouseGeneration
 }
 
 func (l *loop) placementForSnapshot(snap vt.Snapshot) terminalSize {

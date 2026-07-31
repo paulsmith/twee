@@ -4,9 +4,20 @@ import (
 	"image"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/paulsmith/twee/internal/trace"
 )
+
+const (
+	mouseAnnotationDuration    = 700 * time.Millisecond
+	mouseAnnotationFramePeriod = time.Second / 15
+)
+
+type activeMouseAnnotation struct {
+	mouse   *trace.MouseInput
+	started time.Time
+}
 
 // drawMouseAnnotation draws a transient annotation for a recorded semantic
 // mouse gesture. phase is normally in [0, 1], where zero is the instant the
@@ -72,6 +83,48 @@ func drawMouseAnnotation(img *image.RGBA, mouse *trace.MouseInput, cols, rows in
 	default:
 		return false
 	}
+}
+
+func validMouseAnnotation(mouse *trace.MouseInput, cols, rows int) bool {
+	if mouse == nil || cols <= 0 || rows <= 0 {
+		return false
+	}
+	validPoint := func(x, y *int) bool {
+		return x != nil && y != nil && *x >= 0 && *x < cols && *y >= 0 && *y < rows
+	}
+	switch strings.ToLower(mouse.Gesture) {
+	case "click", "hover":
+		return validPoint(mouse.X, mouse.Y)
+	case "scroll":
+		return validPoint(mouse.X, mouse.Y) && (mouse.Direction == "up" || mouse.Direction == "down")
+	case "drag":
+		return validPoint(mouse.FromX, mouse.FromY) && validPoint(mouse.ToX, mouse.ToY)
+	default:
+		return false
+	}
+}
+
+func cloneMouseInput(mouse *trace.MouseInput) *trace.MouseInput {
+	if mouse == nil {
+		return nil
+	}
+	copy := *mouse
+	copy.Modifiers = append([]string(nil), mouse.Modifiers...)
+	copy.X = cloneMouseCoordinate(mouse.X)
+	copy.Y = cloneMouseCoordinate(mouse.Y)
+	copy.FromX = cloneMouseCoordinate(mouse.FromX)
+	copy.FromY = cloneMouseCoordinate(mouse.FromY)
+	copy.ToX = cloneMouseCoordinate(mouse.ToX)
+	copy.ToY = cloneMouseCoordinate(mouse.ToY)
+	return &copy
+}
+
+func cloneMouseCoordinate(v *int) *int {
+	if v == nil {
+		return nil
+	}
+	copy := *v
+	return &copy
 }
 
 type mouseShape uint8

@@ -106,7 +106,7 @@ func TestLoopStepAdvancesExactlyOneEvent(t *testing.T) {
 }
 
 func TestLoopToastPersistsUntilNextDisplayedEvent(t *testing.T) {
-	cmds := make(chan command, 2)
+	cmds := make(chan command, 1)
 	sink := &fakeSink{}
 	l := testLoop(loopConfig{
 		Events: []Event{
@@ -340,6 +340,143 @@ func TestLoopEndScreenWhenLastEventIsOutput(t *testing.T) {
 	if !bytes.Equal(renderedFrame(t, l, true).Pix, lastFrame(t, sink).img.Pix) {
 		t.Fatal("frame at end does not match end-screen render of the model")
 	}
+}
+
+func TestLoopMouseAnnotationAnimatesThenEmitsOneCleanFrame(t *testing.T) {
+	cmds := make(chan command, 1)
+	sink := &fakeSink{}
+	l := testLoop(loopConfig{
+		Events: []Event{{TMS: 0, Type: "input", Kind: "mouse", Mouse: testMouseClick(2, 1, "left")}},
+		Step:   true,
+		Cmds:   cmds,
+		Sink:   sink,
+	})
+	now := time.Unix(0, 0)
+	l.tick(now)
+	baseline := lastFrame(t, sink).img
+
+	cmds <- cmdStep
+	l.tick(now.Add(time.Millisecond))
+	first := lastFrame(t, sink).img
+	if bytes.Equal(first.Pix, renderedFrame(t, l, true).Pix) {
+		t.Fatal("mouse event did not overlay the final rendered frame")
+	}
+	if bytes.Equal(baseline.Pix, first.Pix) {
+		t.Fatal("mouse-only event did not force a rendered frame")
+	}
+
+	framesAfterStart := len(sink.frames)
+	l.tick(now.Add(time.Millisecond + mouseAnnotationFramePeriod + time.Millisecond))
+	if len(sink.frames) != framesAfterStart+1 {
+		t.Fatalf("animation frames = %d, want %d", len(sink.frames), framesAfterStart+1)
+	}
+	if bytes.Equal(first.Pix, lastFrame(t, sink).img.Pix) {
+		t.Fatal("animation frame did not change")
+	}
+
+	l.tick(now.Add(time.Millisecond + mouseAnnotationDuration))
+	if !bytes.Equal(lastFrame(t, sink).img.Pix, renderedFrame(t, l, true).Pix) {
+		t.Fatal("expired annotation did not restore the clean final frame")
+	}
+	framesAfterExpiry := len(sink.frames)
+	l.tick(now.Add(time.Millisecond + mouseAnnotationDuration + mouseAnnotationFramePeriod))
+	if len(sink.frames) != framesAfterExpiry {
+		t.Fatalf("frames after clean expiry = %d, want %d", len(sink.frames), framesAfterExpiry)
+	}
+}
+
+func TestLoopMouseAnnotationExpiresWhilePausedAndRestartClearsIt(t *testing.T) {
+	cmds := make(chan command, 2)
+	sink := &fakeSink{}
+	l := testLoop(loopConfig{
+		Events: []Event{
+			{TMS: 0, Type: "input", Kind: "mouse", Mouse: testMouseClick(0, 0, "left")},
+			{TMS: 10_000, Type: "output", Bytes: []byte("later")},
+		},
+		Step: true, Cmds: cmds, Sink: sink,
+	})
+	now := time.Unix(0, 0)
+	l.tick(now)
+	cmds <- cmdStep
+	l.tick(now.Add(time.Millisecond))
+	if l.mouse == nil {
+		t.Fatal("mouse annotation was not started for zero coordinate")
+	}
+	if !l.paused {
+		t.Fatal("step mode did not remain paused")
+	}
+	l.tick(now.Add(mouseAnnotationDuration + 3*time.Millisecond))
+	if l.mouse != nil {
+		t.Fatal("annotation did not expire while playback was paused")
+	}
+
+	cmds <- cmdRestart
+	l.tick(now.Add(mouseAnnotationDuration + 4*time.Millisecond))
+	if l.mouse != nil {
+		t.Fatal("restart retained an annotation")
+	}
+	if !bytes.Equal(lastFrame(t, sink).img.Pix, renderedFrame(t, l, false).Pix) {
+		t.Fatal("restart did not redraw a clean frame")
+	}
+}
+
+func TestLoopMouseAnnotationReplacementAndInvalidMetadata(t *testing.T) {
+	sink := &fakeSink{}
+	l := testLoop(loopConfig{
+		Events: []Event{
+			{TMS: 0, Type: "input", Kind: "mouse", Mouse: testMouseClick(1, 1, "left")},
+			{TMS: 0, Type: "input", Kind: "mouse", Mouse: testMouseClick(2, 1, "right")},
+			{TMS: 0, Type: "input", Kind: "mouse", Mouse: &trace.MouseInput{Gesture: "click"}},
+		},
+		Sink: sink,
+	})
+	l.tick(time.Unix(0, 0))
+	if l.mouse == nil || l.mouse.mouse.Button != "right" || l.mouse.mouse.X == nil || *l.mouse.mouse.X != 2 {
+		t.Fatalf("active annotation = %#v, want latest valid right click", l.mouse)
+	}
+	if l.mouseGeneration != 2 {
+		t.Fatalf("mouse generation = %d, want 2", l.mouseGeneration)
+	}
+	if bytes.Equal(lastFrame(t, sink).img.Pix, renderedFrame(t, l, true).Pix) {
+		t.Fatal("latest valid mouse annotation was not drawn")
+	}
+}
+
+func TestLoopResizeClearsMouseAnnotationAndDisableOptionSkipsIt(t *testing.T) {
+	t.Run("resize", func(t *testing.T) {
+		sink := &fakeSink{}
+		l := testLoop(loopConfig{
+			Events: []Event{
+				{TMS: 0, Type: "input", Kind: "mouse", Mouse: testMouseClick(1, 1, "left")},
+				{TMS: 0, Type: "resize", Cols: 12, Rows: 4},
+			}, Sink: sink,
+		})
+		l.tick(time.Unix(0, 0))
+		if l.mouse != nil {
+			t.Fatal("resize retained an annotation with stale viewport coordinates")
+		}
+		if !bytes.Equal(lastFrame(t, sink).img.Pix, renderedFrame(t, l, true).Pix) {
+			t.Fatal("resize frame retained a mouse annotation")
+		}
+	})
+	t.Run("disabled", func(t *testing.T) {
+		sink := &fakeSink{}
+		l := testLoop(loopConfig{
+			Events: []Event{{TMS: 0, Type: "input", Kind: "mouse", Mouse: testMouseClick(1, 1, "left")}},
+			Sink:   sink, DisableMouseAnnotations: true,
+		})
+		l.tick(time.Unix(0, 0))
+		if l.mouse != nil {
+			t.Fatal("disabled annotations started an active animation")
+		}
+		if !bytes.Equal(lastFrame(t, sink).img.Pix, renderedFrame(t, l, true).Pix) {
+			t.Fatal("disabled annotations changed frame pixels")
+		}
+	})
+}
+
+func testMouseClick(x, y int, button string) *trace.MouseInput {
+	return &trace.MouseInput{Gesture: "click", X: intPtr(x), Y: intPtr(y), Button: button}
 }
 
 // renderedFrame renders the loop's current model the way emitFrame does,
