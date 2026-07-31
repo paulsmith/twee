@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/paulsmith/twee/internal/play"
+	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/vt"
 )
 
@@ -224,5 +225,31 @@ func TestReplayInputOverlayForcesFrameOnUnchangedScreen(t *testing.T) {
 	}
 	if frameText(last) != frameText(without[len(without)-1]) {
 		t.Errorf("final frame content changed by enabling overlay")
+	}
+}
+
+func TestReplayMouseInputIsAnnotationOnly(t *testing.T) {
+	x, y := 12, 4
+	events := []play.Event{
+		out(1000, "x"),
+		{
+			TMS: 1500, Type: "input", Kind: "mouse",
+			// If input bytes were incorrectly fed, this "x" would mutate
+			// fakeModel and change the rendered cell.
+			Bytes: []byte("x"),
+			Mouse: &trace.MouseInput{
+				Gesture: "click", X: &x, Y: &y, Button: "left",
+				Modifiers: []string{},
+			},
+		},
+	}
+
+	frames := collect(t, events, Options{InputOverlay: true})
+	last := frames[len(frames)-1]
+	if got := frameText(last); got != "b" {
+		t.Fatalf("screen after annotated mouse input = %q, want %q", got, "b")
+	}
+	if !strings.Contains(last.overlay, "click left @(12,4)") {
+		t.Fatalf("mouse overlay = %q", last.overlay)
 	}
 }
