@@ -72,29 +72,26 @@ func checkStdoutTTY(opts preflightOptions) error {
 	return nil
 }
 
-func preflightBundleForBackend(bundle Bundle, opts preflightOptions, requested Backend) (Backend, error) {
+func preflightForBackend(opts preflightOptions, requested Backend) (Backend, terminalSize, error) {
 	if err := checkStdoutTTY(opts); err != nil {
-		return "", err
+		return "", terminalSize{}, err
 	}
 	if opts.Term == nil {
 		opts.Term = realTerminalOps{}
 	}
 	width, height, err := opts.Term.GetSize(opts.StdoutFD)
 	if err != nil {
-		return "", fmt.Errorf("twee play: terminal size: %w", err)
+		return "", terminalSize{}, fmt.Errorf("twee play: terminal size: %w", err)
 	}
-	needCols, needRows := bundle.MaxCols, bundle.MaxRows+2
-	if needCols < 1 {
-		needCols = 1
+	if width < 1 || height < 3 {
+		return "", terminalSize{}, fmt.Errorf("twee play: terminal is %dx%d; playback needs at least 1x3",
+			width, height)
 	}
-	if needRows < 3 {
-		needRows = 3
+	backend, err := selectBackend(opts, requested)
+	if err != nil {
+		return "", terminalSize{}, err
 	}
-	if width < needCols || height < needRows {
-		return "", fmt.Errorf("twee play: terminal is %dx%d; trace needs at least %dx%d",
-			width, height, needCols, needRows)
-	}
-	return selectBackend(opts, requested)
+	return backend, terminalSize{Cols: width, Rows: height}, nil
 }
 
 type backendSupport struct {

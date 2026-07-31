@@ -2,6 +2,7 @@ package play
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -14,14 +15,16 @@ import (
 )
 
 type fakeTermOps struct {
-	isTTY          bool
-	width, height  int
-	raws, restores int
+	isTTY                     bool
+	width, height             int
+	sizeErr                   error
+	sizeCalls, raws, restores int
 }
 
 func (f *fakeTermOps) IsTerminal(int) bool { return f.isTTY }
 func (f *fakeTermOps) GetSize(int) (int, int, error) {
-	return f.width, f.height, nil
+	f.sizeCalls++
+	return f.width, f.height, f.sizeErr
 }
 func (f *fakeTermOps) MakeRaw(int) (*term.State, error) {
 	f.raws++
@@ -33,24 +36,75 @@ func (f *fakeTermOps) Restore(int, *term.State) error {
 }
 
 func TestPreflightRejectsNonTTY(t *testing.T) {
-	_, err := preflightBundleForBackend(Bundle{MaxCols: 10, MaxRows: 3}, preflightOptions{
-		Term: &fakeTermOps{isTTY: false, width: 80, height: 24},
+	termOps := &fakeTermOps{isTTY: false, width: 80, height: 24}
+	_, _, err := preflightForBackend(preflightOptions{
+		Term: termOps,
 		In:   strings.NewReader(""),
 		Out:  io.Discard,
 	}, BackendKitty)
 	if err == nil || !strings.Contains(err.Error(), "non-tty") {
 		t.Fatalf("error = %v, want non-tty", err)
 	}
+	if termOps.sizeCalls != 0 {
+		t.Fatalf("terminal size calls = %d, want non-tty rejection first", termOps.sizeCalls)
+	}
 }
 
-func TestPreflightRejectsSmallTerminal(t *testing.T) {
-	_, err := preflightBundleForBackend(Bundle{MaxCols: 100, MaxRows: 40}, preflightOptions{
-		Term: &fakeTermOps{isTTY: true, width: 80, height: 24},
-		In:   strings.NewReader(""),
-		Out:  io.Discard,
+func TestPreflightAcceptsTerminalSmallerThanRecording(t *testing.T) {
+	termOps := &fakeTermOps{isTTY: true, width: 80, height: 24}
+	backend, size, err := preflightForBackend(preflightOptions{
+		Term:    termOps,
+		In:      strings.NewReader("\x1b_Gi=31;OK\x1b\\"),
+		Out:     io.Discard,
+		Timeout: time.Second,
 	}, BackendKitty)
-	if err == nil || !strings.Contains(err.Error(), "terminal is 80x24; trace needs at least 100x42") {
-		t.Fatalf("error = %v, want size mismatch", err)
+	if err != nil {
+		t.Fatalf("preflightForBackend: %v", err)
+	}
+	if backend != BackendKitty {
+		t.Fatalf("backend = %q, want %q", backend, BackendKitty)
+	}
+	if size != (terminalSize{Cols: 80, Rows: 24}) {
+		t.Fatalf("terminal size = %+v, want 80x24", size)
+	}
+	if termOps.sizeCalls != 1 {
+		t.Fatalf("terminal size calls = %d, want 1", termOps.sizeCalls)
+	}
+}
+
+func TestPreflightRejectsUnusableTerminal(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		width, height int
+	}{
+		{name: "no columns", width: 0, height: 24},
+		{name: "no frame row", width: 80, height: 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			termOps := &fakeTermOps{isTTY: true, width: tt.width, height: tt.height}
+			_, _, err := preflightForBackend(preflightOptions{
+				Term: termOps,
+				In:   strings.NewReader(""),
+				Out:  io.Discard,
+			}, BackendKitty)
+			if err == nil || !strings.Contains(err.Error(), "playback needs at least 1x3") {
+				t.Fatalf("error = %v, want minimum-terminal diagnostic", err)
+			}
+			if termOps.raws != 0 {
+				t.Fatalf("raw calls = %d, want size rejection before backend probe", termOps.raws)
+			}
+		})
+	}
+}
+
+func TestPreflightReportsTerminalSizeError(t *testing.T) {
+	termOps := &fakeTermOps{isTTY: true, sizeErr: errors.New("no geometry")}
+	_, _, err := preflightForBackend(preflightOptions{Term: termOps}, BackendKitty)
+	if err == nil || !strings.Contains(err.Error(), "terminal size: no geometry") {
+		t.Fatalf("error = %v, want terminal-size diagnostic", err)
+	}
+	if termOps.raws != 0 {
+		t.Fatalf("raw calls = %d, want size failure before backend probe", termOps.raws)
 	}
 }
 

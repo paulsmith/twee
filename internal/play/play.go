@@ -73,25 +73,14 @@ func Run(path string, opts Options) error {
 
 	pf := defaultPreflightOptions(opts.Stdin, opts.Stdout)
 	pf.Pixels = displayPixels{Width: opts.DisplayPixelWidth, Height: opts.DisplayPixelHeight}
-	terminalCols := 0
-	terminalRows := 0
+	terminal := terminalSize{}
 	backend := opts.Backend
-	if !opts.SkipPreflight {
-		if err := checkStdoutTTY(pf); err != nil {
-			return err
-		}
-		if width, height, err := pf.Term.GetSize(pf.StdoutFD); err == nil {
-			terminalCols = width
-			terminalRows = height
-		}
-	}
 	bundle, err := OpenBundle(path)
 	if err != nil {
 		return err
 	}
 	if !opts.SkipPreflight {
-		var err error
-		backend, err = preflightBundleForBackend(bundle, pf, opts.Backend)
+		backend, terminal, err = preflightForBackend(pf, opts.Backend)
 		if err != nil {
 			return err
 		}
@@ -100,6 +89,8 @@ func Run(path string, opts Options) error {
 		// detection retain the historical Kitty behavior.
 		backend = BackendKitty
 	}
+	terminalCols := terminal.Cols
+	terminalRows := terminal.Rows
 	if terminalCols <= 0 {
 		terminalCols = bundle.MaxCols
 		if terminalCols < 1 {
