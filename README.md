@@ -321,10 +321,13 @@ The pinned VT API cannot always prove the effective scalar mode from those
 independently retained raw bits. `mouse_tracking` (`none`, `x10`, `normal`,
 `button`, or `any`) and `mouse_format` (`x10`, `utf8`, `sgr`, `urxvt`, or
 `sgr_pixels`) are therefore included only when the backend can prove them;
-automation must tolerate either field being omitted. A gesture whose effective
-tracking or format is ambiguous fails conservatively without writing bytes.
-Any raw SGR-Pixels (1016) bit also causes conservative rejection, even if
-another raw format bit is set, until twee has real terminal pixel geometry.
+automation must tolerate either field being omitted. For gesture preflight,
+twee observes the configured encoder's effective tracking behavior entirely in
+memory and validates the complete encoded report batch before writing it. This
+supports applications that retain several tracking or format bits, without
+publishing an inferred scalar mode. Any raw SGR-Pixels (1016) bit still causes
+conservative rejection, even if another raw format bit is set, until twee has
+real terminal pixel geometry.
 
 The public Go harness mirrors the same gestures:
 
@@ -601,6 +604,12 @@ $ twee wait exit
 example: it pins a session via `TWEE_SESSION`, records the whole run
 with `start --trace`, drives a vim edit, and leaves a replayable bundle
 behind at `wait exit`.
+
+[`scripts/example-herdr-mouse.sh`](scripts/example-herdr-mouse.sh) records a
+fixed-size Herdr session with an isolated first-run configuration. It clicks
+settings and theme controls, opens a pane's right-click menu, chooses
+`Split right`, focuses both panes, validates the resulting bundle, and leaves
+the trace at the path passed as its first argument.
 
 ### Bundle tools
 
