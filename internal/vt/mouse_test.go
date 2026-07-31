@@ -373,11 +373,33 @@ func TestEncodeMousePreconditionErrors(t *testing.T) {
 	t.Run("X10 modifiers", func(t *testing.T) {
 		term := newMouseTestTerm(t, 80, 24)
 		enableMouse(t, term, "\x1b[?9h")
-		_, err := term.EncodeMouse(expandMouse(t,
+		result, err := term.EncodeMouse(expandMouse(t,
 			input.NewClick(1, 1, input.ButtonLeft, []input.MouseModifier{input.ModifierShift}),
 		))
 		if !errors.Is(err, ErrMouseX10Modifiers) {
 			t.Fatalf("error = %v", err)
+		}
+		var mouseErr *MouseEncodeError
+		if !errors.As(err, &mouseErr) {
+			t.Fatalf("error type = %T, want *MouseEncodeError", err)
+		}
+		if mouseErr.Tracking != MouseTrackingX10 ||
+			mouseErr.TrackingCandidate != MouseTrackingX10 {
+			t.Fatalf("tracking error context = %#v", mouseErr)
+		}
+		if got, want := err.Error(), "vt: mouse tracking mode x10 does not support modifiers"; got != want {
+			t.Fatalf("error text = %q, want %q", got, want)
+		}
+		if !reflect.DeepEqual(result, MouseEncodingResult{}) {
+			t.Fatalf("failed X10 gesture returned partial result: %#v", result)
+		}
+		state, stateErr := term.MouseState()
+		if stateErr != nil {
+			t.Fatal(stateErr)
+		}
+		if state.TrackingKnown || state.Tracking != "" ||
+			state.TrackingCandidate != MouseTrackingX10 {
+			t.Fatalf("command-local observation leaked into MouseState: %#v", state)
 		}
 	})
 
@@ -402,8 +424,25 @@ func TestEncodeMousePreconditionErrors(t *testing.T) {
 		if !errors.Is(err, ErrMouseIncompatible) {
 			t.Fatalf("normal-last hover error = %v, want incompatible", err)
 		}
-		if len(result.Bytes) != 0 {
-			t.Fatalf("failed hover leaked bytes %q", result.Bytes)
+		var mouseErr *MouseEncodeError
+		if !errors.As(err, &mouseErr) {
+			t.Fatalf("normal-last hover error type = %T, want *MouseEncodeError", err)
+		}
+		if mouseErr.Tracking != MouseTrackingNormal || mouseErr.TrackingCandidate != "" {
+			t.Fatalf("normal-last tracking error context = %#v", mouseErr)
+		}
+		if got, want := err.Error(), "vt: hover is incompatible with mouse tracking mode normal"; got != want {
+			t.Fatalf("normal-last hover error text = %q, want %q", got, want)
+		}
+		if !reflect.DeepEqual(result, MouseEncodingResult{}) {
+			t.Fatalf("failed hover returned partial result: %#v", result)
+		}
+		state, stateErr := term.MouseState()
+		if stateErr != nil {
+			t.Fatal(stateErr)
+		}
+		if state.TrackingKnown || state.Tracking != "" || state.TrackingCandidate != "" {
+			t.Fatalf("command-local observation leaked into MouseState: %#v", state)
 		}
 	})
 

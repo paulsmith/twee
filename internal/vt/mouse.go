@@ -136,6 +136,9 @@ type MouseEncodeError struct {
 	Cols    int
 	Rows    int
 
+	// Tracking and Format, when non-empty, are authoritative context for this
+	// failure. Tracking may be a command-local encoder observation; it does not
+	// upgrade the separately reportable MouseState.
 	Tracking MouseTracking
 	Format   MouseFormat
 	Required []MouseTracking
@@ -202,7 +205,8 @@ func (e *MouseEncodeError) Error() string {
 }
 
 // TrackingKnown reports whether the error carries authoritative tracking
-// state rather than only a raw-bit candidate.
+// context, including a command-local encoder observation, rather than only a
+// raw-bit candidate.
 func (e *MouseEncodeError) TrackingKnown() bool {
 	return e.Tracking != ""
 }

@@ -250,7 +250,7 @@ func (g *ghosttyTerm) EncodeMouse(events []input.MouseEvent) (MouseEncodingResul
 	if observedTracking == MouseTrackingNone {
 		return MouseEncodingResult{}, &MouseEncodeError{
 			Reason: MouseErrorTrackingDisabled, Gesture: gesture,
-			Tracking: state.Tracking, Format: state.Format,
+			Tracking: observedTracking, Format: state.Format,
 			TrackingCandidate: tracking, FormatCandidate: format,
 		}
 	}
@@ -259,14 +259,14 @@ func (g *ghosttyTerm) EncodeMouse(events []input.MouseEvent) (MouseEncodingResul
 	if !containsTracking(required, observedTracking) {
 		return MouseEncodingResult{}, &MouseEncodeError{
 			Reason: MouseErrorIncompatible, Gesture: gesture,
-			Tracking: state.Tracking, Format: state.Format, Required: required,
+			Tracking: observedTracking, Format: state.Format, Required: required,
 			TrackingCandidate: tracking, FormatCandidate: format,
 		}
 	}
 	if observedTracking == MouseTrackingX10 && batchHasModifiers(events) {
 		return MouseEncodingResult{}, &MouseEncodeError{
 			Reason: MouseErrorX10Modifiers, Gesture: gesture,
-			Tracking: state.Tracking, Format: state.Format,
+			Tracking: observedTracking, Format: state.Format,
 			TrackingCandidate: tracking, FormatCandidate: format,
 		}
 	}
@@ -276,7 +276,7 @@ func (g *ghosttyTerm) EncodeMouse(events []input.MouseEvent) (MouseEncodingResul
 				return MouseEncodingResult{}, &MouseEncodeError{
 					Reason: MouseErrorLegacyCoordinate, Gesture: gesture, Event: i,
 					X: event.X, Y: event.Y, Cols: size.Cols, Rows: size.Rows,
-					Tracking: state.Tracking, Format: state.Format,
+					Tracking: observedTracking, Format: state.Format,
 					TrackingCandidate: tracking, FormatCandidate: format,
 				}
 			}
@@ -326,7 +326,7 @@ func (g *ghosttyTerm) EncodeMouse(events []input.MouseEvent) (MouseEncodingResul
 		if encodeErr != nil {
 			return MouseEncodingResult{}, &MouseEncodeError{
 				Reason: MouseErrorEncoding, Gesture: gesture, Event: i,
-				Tracking: state.Tracking, Format: state.Format,
+				Tracking: observedTracking, Format: state.Format,
 				TrackingCandidate: tracking, FormatCandidate: format, Err: encodeErr,
 			}
 		}
@@ -335,14 +335,14 @@ func (g *ghosttyTerm) EncodeMouse(events []input.MouseEvent) (MouseEncodingResul
 		if expected && !produced {
 			return MouseEncodingResult{}, &MouseEncodeError{
 				Reason: MouseErrorMissingReport, Gesture: gesture, Event: i,
-				Tracking: state.Tracking, Format: state.Format,
+				Tracking: observedTracking, Format: state.Format,
 				TrackingCandidate: tracking, FormatCandidate: format,
 			}
 		}
 		if !expected && produced {
 			return MouseEncodingResult{}, &MouseEncodeError{
 				Reason: MouseErrorUnexpectedReport, Gesture: gesture, Event: i,
-				Tracking: state.Tracking, Format: state.Format,
+				Tracking: observedTracking, Format: state.Format,
 				TrackingCandidate: tracking, FormatCandidate: format,
 			}
 		}

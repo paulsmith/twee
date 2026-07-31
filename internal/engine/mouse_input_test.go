@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"math"
+	"reflect"
 	"testing"
 
 	"github.com/paulsmith/twee/internal/input"
@@ -104,6 +105,87 @@ func TestMouseBackendContractFailuresRemainInternal(t *testing.T) {
 			var requestErr *RequestError
 			if errors.As(err, &requestErr) {
 				t.Fatalf("error = %#v, want untyped internal failure", requestErr)
+			}
+		})
+	}
+}
+
+func TestObservedTrackingPopulatesMouseErrorDetails(t *testing.T) {
+	tests := []struct {
+		name         string
+		script       string
+		run          func(*Term) error
+		wantMessage  string
+		wantTracking string
+		wantRequired []string
+	}{
+		{
+			name: "multi-bit normal hover",
+			script: "printf '\\033[?1003h\\033[?1002h\\033[?1000h" +
+				"\\033[?1006hREADY'; sleep 30",
+			run:          func(term *Term) error { return term.Hover(1, 1, nil) },
+			wantMessage:  "vt: hover is incompatible with mouse tracking mode normal",
+			wantTracking: "normal",
+			wantRequired: []string{"any"},
+		},
+		{
+			name: "multi-bit X10 modifiers",
+			script: "printf '\\033[?1003h\\033[?1002h\\033[?9h" +
+				"\\033[?1006hREADY'; sleep 30",
+			run: func(term *Term) error {
+				return term.Click(
+					1, 1, input.ButtonLeft,
+					[]input.MouseModifier{input.ModifierShift},
+				)
+			},
+			wantMessage:  "vt: mouse tracking mode x10 does not support modifiers",
+			wantTracking: "x10",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			term := startEngineTerm(t, []string{"/bin/sh", "-c", tt.script}, 80, 24)
+			if err := term.WaitForText("READY"); err != nil {
+				t.Fatalf("WaitForText READY: %v", err)
+			}
+
+			err := tt.run(term)
+			var requestErr *RequestError
+			if !errors.As(err, &requestErr) {
+				t.Fatalf("error = %v (%T), want *RequestError", err, err)
+			}
+			if requestErr.Kind != RequestErrorFailedPrecondition {
+				t.Fatalf("error kind = %v, want failed precondition", requestErr.Kind)
+			}
+			if requestErr.Message != tt.wantMessage {
+				t.Fatalf("error message = %q, want %q", requestErr.Message, tt.wantMessage)
+			}
+			details, ok := requestErr.Details.(map[string]any)
+			if !ok {
+				t.Fatalf("details type = %T", requestErr.Details)
+			}
+			if got := details["mouse_tracking"]; got != tt.wantTracking {
+				t.Fatalf("mouse_tracking detail = %#v, want %q", got, tt.wantTracking)
+			}
+			gotRequired, hasRequired := details["required_tracking"]
+			if tt.wantRequired == nil {
+				if hasRequired {
+					t.Fatalf("unexpected required_tracking detail = %#v", gotRequired)
+				}
+			} else if !reflect.DeepEqual(gotRequired, tt.wantRequired) {
+				t.Fatalf("required_tracking detail = %#v, want %#v", gotRequired, tt.wantRequired)
+			}
+			if got := len(term.RecentInputs()); got != 0 {
+				t.Fatalf("failed gesture recorded %d diagnostics, want 0", got)
+			}
+
+			state, stateErr := term.MouseState()
+			if stateErr != nil {
+				t.Fatalf("MouseState: %v", stateErr)
+			}
+			if state.TrackingKnown || state.Tracking != "" {
+				t.Fatalf("command-local observation leaked into MouseState: %#v", state)
 			}
 		})
 	}
