@@ -8,3 +8,4 @@ result-*
 .tracker/runs/
 .sw?
 *.twee
+!examples/recordings/*/*.twee
