@@ -617,6 +617,60 @@ func TestLoopExpandsTallFrameToAvailableHeight(t *testing.T) {
 	}
 }
 
+func TestLoopDownscalesFrameToAvailableTerminal(t *testing.T) {
+	tests := []struct {
+		name                  string
+		cols, rows            int
+		wantCols, wantRows    int
+		wantWidth, wantHeight int
+	}{
+		{
+			name:       "width constrained",
+			cols:       100,
+			rows:       20,
+			wantCols:   80,
+			wantRows:   16,
+			wantWidth:  800,
+			wantHeight: 320,
+		},
+		{
+			name:       "height constrained",
+			cols:       100,
+			rows:       40,
+			wantCols:   55,
+			wantRows:   22,
+			wantWidth:  550,
+			wantHeight: 440,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sink := &fakeSink{}
+			l := testLoop(loopConfig{
+				Events: []Event{{TMS: 0, Type: "resize", Cols: tt.cols, Rows: tt.rows}},
+				Sink:   sink,
+				DisplayPixels: displayPixels{
+					Width:  800,
+					Height: 480,
+				},
+				TerminalSize: terminalSize{
+					Cols: 80,
+					Rows: 24,
+				},
+			})
+			l.tick(time.Unix(0, 0))
+
+			frame := lastFrame(t, sink)
+			if frame.cols != tt.wantCols || frame.rows != tt.wantRows {
+				t.Fatalf("placement = %dx%d, want %dx%d", frame.cols, frame.rows, tt.wantCols, tt.wantRows)
+			}
+			if got := frame.size; got.Dx() != tt.wantWidth || got.Dy() != tt.wantHeight {
+				t.Fatalf("frame size = %dx%d, want %dx%d", got.Dx(), got.Dy(), tt.wantWidth, tt.wantHeight)
+			}
+		})
+	}
+}
+
 // TestEngineSnapshotCarriesPaletteColorAndStyleFromTrace is a regression
 // test for a bug in EngineSnapshot's predecessor (see its doc comment):
 // a 256-color SGR sequence recorded in a real .twee trace must survive
