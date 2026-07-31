@@ -7,6 +7,10 @@ const (
 	OpType   = "type"
 	OpKey    = "key"
 	OpPaste  = "paste"
+	OpClick  = "click"
+	OpHover  = "hover"
+	OpScroll = "scroll"
+	OpDrag   = "drag"
 	OpSignal = "signal"
 
 	// Queries

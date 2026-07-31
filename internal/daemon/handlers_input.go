@@ -16,6 +16,10 @@ func init() {
 		d.Register(rpc.OpType, handleType)
 		d.Register(rpc.OpKey, handleKey)
 		d.Register(rpc.OpPaste, handlePaste)
+		d.Register(rpc.OpClick, handleClick)
+		d.Register(rpc.OpHover, handleHover)
+		d.Register(rpc.OpScroll, handleScroll)
+		d.Register(rpc.OpDrag, handleDrag)
 		d.Register(rpc.OpSignal, handleSignal)
 		d.Register(rpc.OpResize, handleResize)
 	})
@@ -56,6 +60,148 @@ func handlePaste(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 		return nil, ioFailure(err)
 	}
 	return nil, nil
+}
+
+func handleClick(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
+	a, errResp := decodeArgs[rpc.ClickArgs](raw)
+	if errResp != nil {
+		return nil, errResp
+	}
+	if errResp := requireMouseCoordinates(
+		mouseCoordinate{name: "x", value: a.X},
+		mouseCoordinate{name: "y", value: a.Y},
+	); errResp != nil {
+		return nil, errResp
+	}
+	button, errResp := parseMouseButton(a.Button)
+	if errResp != nil {
+		return nil, errResp
+	}
+	modifiers, errResp := parseMouseModifiers(a.Modifiers)
+	if errResp != nil {
+		return nil, errResp
+	}
+	if err := t.Click(*a.X, *a.Y, button, modifiers); err != nil {
+		return nil, engineFailure(err)
+	}
+	return nil, nil
+}
+
+func handleHover(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
+	a, errResp := decodeArgs[rpc.HoverArgs](raw)
+	if errResp != nil {
+		return nil, errResp
+	}
+	if errResp := requireMouseCoordinates(
+		mouseCoordinate{name: "x", value: a.X},
+		mouseCoordinate{name: "y", value: a.Y},
+	); errResp != nil {
+		return nil, errResp
+	}
+	modifiers, errResp := parseMouseModifiers(a.Modifiers)
+	if errResp != nil {
+		return nil, errResp
+	}
+	if err := t.Hover(*a.X, *a.Y, modifiers); err != nil {
+		return nil, engineFailure(err)
+	}
+	return nil, nil
+}
+
+func handleScroll(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
+	a, errResp := decodeArgs[rpc.ScrollArgs](raw)
+	if errResp != nil {
+		return nil, errResp
+	}
+	if errResp := requireMouseCoordinates(
+		mouseCoordinate{name: "x", value: a.X},
+		mouseCoordinate{name: "y", value: a.Y},
+	); errResp != nil {
+		return nil, errResp
+	}
+	direction, err := tinput.ParseScrollDirection(a.Direction)
+	if err != nil {
+		return nil, invalidArgument(err)
+	}
+	ticks := 1
+	if a.Ticks != nil {
+		ticks = *a.Ticks
+	}
+	modifiers, errResp := parseMouseModifiers(a.Modifiers)
+	if errResp != nil {
+		return nil, errResp
+	}
+	if err := t.Scroll(*a.X, *a.Y, direction, ticks, modifiers); err != nil {
+		return nil, engineFailure(err)
+	}
+	return nil, nil
+}
+
+func handleDrag(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
+	a, errResp := decodeArgs[rpc.DragArgs](raw)
+	if errResp != nil {
+		return nil, errResp
+	}
+	if errResp := requireMouseCoordinates(
+		mouseCoordinate{name: "from_x", value: a.FromX},
+		mouseCoordinate{name: "from_y", value: a.FromY},
+		mouseCoordinate{name: "to_x", value: a.ToX},
+		mouseCoordinate{name: "to_y", value: a.ToY},
+	); errResp != nil {
+		return nil, errResp
+	}
+	button, errResp := parseMouseButton(a.Button)
+	if errResp != nil {
+		return nil, errResp
+	}
+	modifiers, errResp := parseMouseModifiers(a.Modifiers)
+	if errResp != nil {
+		return nil, errResp
+	}
+	if err := t.Drag(*a.FromX, *a.FromY, *a.ToX, *a.ToY, button, modifiers); err != nil {
+		return nil, engineFailure(err)
+	}
+	return nil, nil
+}
+
+type mouseCoordinate struct {
+	name  string
+	value *int
+}
+
+func requireMouseCoordinates(coordinates ...mouseCoordinate) *rpc.Error {
+	for _, coordinate := range coordinates {
+		if coordinate.value == nil {
+			return invalidArgumentMessage(fmt.Sprintf("missing required coordinate %q", coordinate.name))
+		}
+	}
+	return nil
+}
+
+func parseMouseButton(name string) (tinput.MouseButton, *rpc.Error) {
+	if name == "" {
+		return tinput.ButtonLeft, nil
+	}
+	button, err := tinput.ParseMouseButton(name)
+	if err != nil {
+		return tinput.ButtonNone, invalidArgument(err)
+	}
+	return button, nil
+}
+
+func parseMouseModifiers(names []string) ([]tinput.MouseModifier, *rpc.Error) {
+	modifiers := make([]tinput.MouseModifier, len(names))
+	for i, name := range names {
+		modifier, err := tinput.ParseMouseModifier(name)
+		if err != nil {
+			return nil, invalidArgument(err)
+		}
+		modifiers[i] = modifier
+	}
+	if _, err := tinput.NormalizeMouseModifiers(modifiers); err != nil {
+		return nil, invalidArgument(err)
+	}
+	return modifiers, nil
 }
 
 func handleSignal(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {

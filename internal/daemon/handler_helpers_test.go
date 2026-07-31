@@ -2,9 +2,11 @@ package daemon
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/paulsmith/twee/internal/engine"
 	"github.com/paulsmith/twee/internal/rpc"
 )
 
@@ -68,5 +70,43 @@ func TestDecodeOptionalArgs(t *testing.T) {
 	}
 	if got.Out != "session.twee" {
 		t.Fatalf("out = %q, want session.twee", got.Out)
+	}
+}
+
+func TestEngineFailureMapsTypedErrorsAndDetails(t *testing.T) {
+	tests := []struct {
+		name string
+		kind engine.RequestErrorKind
+		code string
+	}{
+		{"invalid argument", engine.RequestErrorInvalidArgument, rpc.CodeInvalidArgument},
+		{"failed precondition", engine.RequestErrorFailedPrecondition, rpc.CodeFailedPrecondition},
+		{"io", engine.RequestErrorIO, rpc.CodeIO},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := engineFailure(&engine.RequestError{
+				Kind:    tt.kind,
+				Message: "mouse failure",
+				Details: map[string]any{"x": 80, "cols": 80},
+			})
+			if got.Code != tt.code {
+				t.Fatalf("code = %q, want %q", got.Code, tt.code)
+			}
+			var details map[string]int
+			if err := json.Unmarshal(got.Details, &details); err != nil {
+				t.Fatalf("details: %v", err)
+			}
+			if details["x"] != 80 || details["cols"] != 80 {
+				t.Fatalf("details = %#v", details)
+			}
+		})
+	}
+}
+
+func TestEngineFailureMapsUnknownErrorToInternal(t *testing.T) {
+	got := engineFailure(errors.New("boom"))
+	if got.Code != rpc.CodeInternal {
+		t.Fatalf("code = %q, want %q", got.Code, rpc.CodeInternal)
 	}
 }

@@ -25,10 +25,15 @@ const DefaultCloseGrace = ptyrunner.DefaultGrace
 type Term struct {
 	cfg Config
 
-	cfgMu  sync.Mutex
-	runner *ptyrunner.Runner
-	pump   *pump.Pump
-	tr     *trace.Trace
+	cfgMu sync.Mutex
+	// inputMu serializes complete logical inputs, including the encode,
+	// PTY write, diagnostic, and trace bookkeeping phases. Mouse encoding
+	// briefly takes pump.mu underneath this lock; pump code must never try
+	// to acquire inputMu.
+	inputMu sync.Mutex
+	runner  *ptyrunner.Runner
+	pump    *pump.Pump
+	tr      *trace.Trace
 
 	closeOnce sync.Once
 	closeErr  error

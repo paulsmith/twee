@@ -67,6 +67,38 @@ type PasteArgs struct {
 	Text string `json:"text"`
 }
 
+// Mouse coordinates and scroll ticks are pointers so decoding preserves the
+// distinction between an omitted required field and an explicit zero.
+type ClickArgs struct {
+	X         *int     `json:"x"`
+	Y         *int     `json:"y"`
+	Button    string   `json:"button,omitempty"`
+	Modifiers []string `json:"modifiers,omitempty"`
+}
+
+type HoverArgs struct {
+	X         *int     `json:"x"`
+	Y         *int     `json:"y"`
+	Modifiers []string `json:"modifiers,omitempty"`
+}
+
+type ScrollArgs struct {
+	X         *int     `json:"x"`
+	Y         *int     `json:"y"`
+	Direction string   `json:"direction"`
+	Ticks     *int     `json:"ticks,omitempty"`
+	Modifiers []string `json:"modifiers,omitempty"`
+}
+
+type DragArgs struct {
+	FromX     *int     `json:"from_x"`
+	FromY     *int     `json:"from_y"`
+	ToX       *int     `json:"to_x"`
+	ToY       *int     `json:"to_y"`
+	Button    string   `json:"button,omitempty"`
+	Modifiers []string `json:"modifiers,omitempty"`
+}
+
 type SignalArgs struct {
 	Name string `json:"name"`
 }
@@ -212,7 +244,20 @@ type ModeData struct {
 	DECCKM         bool `json:"decckm"`
 	BracketedPaste bool `json:"bracketed_paste"`
 	AltScreen      bool `json:"alt_screen"`
-	Mouse          bool `json:"mouse,omitempty"`
+	Mouse          bool `json:"mouse"`
+
+	MouseTracking string `json:"mouse_tracking,omitempty"`
+	MouseFormat   string `json:"mouse_format,omitempty"`
+
+	MouseTrackingX10    bool `json:"mouse_tracking_x10,omitempty"`
+	MouseTrackingNormal bool `json:"mouse_tracking_normal,omitempty"`
+	MouseTrackingButton bool `json:"mouse_tracking_button,omitempty"`
+	MouseTrackingAny    bool `json:"mouse_tracking_any,omitempty"`
+
+	MouseFormatUTF8      bool `json:"mouse_format_utf8,omitempty"`
+	MouseFormatSGR       bool `json:"mouse_format_sgr,omitempty"`
+	MouseFormatURxvt     bool `json:"mouse_format_urxvt,omitempty"`
+	MouseFormatSGRPixels bool `json:"mouse_format_sgr_pixels,omitempty"`
 }
 
 type FindMatch struct {

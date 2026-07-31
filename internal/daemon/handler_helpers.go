@@ -3,10 +3,12 @@ package daemon
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 
+	"github.com/paulsmith/twee/internal/engine"
 	"github.com/paulsmith/twee/internal/rpc"
 )
 
@@ -91,6 +93,35 @@ func invalidArgumentMessage(message string) *rpc.Error {
 
 func ioFailure(err error) *rpc.Error {
 	return rpcError(rpc.CodeIO, err.Error())
+}
+
+func engineFailure(err error) *rpc.Error {
+	var requestErr *engine.RequestError
+	if !errors.As(err, &requestErr) {
+		return internalFailure(err)
+	}
+
+	var code string
+	switch requestErr.Kind {
+	case engine.RequestErrorInvalidArgument:
+		code = rpc.CodeInvalidArgument
+	case engine.RequestErrorFailedPrecondition:
+		code = rpc.CodeFailedPrecondition
+	case engine.RequestErrorIO:
+		code = rpc.CodeIO
+	default:
+		return internalFailure(err)
+	}
+
+	resp := rpcError(code, requestErr.Error())
+	if requestErr.Details != nil {
+		details, marshalErr := json.Marshal(requestErr.Details)
+		if marshalErr != nil {
+			return internalFailure(fmt.Errorf("marshal error details: %w", marshalErr))
+		}
+		resp.Details = details
+	}
+	return resp
 }
 
 func internalFailure(err error) *rpc.Error {
