@@ -90,9 +90,10 @@ type Trace struct {
 	eventsFile *os.File
 	evEnc      *json.Encoder
 
-	start  time.Time
-	closed bool
-	err    error
+	start     time.Time
+	closed    bool
+	err       error
+	removeAll func(string) error
 }
 
 // New creates a Trace that will be written to path on Close.
@@ -110,9 +111,18 @@ func New(path string, m Manifest) (*Trace, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := os.Chmod(workDir, 0o700); err != nil {
+		_ = os.RemoveAll(workDir)
+		return nil, err
+	}
 	eventsPath := filepath.Join(workDir, "events.jsonl")
-	eventsFile, err := os.Create(eventsPath)
+	eventsFile, err := os.OpenFile(eventsPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
+		_ = os.RemoveAll(workDir)
+		return nil, err
+	}
+	if err := eventsFile.Chmod(0o600); err != nil {
+		_ = eventsFile.Close()
 		_ = os.RemoveAll(workDir)
 		return nil, err
 	}
@@ -127,6 +137,7 @@ func New(path string, m Manifest) (*Trace, error) {
 		eventsPath: eventsPath,
 		eventsFile: eventsFile,
 		start:      now,
+		removeAll:  os.RemoveAll,
 	}
 	tr.evEnc = json.NewEncoder(eventsFile)
 	return tr, nil
@@ -241,9 +252,11 @@ func (tr *Trace) Close() error {
 	return tr.err
 }
 
-func (tr *Trace) writeLocked() error {
+func (tr *Trace) writeLocked() (err error) {
 	defer func() {
-		_ = os.RemoveAll(tr.workDir)
+		if cleanupErr := tr.removeAll(tr.workDir); cleanupErr != nil {
+			err = errors.Join(err, fmt.Errorf("remove private trace work directory: %w", cleanupErr))
+		}
 	}()
 	if err := tr.eventsFile.Close(); err != nil && tr.err == nil {
 		tr.err = err
@@ -254,8 +267,12 @@ func (tr *Trace) writeLocked() error {
 	tr.man.StoppedAt = time.Now()
 
 	zipPath := filepath.Join(tr.workDir, "bundle.twee")
-	f, err := os.Create(zipPath)
+	f, err := os.OpenFile(zipPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
+		return err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
 		return err
 	}
 	zw := zip.NewWriter(f)

@@ -1,12 +1,125 @@
 package bundle
 
 import (
+	"archive/zip"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestValidateRejectsUnsafeAndAmbiguousArchiveStructure(t *testing.T) {
+	tests := []struct {
+		name    string
+		entries []zipTestEntry
+		want    string
+	}{
+		{
+			name: "duplicate manifest",
+			entries: []zipTestEntry{
+				{name: "manifest.json", body: `{"version":1}`},
+				{name: "manifest.json", body: `{"version":2}`},
+				{name: "events.jsonl"},
+			},
+			want: "duplicate required zip entry manifest.json",
+		},
+		{
+			name: "non-canonical path",
+			entries: []zipTestEntry{
+				{name: "manifest.json", body: `{"version":1}`},
+				{name: "events.jsonl"},
+				{name: "extra/../unsafe"},
+			},
+			want: "unsafe non-canonical zip entry path",
+		},
+		{
+			name: "non-regular entry",
+			entries: []zipTestEntry{
+				{name: "manifest.json", body: `{"version":1}`},
+				{name: "events.jsonl"},
+				{name: "link", mode: os.ModeSymlink | 0o777},
+			},
+			want: "is not a regular file",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := Validate(writeZipEntries(t, tt.entries))
+			if err != nil {
+				t.Fatalf("Validate: %v", err)
+			}
+			if result.Valid || !hasIssueContaining(result.Issues, tt.want) {
+				t.Fatalf("result = %+v, want issue containing %q", result, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheckArchiveRejectsUnreasonableDeclarations(t *testing.T) {
+	zr := &zip.Reader{File: []*zip.File{
+		{FileHeader: zip.FileHeader{Name: "manifest.json", UncompressedSize64: maxManifestSize + 1}},
+		{FileHeader: zip.FileHeader{Name: "events.jsonl", UncompressedSize64: maxEventsSize + 1}},
+	}}
+	_, issues := checkArchive(zr)
+	if !hasIssueContaining(issues, "manifest.json declares unreasonable") ||
+		!hasIssueContaining(issues, "events.jsonl declares unreasonable") ||
+		!hasIssueContaining(issues, "total uncompressed size") {
+		t.Fatalf("issues = %v, want unreasonable per-entry and total declarations", issues)
+	}
+}
+
+func TestCheckArchiveRejectsUnreasonableEntryNamesAndCount(t *testing.T) {
+	files := make([]*zip.File, maxArchiveEntries+1)
+	files[0] = &zip.File{FileHeader: zip.FileHeader{Name: "manifest.json"}}
+	files[1] = &zip.File{FileHeader: zip.FileHeader{Name: "events.jsonl"}}
+	files[2] = &zip.File{FileHeader: zip.FileHeader{Name: strings.Repeat("x", maxEntryNameBytes+1)}}
+	for i := 3; i < len(files); i++ {
+		files[i] = &zip.File{FileHeader: zip.FileHeader{Name: fmt.Sprintf("extra-%d", i)}}
+	}
+	_, issues := checkArchive(&zip.Reader{File: files})
+	if !hasIssueContaining(issues, "too many zip entries") ||
+		!hasIssueContaining(issues, "unsafe zip entry name length") {
+		t.Fatalf("issues = %v, want entry-count and entry-name-length issues", issues)
+	}
+}
+
+type zipTestEntry struct {
+	name string
+	body string
+	mode os.FileMode
+}
+
+func writeZipEntries(t *testing.T, entries []zipTestEntry) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "malformed.twee")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	for _, entry := range entries {
+		h := &zip.FileHeader{Name: entry.name, Method: zip.Store}
+		if entry.mode != 0 {
+			h.SetMode(entry.mode)
+		}
+		w, err := zw.CreateHeader(h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(entry.body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
 
 func TestValidateValidBundle(t *testing.T) {
 	path := writeSyntheticTrace(t)

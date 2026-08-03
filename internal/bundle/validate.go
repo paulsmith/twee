@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 )
 
@@ -43,31 +42,35 @@ func Validate(path string) (ValidateResult, error) {
 	defer zr.Close()
 
 	var issues []string
+	entries, structureIssues := checkArchive(&zr.Reader)
+	issues = append(issues, structureIssues...)
 
-	if f, ok := findZipFile(&zr.Reader, "manifest.json"); !ok {
-		issues = append(issues, "missing manifest.json")
-	} else if body, rerr := readZipFile(f); rerr != nil {
-		issues = append(issues, "manifest.json: "+rerr.Error())
-	} else {
-		var man struct {
-			Version int `json:"version"`
-		}
-		if jerr := json.Unmarshal(body, &man); jerr != nil {
-			issues = append(issues, "manifest.json: "+jerr.Error())
-		} else if man.Version != 1 {
-			issues = append(issues, fmt.Sprintf("unsupported bundle version %d", man.Version))
+	if f := entries["manifest.json"]; f != nil {
+		body, rerr := readEntry(f)
+		if rerr != nil {
+			issues = append(issues, "manifest.json: "+rerr.Error())
+		} else {
+			var man struct {
+				Version int `json:"version"`
+			}
+			if jerr := json.Unmarshal(body, &man); jerr != nil {
+				issues = append(issues, "manifest.json: "+jerr.Error())
+			} else if man.Version != 1 {
+				issues = append(issues, fmt.Sprintf("unsupported bundle version %d", man.Version))
+			}
 		}
 	}
 
 	events := 0
-	if f, ok := findZipFile(&zr.Reader, "events.jsonl"); !ok {
-		issues = append(issues, "missing events.jsonl")
-	} else if body, rerr := readZipFile(f); rerr != nil {
-		issues = append(issues, "events.jsonl: "+rerr.Error())
-	} else {
-		n, evIssues := validateEventLines(body)
-		events = n
-		issues = append(issues, evIssues...)
+	if f := entries["events.jsonl"]; f != nil {
+		body, rerr := readEntry(f)
+		if rerr != nil {
+			issues = append(issues, "events.jsonl: "+rerr.Error())
+		} else {
+			n, evIssues := validateEventLines(body)
+			events = n
+			issues = append(issues, evIssues...)
+		}
 	}
 
 	return ValidateResult{
@@ -131,25 +134,4 @@ func validateEventLines(body []byte) (int, []string) {
 		issues = append(issues, "events.jsonl: "+err.Error())
 	}
 	return count, issues
-}
-
-func findZipFile(zr *zip.Reader, name string) (*zip.File, bool) {
-	for _, f := range zr.File {
-		if f.Name == name {
-			return f, true
-		}
-	}
-	return nil, false
-}
-
-// readZipFile reads an entry's full content, which as a side effect
-// verifies its CRC-32 checksum (archive/zip checks it once the reader
-// hits EOF) — part of what Validate means by "zip integrity".
-func readZipFile(f *zip.File) ([]byte, error) {
-	rc, err := f.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer rc.Close()
-	return io.ReadAll(rc)
 }

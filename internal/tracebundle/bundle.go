@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
+	"path"
 	"strings"
 	"time"
 
@@ -49,33 +51,29 @@ func Open(path string) (Bundle, error) {
 	}
 	defer zr.Close()
 
-	mf, err := openZipFile(&zr.Reader, "manifest.json")
+	entries, issues := checkArchive(&zr.Reader)
+	if len(issues) != 0 {
+		return Bundle{}, fmt.Errorf("invalid bundle structure: %s", strings.Join(issues, "; "))
+	}
+	manifestBody, err := readEntry(entries["manifest.json"])
 	if err != nil {
-		return Bundle{}, err
+		return Bundle{}, fmt.Errorf("read manifest.json: %w", err)
 	}
 	var man trace.Manifest
-	if err := json.NewDecoder(mf).Decode(&man); err != nil {
-		_ = mf.Close()
+	if err := json.NewDecoder(bytes.NewReader(manifestBody)).Decode(&man); err != nil {
 		return Bundle{}, fmt.Errorf("decode manifest.json: %w", err)
-	}
-	if err := mf.Close(); err != nil {
-		return Bundle{}, fmt.Errorf("close manifest.json: %w", err)
 	}
 	if man.Version != 1 {
 		return Bundle{}, fmt.Errorf("unsupported bundle version %d", man.Version)
 	}
 
-	ef, err := openZipFile(&zr.Reader, "events.jsonl")
+	eventsBody, err := readEntry(entries["events.jsonl"])
+	if err != nil {
+		return Bundle{}, fmt.Errorf("read events.jsonl: %w", err)
+	}
+	events, err := decodeEvents(bytes.NewReader(eventsBody))
 	if err != nil {
 		return Bundle{}, err
-	}
-	events, err := decodeEvents(ef)
-	closeErr := ef.Close()
-	if err != nil {
-		return Bundle{}, err
-	}
-	if closeErr != nil {
-		return Bundle{}, fmt.Errorf("close events.jsonl: %w", closeErr)
 	}
 
 	maxCols, maxRows := man.Cols, man.Rows
@@ -92,17 +90,91 @@ func Open(path string) (Bundle, error) {
 	return Bundle{Manifest: man, Events: events, MaxCols: maxCols, MaxRows: maxRows}, nil
 }
 
-func openZipFile(zr *zip.Reader, name string) (io.ReadCloser, error) {
+const (
+	maxArchiveEntries          = 1024
+	maxEntryNameBytes          = 255
+	maxArchiveEntryNameBytes   = 64 * 1024
+	maxArchiveUncompressedSize = 1 << 30
+	maxManifestSize            = 1 << 20
+	maxEventsSize              = maxArchiveUncompressedSize - maxManifestSize
+)
+
+func checkArchive(zr *zip.Reader) (map[string]*zip.File, []string) {
+	var issues []string
+	entries := make(map[string]*zip.File, 2)
+	counts := make(map[string]int, 2)
+	if len(zr.File) > maxArchiveEntries {
+		issues = append(issues, fmt.Sprintf("too many zip entries: %d (maximum %d)", len(zr.File), maxArchiveEntries))
+	}
+	var nameBytes, uncompressed uint64
 	for _, f := range zr.File {
-		if f.Name == name {
-			rc, err := f.Open()
-			if err != nil {
-				return nil, fmt.Errorf("open %s: %w", name, err)
+		nameBytes += uint64(len(f.Name))
+		if ^uint64(0)-uncompressed < f.UncompressedSize64 {
+			uncompressed = ^uint64(0)
+		} else {
+			uncompressed += f.UncompressedSize64
+		}
+		if len(f.Name) == 0 || len(f.Name) > maxEntryNameBytes {
+			issues = append(issues, fmt.Sprintf("unsafe zip entry name length %d", len(f.Name)))
+		}
+		if !fs.ValidPath(f.Name) || path.Clean(f.Name) != f.Name || strings.Contains(f.Name, `\`) {
+			issues = append(issues, fmt.Sprintf("unsafe non-canonical zip entry path %q", f.Name))
+		}
+		if !f.Mode().IsRegular() {
+			issues = append(issues, fmt.Sprintf("zip entry %q is not a regular file", f.Name))
+		}
+		switch f.Name {
+		case "manifest.json":
+			counts[f.Name]++
+			entries[f.Name] = f
+			if f.UncompressedSize64 > maxManifestSize {
+				issues = append(issues, fmt.Sprintf("manifest.json declares unreasonable uncompressed size %d", f.UncompressedSize64))
 			}
-			return rc, nil
+		case "events.jsonl":
+			counts[f.Name]++
+			entries[f.Name] = f
+			if f.UncompressedSize64 > maxEventsSize {
+				issues = append(issues, fmt.Sprintf("events.jsonl declares unreasonable uncompressed size %d", f.UncompressedSize64))
+			}
 		}
 	}
-	return nil, fmt.Errorf("missing %s", name)
+	if nameBytes > maxArchiveEntryNameBytes {
+		issues = append(issues, fmt.Sprintf("zip entry names total %d bytes (maximum %d)", nameBytes, maxArchiveEntryNameBytes))
+	}
+	if uncompressed > maxArchiveUncompressedSize {
+		issues = append(issues, fmt.Sprintf("zip declares unreasonable total uncompressed size %d", uncompressed))
+	}
+	for _, name := range []string{"manifest.json", "events.jsonl"} {
+		if counts[name] == 0 {
+			issues = append(issues, "missing "+name)
+		} else if counts[name] > 1 {
+			issues = append(issues, fmt.Sprintf("duplicate required zip entry %s (%d copies)", name, counts[name]))
+		}
+	}
+	if len(issues) != 0 {
+		return nil, issues
+	}
+	return entries, nil
+}
+
+func readEntry(f *zip.File) ([]byte, error) {
+	limit := uint64(maxEventsSize)
+	if f.Name == "manifest.json" {
+		limit = maxManifestSize
+	}
+	rc, err := f.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	body, err := io.ReadAll(io.LimitReader(rc, int64(limit)+1))
+	if err != nil {
+		return nil, err
+	}
+	if uint64(len(body)) > limit {
+		return nil, fmt.Errorf("decompressed content exceeds %d bytes", limit)
+	}
+	return body, nil
 }
 
 type eventJSON struct {

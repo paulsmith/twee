@@ -114,6 +114,51 @@ func TestOpenFailure(t *testing.T) {
 	}
 }
 
+func TestOpenRejectsDuplicateRequiredEntriesWithoutChoosingOne(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "duplicate.twee")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	for _, entry := range []struct{ name, body string }{
+		{"manifest.json", `{"version":1,"command":["first"]}`},
+		{"manifest.json", `{"version":1,"command":["second"]}`},
+		{"events.jsonl", ""},
+	} {
+		w, err := zw.Create(entry.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(entry.body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Open(path)
+	if err == nil || !strings.Contains(err.Error(), "duplicate required zip entry manifest.json") {
+		t.Fatalf("Open error = %v, want duplicate-entry rejection", err)
+	}
+}
+
+func TestOpenRejectsUnsafeEntryPath(t *testing.T) {
+	path := writeTestBundle(t, map[string]string{
+		"manifest.json":     `{"version":1}`,
+		"events.jsonl":      "",
+		"../outside-marker": "not extracted, but unsafe structure",
+	})
+	_, err := Open(path)
+	if err == nil || !strings.Contains(err.Error(), "unsafe non-canonical zip entry path") {
+		t.Fatalf("Open error = %v, want unsafe-path rejection", err)
+	}
+}
+
 func writeTestBundle(t *testing.T, files map[string]string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "session.twee")

@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,58 @@ import (
 	"testing"
 	"time"
 )
+
+func TestTraceCloseReportsCleanupFailureAndPreservesPrimaryError(t *testing.T) {
+	cleanupErr := errors.New("injected cleanup failure")
+	primaryErr := errors.New("injected primary failure")
+	tr, err := New(filepath.Join(t.TempDir(), "session.twee"), Manifest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr.removeAll = func(string) error { return cleanupErr }
+	tr.err = primaryErr
+
+	err = tr.Close()
+	if !errors.Is(err, primaryErr) || !errors.Is(err, cleanupErr) {
+		t.Fatalf("Close error = %v, want joined primary and cleanup errors", err)
+	}
+	if second := tr.Close(); !errors.Is(second, primaryErr) || !errors.Is(second, cleanupErr) {
+		t.Fatalf("second Close error = %v, want same joined errors", second)
+	}
+	_ = os.RemoveAll(tr.workDir)
+}
+
+func TestTraceArtifactsHavePrivateModes(t *testing.T) {
+	tr, err := New(filepath.Join(t.TempDir(), "session.twee"), Manifest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, artifact := range map[string]struct {
+		path string
+		want os.FileMode
+	}{
+		"work directory": {tr.workDir, 0o700},
+		"events file":    {tr.eventsPath, 0o600},
+	} {
+		info, err := os.Stat(artifact.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != artifact.want {
+			t.Errorf("%s mode = %o, want %o", name, got, artifact.want)
+		}
+	}
+	if err := tr.Close(); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(tr.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("final trace mode = %o, want 600", got)
+	}
+}
 
 func TestTraceRoundTrip(t *testing.T) {
 	dir := t.TempDir()
