@@ -50,6 +50,12 @@ func (t *Term) MarkStopRequested() { t.stopRequested.Store(true) }
 // StopRequested reports whether MarkStopRequested was ever called.
 func (t *Term) StopRequested() bool { return t.stopRequested.Load() }
 
+// SuppressTombstone requests that daemon teardown leave no exit record.
+func (t *Term) SuppressTombstone() { t.suppressTombstone.Store(true) }
+
+// TombstoneSuppressed reports whether bulk cleanup suppressed the exit record.
+func (t *Term) TombstoneSuppressed() bool { return t.suppressTombstone.Load() }
+
 // RecentBytes returns up to N bytes of recent PTY output, oldest first.
 func (t *Term) RecentBytes() []byte { return t.pump.RecentBytes() }
 

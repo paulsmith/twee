@@ -210,6 +210,34 @@ func TestWaitExitReportsTracePath(t *testing.T) {
 	}
 }
 
+func TestWaitExitReportsTraceFinalizationFailure(t *testing.T) {
+	te, err := engine.Start(context.Background(), engine.Config{
+		Cmd: []string{"/bin/sh", "-c", "exit 0"}, Cols: 40, Rows: 5,
+	})
+	if err != nil {
+		t.Fatalf("engine.Start: %v", err)
+	}
+	t.Cleanup(func() { _ = te.Close() })
+	tracePath := filepath.Join(t.TempDir(), "blocked.twee")
+	if err := te.EnableTrace(tracePath); err != nil {
+		t.Fatalf("EnableTrace: %v", err)
+	}
+	if err := os.Mkdir(tracePath, 0o700); err != nil {
+		t.Fatalf("Mkdir blocking output: %v", err)
+	}
+
+	_, rpcErr := handleWaitExit(te, mustJSON(t, rpc.WaitExitArgs{Timeout: "2s"}))
+	if rpcErr == nil || rpcErr.Code != rpc.CodeIO {
+		t.Fatalf("handleWaitExit error = %+v, want IO finalization failure", rpcErr)
+	}
+	if !strings.Contains(rpcErr.Message, "finalize trace") || !strings.Contains(rpcErr.Message, "rename") {
+		t.Fatalf("handleWaitExit message = %q, want finalization cause", rpcErr.Message)
+	}
+	if got := te.FinalizedTracePath(); got != "" {
+		t.Fatalf("FinalizedTracePath = %q after failure", got)
+	}
+}
+
 func TestTraceStopNoTrace(t *testing.T) {
 	te := startTestTerm(t)
 	sock, _ := startTestServer(t, te)

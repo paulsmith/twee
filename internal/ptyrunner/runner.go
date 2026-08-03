@@ -4,9 +4,11 @@ package ptyrunner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 	"time"
 
@@ -30,12 +32,30 @@ type Runner struct {
 
 	master *os.File
 	exited chan struct{}
+	reaped chan struct{}
 	exit   exitInfo
+
+	group     *processGroup
+	closeOnce sync.Once
+	closeErr  error
 }
 
 type exitInfo struct {
-	err  error
-	code int
+	err    error
+	code   int
+	signal syscall.Signal
+}
+
+func exitInfoFromProcessState(err error, state *os.ProcessState) exitInfo {
+	info := exitInfo{err: err}
+	if state == nil {
+		return info
+	}
+	info.code = state.ExitCode()
+	if ws, ok := state.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		info.signal = ws.Signal()
+	}
+	return info
 }
 
 // Start spawns the process. The PTY master is returned via Master().
@@ -49,7 +69,11 @@ func Start(ctx context.Context, cfg Config) (*Runner, error) {
 	if cfg.Rows <= 0 {
 		cfg.Rows = 24
 	}
+	group := newProcessGroup()
 	cmd := exec.CommandContext(ctx, cfg.Command[0], cfg.Command[1:]...)
+	cmd.Cancel = func() error {
+		return group.signal(syscall.SIGKILL)
+	}
 	if cfg.Env != nil {
 		cmd.Env = cfg.Env
 	}
@@ -61,6 +85,7 @@ func Start(ctx context.Context, cfg Config) (*Runner, error) {
 		Rows: uint16(cfg.Rows),
 	})
 	if err != nil {
+		group.startFailed()
 		return nil, err
 	}
 	r := &Runner{
@@ -68,18 +93,20 @@ func Start(ctx context.Context, cfg Config) (*Runner, error) {
 		cmd:    cmd,
 		master: master,
 		exited: make(chan struct{}),
+		reaped: make(chan struct{}),
+		group:  group,
 	}
+	group.started(cmd.Process.Pid)
 	go r.wait()
 	return r, nil
 }
 
 func (r *Runner) wait() {
-	err := r.cmd.Wait()
-	r.exit.err = err
-	if r.cmd.ProcessState != nil {
-		r.exit.code = r.cmd.ProcessState.ExitCode()
-	}
-	close(r.exited)
+	r.group.wait(r.cmd, func(info exitInfo) {
+		r.exit = info
+		close(r.exited)
+	})
+	close(r.reaped)
 }
 
 // Pid returns the child process ID, or 0 if the process has not started.
@@ -103,7 +130,9 @@ func (r *Runner) Resize(cols, rows int) error {
 		return err
 	}
 	if r.cmd.Process != nil {
-		_ = r.cmd.Process.Signal(syscall.SIGWINCH)
+		if err := r.group.signal(syscall.SIGWINCH); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			return err
+		}
 	}
 	return nil
 }
@@ -114,10 +143,25 @@ func (r *Runner) Signal(sig os.Signal) error {
 	if r.cmd == nil || r.cmd.Process == nil {
 		return errors.New("ptyrunner: child not started")
 	}
-	return r.cmd.Process.Signal(sig)
+	sysSig, ok := sig.(syscall.Signal)
+	if !ok {
+		return fmt.Errorf("ptyrunner: unsupported signal %v", sig)
+	}
+	return r.group.signal(sysSig)
 }
 
-// ExitedCh closes when the child has been reaped.
+func killProcessGroup(pgid int, sysSig syscall.Signal) error {
+	if err := syscall.Kill(-pgid, sysSig); err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return os.ErrProcessDone
+		}
+		return err
+	}
+	return nil
+}
+
+// ExitedCh closes when the session leader exits. On Linux, the leader remains
+// waitable until Close so its PID continues to identify the PTY process group.
 func (r *Runner) ExitedCh() <-chan struct{} { return r.exited }
 
 // ExitCode is valid after ExitedCh fires.
@@ -128,14 +172,10 @@ func (r *Runner) ExitCode() int { return r.exit.code }
 // child instead exited via a normal exit code. Valid after ExitedCh
 // fires.
 func (r *Runner) ExitSignal() (string, bool) {
-	if r.cmd.ProcessState == nil {
+	if r.exit.signal == 0 {
 		return "", false
 	}
-	ws, ok := r.cmd.ProcessState.Sys().(syscall.WaitStatus)
-	if !ok || !ws.Signaled() {
-		return "", false
-	}
-	return unix.SignalName(ws.Signal()), true
+	return unix.SignalName(r.exit.signal), true
 }
 
 // DefaultGrace is the SIGTERM-to-SIGKILL escalation window used by
@@ -155,26 +195,17 @@ func (r *Runner) Close() error {
 // first (harmless if the process dies from it instead), but there is no
 // wait before escalating. Safe to call multiple times.
 func (r *Runner) CloseWithGrace(grace time.Duration) error {
-	if r.cmd.Process != nil {
-		_ = r.cmd.Process.Signal(syscall.SIGTERM)
-	}
-	exited := false
-	if grace > 0 {
-		select {
-		case <-r.exited:
-			exited = true
-		case <-time.After(grace):
+	r.closeOnce.Do(func() {
+		_ = r.group.signal(syscall.SIGTERM)
+		if !r.group.waitDone(grace) {
+			_ = r.group.signal(syscall.SIGKILL)
 		}
-	}
-	if !exited {
-		if r.cmd.Process != nil {
-			_ = r.cmd.Process.Kill()
-		}
+		r.group.release()
 		select {
-		case <-r.exited:
+		case <-r.reaped:
 		case <-time.After(2 * time.Second):
-			// give up; close the PTY anyway
 		}
-	}
-	return r.master.Close()
+		r.closeErr = r.master.Close()
+	})
+	return r.closeErr
 }

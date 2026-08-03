@@ -90,14 +90,39 @@ type Trace struct {
 	eventsFile *os.File
 	evEnc      *json.Encoder
 
-	start  time.Time
-	closed bool
-	err    error
+	start     time.Time
+	closed    bool
+	err       error
+	removeAll func(string) error
 }
 
 // New creates a Trace that will be written to path on Close.
 // The manifest's StartedAt is set to time.Now(); Version is forced to 1.
 func New(path string, m Manifest) (*Trace, error) {
+	return newWithFS(path, m, defaultTraceFS())
+}
+
+func defaultTraceFS() traceFS {
+	return traceFS{
+		mkdirTemp: os.MkdirTemp,
+		chmod:     os.Chmod,
+		openFile:  os.OpenFile,
+		chmodFile: func(f *os.File, mode os.FileMode) error { return f.Chmod(mode) },
+		closeFile: func(f *os.File) error { return f.Close() },
+		removeAll: os.RemoveAll,
+	}
+}
+
+type traceFS struct {
+	mkdirTemp func(string, string) (string, error)
+	chmod     func(string, os.FileMode) error
+	openFile  func(string, int, os.FileMode) (*os.File, error)
+	chmodFile func(*os.File, os.FileMode) error
+	closeFile func(*os.File) error
+	removeAll func(string) error
+}
+
+func newWithFS(path string, m Manifest, fsys traceFS) (*Trace, error) {
 	if path == "" {
 		return nil, errors.New("trace: empty output path")
 	}
@@ -106,15 +131,22 @@ func New(path string, m Manifest) (*Trace, error) {
 	} else if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
-	workDir, err := os.MkdirTemp(filepath.Dir(path), ".twee-trace-*")
+	workDir, err := fsys.mkdirTemp(filepath.Dir(path), ".twee-trace-*")
 	if err != nil {
 		return nil, err
 	}
+	if err := fsys.chmod(workDir, 0o700); err != nil {
+		return nil, errors.Join(err, cleanupError(fsys.removeAll(workDir)))
+	}
 	eventsPath := filepath.Join(workDir, "events.jsonl")
-	eventsFile, err := os.Create(eventsPath)
+	eventsFile, err := fsys.openFile(eventsPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		_ = os.RemoveAll(workDir)
-		return nil, err
+		return nil, errors.Join(err, cleanupError(fsys.removeAll(workDir)))
+	}
+	if err := fsys.chmodFile(eventsFile, 0o600); err != nil {
+		return nil, errors.Join(err,
+			cleanupStepError("close private trace events file", fsys.closeFile(eventsFile)),
+			cleanupError(fsys.removeAll(workDir)))
 	}
 	now := time.Now()
 	m.Version = 1
@@ -127,9 +159,21 @@ func New(path string, m Manifest) (*Trace, error) {
 		eventsPath: eventsPath,
 		eventsFile: eventsFile,
 		start:      now,
+		removeAll:  os.RemoveAll,
 	}
 	tr.evEnc = json.NewEncoder(eventsFile)
 	return tr, nil
+}
+
+func cleanupError(err error) error {
+	return cleanupStepError("remove private trace work directory", err)
+}
+
+func cleanupStepError(action string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", action, err)
 }
 
 func (tr *Trace) ms(ts time.Time) int64 {
@@ -241,9 +285,11 @@ func (tr *Trace) Close() error {
 	return tr.err
 }
 
-func (tr *Trace) writeLocked() error {
+func (tr *Trace) writeLocked() (err error) {
 	defer func() {
-		_ = os.RemoveAll(tr.workDir)
+		if cleanupErr := tr.removeAll(tr.workDir); cleanupErr != nil {
+			err = errors.Join(err, fmt.Errorf("remove private trace work directory: %w", cleanupErr))
+		}
 	}()
 	if err := tr.eventsFile.Close(); err != nil && tr.err == nil {
 		tr.err = err
@@ -254,8 +300,12 @@ func (tr *Trace) writeLocked() error {
 	tr.man.StoppedAt = time.Now()
 
 	zipPath := filepath.Join(tr.workDir, "bundle.twee")
-	f, err := os.Create(zipPath)
+	f, err := os.OpenFile(zipPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
+		return err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
 		return err
 	}
 	zw := zip.NewWriter(f)

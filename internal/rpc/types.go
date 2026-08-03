@@ -50,7 +50,8 @@ type StatusData struct {
 // Empty means "use the daemon's default grace period"; "0" or "0s" means
 // SIGKILL immediately, skipping the SIGTERM wait.
 type StopArgs struct {
-	Grace string `json:"grace,omitempty"`
+	Grace             string `json:"grace,omitempty"`
+	SuppressTombstone bool   `json:"suppress_tombstone,omitempty"`
 }
 
 // Input args.

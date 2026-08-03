@@ -226,3 +226,31 @@ func TestStartNameCollisionReportsAlreadyRunning(t *testing.T) {
 		t.Errorf("collision message %q does not name the session", resp.Error.Message)
 	}
 }
+
+func TestDaemonRetainsSessionLockUnderGCPressure(t *testing.T) {
+	bin := buildBinary(t)
+	env := append(testEnv(t), "GOGC=1")
+	const sessionName = "lock-gc-pressure"
+	defer exec.Command(bin, "stop", "--name", sessionName).Run()
+
+	mustOK(t, bin, env, "start", "--name", sessionName, "--", "/bin/sh", "-c", "sleep 30")
+	// Each request allocates and GOGC=1 forces frequent collections in the
+	// daemon. The inherited lock descriptor must remain reachable throughout.
+	for range 50 {
+		mustOK(t, bin, env, "status", "--name", sessionName)
+	}
+
+	out := cliStdout(t, bin, env, "start", "--name", sessionName, "--", "/bin/sh", "-c", "sleep 30")
+	var resp struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		t.Fatalf("decode envelope %s: %v", out, err)
+	}
+	if resp.OK || resp.Error.Code != "ALREADY_RUNNING" {
+		t.Fatalf("second start after GC pressure = %s, want ALREADY_RUNNING", out)
+	}
+}

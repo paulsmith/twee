@@ -61,6 +61,8 @@ type Term struct {
 	// concurrently and neither side needs to block on the other, so an
 	// atomic is a simpler fit than a mutex-guarded bool.
 	stopRequested atomic.Bool
+	// suppressTombstone lets bulk cleanup request no persistent exit record.
+	suppressTombstone atomic.Bool
 
 	startedAt time.Time
 
@@ -108,8 +110,11 @@ func Start(ctx context.Context, cfg Config) (*Term, error) {
 	}
 	if cfg.TracePath != "" {
 		if err := t.EnableTrace(cfg.TracePath); err != nil {
-			_ = runner.Close()
-			return nil, fmt.Errorf("trace: %w", err)
+			cleanupErr := runner.Close()
+			if cleanupErr != nil {
+				cleanupErr = fmt.Errorf("close PTY after trace setup failure: %w", cleanupErr)
+			}
+			return nil, fmt.Errorf("trace: %w", errors.Join(err, cleanupErr))
 		}
 	}
 	go func() {
