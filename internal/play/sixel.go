@@ -27,15 +27,7 @@ func (s *sixelSink) Emit(img *image.RGBA, cols, rows int, toast, status string) 
 	if err := encodeSixel(s.w, img); err != nil {
 		return err
 	}
-	width := s.terminalCols
-	if width <= 0 {
-		width = cols
-	}
-	toast = sanitizeFooterLine(toast, width)
-	status = sanitizeFooterLine(status, width)
-	_, err := fmt.Fprintf(s.w, "\x1b[%d;1H\x1b[2K%s\x1b[%d;1H\x1b[2K%s\x1b[H",
-		rows+1, toast, rows+2, status)
-	return err
+	return writeFooter(s.w, s.terminalCols, cols, rows, toast, status)
 }
 
 func (s *sixelSink) Close() error { return nil }

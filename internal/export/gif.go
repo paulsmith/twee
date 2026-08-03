@@ -7,7 +7,6 @@ import (
 	"image/draw"
 	"image/gif"
 	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -15,27 +14,22 @@ import (
 // standard library has no streaming GIF append API, so memory scales with
 // frame count.
 type gifSink struct {
-	outPath   string
-	tempPath  string
+	output    *stagedOutput
 	g         gif.GIF
 	elapsed   time.Duration
 	emittedCS int
 }
 
 func newGIFSink(path string) (*gifSink, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return nil, err
-	}
-	f, err := os.CreateTemp(filepath.Dir(abs), "."+filepath.Base(abs)+".*.tmp")
+	output, f, err := newStagedOutput(path, "")
 	if err != nil {
 		return nil, err
 	}
 	if err := f.Close(); err != nil {
-		_ = os.Remove(f.Name())
+		output.abort()
 		return nil, err
 	}
-	return &gifSink{outPath: abs, tempPath: f.Name()}, nil
+	return &gifSink{output: output}, nil
 }
 
 func (s *gifSink) add(img *image.RGBA, d time.Duration) error {
@@ -52,7 +46,7 @@ func (s *gifSink) add(img *image.RGBA, d time.Duration) error {
 }
 
 func (s *gifSink) close() error {
-	f, err := os.Create(s.tempPath)
+	f, err := os.Create(s.output.temporary)
 	if err != nil {
 		return err
 	}
@@ -67,21 +61,11 @@ func (s *gifSink) close() error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	if err := preserveDestinationMode(s.tempPath, s.outPath); err != nil {
-		return err
-	}
-	if err := os.Rename(s.tempPath, s.outPath); err != nil {
-		return err
-	}
-	s.tempPath = ""
-	return nil
+	return s.output.commit()
 }
 
 func (s *gifSink) abort() {
-	if s.tempPath != "" {
-		_ = os.Remove(s.tempPath)
-		s.tempPath = ""
-	}
+	s.output.abort()
 }
 
 func roundedCentiseconds(d time.Duration) int {
