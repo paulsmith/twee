@@ -52,6 +52,9 @@ func handleStop(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	// at teardown, once this handler has returned) can tell an explicit
 	// "twee stop" apart from the child exiting on its own.
 	t.MarkStopRequested()
+	if a.SuppressTombstone {
+		t.SuppressTombstone()
+	}
 	if err := t.CloseWithGrace(grace); err != nil {
 		return nil, ioFailure(err)
 	}

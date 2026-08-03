@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"time"
 
@@ -132,7 +133,9 @@ func handleWaitExit(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	}
 	// The child is gone; make its artifacts durable before answering so
 	// the caller can rely on the trace bundle existing when this returns.
-	_ = FinalizeArtifacts(t)
+	if err := FinalizeArtifacts(t); err != nil {
+		return nil, ioFailure(fmt.Errorf("finalize trace: %w", err))
+	}
 	return rpc.WaitExitData{ExitCode: code, TracePath: t.FinalizedTracePath()}, nil
 }
 

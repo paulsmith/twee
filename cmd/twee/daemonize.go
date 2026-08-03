@@ -86,7 +86,7 @@ func runDaemonChildReal() {
 
 	sock, err := socketPath(name)
 	if err != nil {
-		failDaemonStartup(readyW, name, err)
+		failDaemonStartup(readyW, lockFile, name, err)
 	}
 	_ = os.Remove(sock) // stale socket; lock confirmed no live owner
 
@@ -98,7 +98,7 @@ func runDaemonChildReal() {
 		Rows: rows,
 	})
 	if err != nil {
-		failDaemonStartup(readyW, name, fmt.Errorf("engine.Start: %w", err))
+		failDaemonStartup(readyW, lockFile, name, fmt.Errorf("engine.Start: %w", err))
 	}
 
 	tracePath := os.Getenv(envDaemonTrace)
@@ -111,20 +111,20 @@ func runDaemonChildReal() {
 		}
 		if err != nil {
 			_ = te.Close()
-			failDaemonStartup(readyW, name, fmt.Errorf("trace start: %w", err))
+			failDaemonStartup(readyW, lockFile, name, fmt.Errorf("trace start: %w", err))
 		}
 	}
 
 	l, err := listenUnixSocket(sock)
 	if err != nil {
 		_ = te.Close()
-		failDaemonStartup(readyW, name, fmt.Errorf("listen %s: %w", sock, err))
+		failDaemonStartup(readyW, lockFile, name, fmt.Errorf("listen %s: %w", sock, err))
 	}
 	if err := os.Chmod(sock, 0o600); err != nil {
 		_ = l.Close()
 		_ = os.Remove(sock)
 		_ = te.Close()
-		failDaemonStartup(readyW, name, fmt.Errorf("chmod socket: %w", err))
+		failDaemonStartup(readyW, lockFile, name, fmt.Errorf("chmod socket: %w", err))
 	}
 
 	select {
@@ -143,7 +143,7 @@ func runDaemonChildReal() {
 		_ = l.Close()
 		_ = te.Close()
 		_ = os.Remove(sock)
-		removeLockFile(name)
+		releaseDaemonLock(lockFile, name)
 		writeReadyErrCode(readyW, name, rpc.CodeChildExited, "child exited during startup", details)
 		os.Exit(0)
 	case <-time.After(100 * time.Millisecond):
@@ -176,9 +176,11 @@ func runDaemonChildReal() {
 
 	_ = srv.Serve(context.Background(), l)
 	_ = te.Close()
-	writeTombstone(name, buildTombstone(name, te))
+	if !te.TombstoneSuppressed() {
+		writeTombstone(name, buildTombstone(name, te))
+	}
 	_ = os.Remove(sock)
-	removeLockFile(name)
+	releaseDaemonLock(lockFile, name)
 	os.Exit(0)
 }
 
@@ -206,10 +208,20 @@ func buildTombstone(name string, te *engine.Term) tombstone {
 
 // failDaemonStartup reports a startup error to the parent, removes the
 // session lock (still held via the inherited fd), and exits.
-func failDaemonStartup(readyW *os.File, name string, err error) {
-	removeLockFile(name)
+func failDaemonStartup(readyW, lockFile *os.File, name string, err error) {
+	releaseDaemonLock(lockFile, name)
 	writeReadyErr(readyW, name, err)
 	os.Exit(1)
+}
+
+// releaseDaemonLock unlinks the lock while lockFile still holds its flock,
+// then closes the inherited descriptor to release ownership. Passing lockFile
+// through every daemon teardown path also keeps it strongly reachable for the
+// full daemon lifetime instead of allowing its finalizer to close it after the
+// startup PID write.
+func releaseDaemonLock(lockFile *os.File, name string) {
+	removeLockFile(name)
+	_ = lockFile.Close()
 }
 
 // removeLockFile unlinks the session's lock file. Callers must still hold

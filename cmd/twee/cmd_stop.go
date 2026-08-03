@@ -110,6 +110,7 @@ func stopSession(name string, args rpc.StopArgs) stopOutcome {
 // field instead, so one uncooperative session can't hide the results
 // for the rest.
 func stopAll(args rpc.StopArgs) []any {
+	args.SuppressTombstone = true
 	out := []any{}
 	dir, err := stateDir()
 	if err != nil {

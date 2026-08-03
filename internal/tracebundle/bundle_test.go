@@ -3,10 +3,14 @@ package tracebundle
 import (
 	"archive/zip"
 	"encoding/base64"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/paulsmith/twee/internal/tracepolicy"
 )
 
 func TestOpenRoundTrip(t *testing.T) {
@@ -113,6 +117,98 @@ func TestOpenFailure(t *testing.T) {
 		t.Fatalf("error = %v, want open failure", err)
 	}
 }
+
+func TestOpenRejectsDuplicateRequiredEntriesWithoutChoosingOne(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "duplicate.twee")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	for _, entry := range []struct{ name, body string }{
+		{"manifest.json", `{"version":1,"command":["first"]}`},
+		{"manifest.json", `{"version":1,"command":["second"]}`},
+		{"events.jsonl", ""},
+	} {
+		w, err := zw.Create(entry.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(entry.body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Open(path)
+	if err == nil || !strings.Contains(err.Error(), "duplicate required zip entry manifest.json") {
+		t.Fatalf("Open error = %v, want duplicate-entry rejection", err)
+	}
+}
+
+func TestOpenRejectsUnsafeEntryPath(t *testing.T) {
+	path := writeTestBundle(t, map[string]string{
+		"manifest.json":     `{"version":1}`,
+		"events.jsonl":      "",
+		"../outside-marker": "not extracted, but unsafe structure",
+	})
+	_, err := Open(path)
+	if err == nil || !strings.Contains(err.Error(), "unsafe non-canonical zip entry path") {
+		t.Fatalf("Open error = %v, want unsafe-path rejection", err)
+	}
+}
+
+func TestOpenRejectsCompressedEventsBomb(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bomb.twee")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	mw, _ := zw.Create("manifest.json")
+	_, _ = io.WriteString(mw, `{"version":1}`)
+	ew, _ := zw.Create("events.jsonl")
+	if _, err := io.CopyN(ew, zeroReader{}, tracepolicy.MaxEventsBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(path); err == nil || !strings.Contains(err.Error(), "uncompressed size") {
+		t.Fatalf("Open error = %v, want compressed-bomb size rejection", err)
+	}
+}
+
+func TestDecodeEventsEnforcesCountAndDecodedPayload(t *testing.T) {
+	event := `{"type":"output"}` + "\n"
+	if _, err := decodeEventsWithLimits(strings.NewReader(strings.Repeat(event, 4)), 3, 1024); err == nil || !strings.Contains(err.Error(), "event count exceeds 3") {
+		t.Fatalf("count error = %v", err)
+	}
+	payload := base64.StdEncoding.EncodeToString([]byte("abc"))
+	body := fmt.Sprintf("{\"type\":\"output\",\"bytes_b64\":%q}\n{\"type\":\"output\",\"bytes_b64\":%q}\n", payload, payload)
+	if _, err := decodeEventsWithLimits(strings.NewReader(body), 10, 5); err == nil || !strings.Contains(err.Error(), "decoded payload exceeds 5") {
+		t.Fatalf("payload error = %v", err)
+	}
+}
+
+func TestDecodeEventsEnforcesLineSize(t *testing.T) {
+	line := strings.Repeat("x", tracepolicy.MaxEventLineBytes+1)
+	if _, err := decodeEvents(strings.NewReader(line)); err == nil || !strings.Contains(err.Error(), "token too long") {
+		t.Fatalf("line-size error = %v", err)
+	}
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) { clear(p); return len(p), nil }
 
 func writeTestBundle(t *testing.T, files map[string]string) string {
 	t.Helper()

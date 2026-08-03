@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/paulsmith/twee/internal/tracepolicy"
 )
 
 // ValidateResult is what "twee bundle validate" reports for a bundle
@@ -43,31 +45,42 @@ func Validate(path string) (ValidateResult, error) {
 	defer zr.Close()
 
 	var issues []string
+	entries, structureIssues := checkArchive(&zr.Reader)
+	issues = append(issues, structureIssues...)
 
-	if f, ok := findZipFile(&zr.Reader, "manifest.json"); !ok {
-		issues = append(issues, "missing manifest.json")
-	} else if body, rerr := readZipFile(f); rerr != nil {
-		issues = append(issues, "manifest.json: "+rerr.Error())
-	} else {
-		var man struct {
-			Version int `json:"version"`
-		}
-		if jerr := json.Unmarshal(body, &man); jerr != nil {
-			issues = append(issues, "manifest.json: "+jerr.Error())
-		} else if man.Version != 1 {
-			issues = append(issues, fmt.Sprintf("unsupported bundle version %d", man.Version))
+	if f := entries["manifest.json"]; f != nil {
+		body, rerr := readEntry(f)
+		if rerr != nil {
+			issues = append(issues, "manifest.json: "+rerr.Error())
+		} else {
+			var man struct {
+				Version int `json:"version"`
+			}
+			if jerr := json.Unmarshal(body, &man); jerr != nil {
+				issues = append(issues, "manifest.json: "+jerr.Error())
+			} else if man.Version != 1 {
+				issues = append(issues, fmt.Sprintf("unsupported bundle version %d", man.Version))
+			}
 		}
 	}
 
 	events := 0
-	if f, ok := findZipFile(&zr.Reader, "events.jsonl"); !ok {
-		issues = append(issues, "missing events.jsonl")
-	} else if body, rerr := readZipFile(f); rerr != nil {
-		issues = append(issues, "events.jsonl: "+rerr.Error())
-	} else {
-		n, evIssues := validateEventLines(body)
-		events = n
-		issues = append(issues, evIssues...)
+	if f := entries["events.jsonl"]; f != nil {
+		r, rerr := f.Open()
+		if rerr != nil {
+			issues = append(issues, "events.jsonl: "+rerr.Error())
+		} else {
+			limited := &io.LimitedReader{R: r, N: tracepolicy.MaxEventsBytes + 1}
+			n, evIssues := validateEventLines(limited)
+			if limited.N == 0 {
+				evIssues = append(evIssues, fmt.Sprintf("events.jsonl: decompressed content exceeds %d bytes", tracepolicy.MaxEventsBytes))
+			}
+			if cerr := r.Close(); cerr != nil {
+				evIssues = append(evIssues, "events.jsonl: "+cerr.Error())
+			}
+			events = n
+			issues = append(issues, evIssues...)
+		}
 	}
 
 	return ValidateResult{
@@ -94,14 +107,18 @@ func knownEventType(t string) bool {
 // and a list of every issue found (malformed lines, unknown event
 // types, and timestamps that go backwards) rather than stopping at the
 // first one.
-func validateEventLines(body []byte) (int, []string) {
+func validateEventLines(body io.Reader) (int, []string) {
+	return validateEventLinesWithLimit(body, tracepolicy.MaxEventCount)
+}
+
+func validateEventLinesWithLimit(body io.Reader, maxEvents int) (int, []string) {
 	var issues []string
 	count := 0
 	haveLast := false
 	var lastTMS int64
 
-	sc := bufio.NewScanner(bytes.NewReader(body))
-	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	sc := bufio.NewScanner(body)
+	sc.Buffer(make([]byte, 0, 64*1024), tracepolicy.MaxEventLineBytes)
 	lineNo := 0
 	for sc.Scan() {
 		lineNo++
@@ -117,6 +134,10 @@ func validateEventLines(body []byte) (int, []string) {
 			issues = append(issues, fmt.Sprintf("events.jsonl line %d: %v", lineNo, err))
 			continue
 		}
+		if count >= maxEvents {
+			issues = append(issues, fmt.Sprintf("events.jsonl: event count exceeds %d", maxEvents))
+			break
+		}
 		count++
 		if !knownEventType(raw.Type) {
 			issues = append(issues, fmt.Sprintf("events.jsonl line %d: unknown event type %q", lineNo, raw.Type))
@@ -131,25 +152,4 @@ func validateEventLines(body []byte) (int, []string) {
 		issues = append(issues, "events.jsonl: "+err.Error())
 	}
 	return count, issues
-}
-
-func findZipFile(zr *zip.Reader, name string) (*zip.File, bool) {
-	for _, f := range zr.File {
-		if f.Name == name {
-			return f, true
-		}
-	}
-	return nil, false
-}
-
-// readZipFile reads an entry's full content, which as a side effect
-// verifies its CRC-32 checksum (archive/zip checks it once the reader
-// hits EOF) — part of what Validate means by "zip integrity".
-func readZipFile(f *zip.File) ([]byte, error) {
-	rc, err := f.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer rc.Close()
-	return io.ReadAll(rc)
 }
