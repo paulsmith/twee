@@ -1,4 +1,6 @@
-package bundle
+// Package tracearchive validates and reads the ZIP container shared by .twee
+// trace bundle consumers.
+package tracearchive
 
 import (
 	"archive/zip"
@@ -11,19 +13,10 @@ import (
 	"github.com/paulsmith/twee/internal/tracepolicy"
 )
 
-// Compatibility aliases keep package-local tests readable while the policy
-// itself has one shared source of truth.
-const (
-	maxArchiveEntries = tracepolicy.MaxArchiveEntries
-	maxEntryNameBytes = tracepolicy.MaxEntryNameBytes
-	maxManifestSize   = tracepolicy.MaxManifestBytes
-	maxEventsSize     = tracepolicy.MaxEventsBytes
-)
-
-// checkArchive validates the structure and size declarations of a trace bundle.
-// It returns required entries only when the archive is unambiguous and safe to
-// read. Callers must still validate entry contents and CRCs.
-func checkArchive(zr *zip.Reader) (map[string]*zip.File, []string) {
+// Check validates the structure and declared sizes of a trace bundle. It
+// returns the required entries only when the archive is unambiguous and safe
+// to read. Callers must still validate entry contents and CRCs.
+func Check(zr *zip.Reader) (map[string]*zip.File, []string) {
 	var issues []string
 	entries := make(map[string]*zip.File, 2)
 	counts := make(map[string]int, 2)
@@ -88,9 +81,9 @@ func saturatingAdd(a, b uint64) uint64 {
 	return a + b
 }
 
-// readEntry reads and CRC-checks an entry without trusting its size declaration
-// as the only decompression bound.
-func readEntry(f *zip.File) ([]byte, error) {
+// Read reads and CRC-checks an entry without trusting its declared size as the
+// only decompression bound.
+func Read(f *zip.File) ([]byte, error) {
 	limit := uint64(tracepolicy.MaxEventsBytes)
 	if f.Name == "manifest.json" {
 		limit = tracepolicy.MaxManifestBytes

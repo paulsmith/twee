@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/paulsmith/twee/internal/tracearchive"
 	"github.com/paulsmith/twee/internal/tracepolicy"
 )
 
@@ -45,11 +46,11 @@ func Validate(path string) (ValidateResult, error) {
 	defer zr.Close()
 
 	var issues []string
-	entries, structureIssues := checkArchive(&zr.Reader)
+	entries, structureIssues := tracearchive.Check(&zr.Reader)
 	issues = append(issues, structureIssues...)
 
 	if f := entries["manifest.json"]; f != nil {
-		body, rerr := readEntry(f)
+		body, rerr := tracearchive.Read(f)
 		if rerr != nil {
 			issues = append(issues, "manifest.json: "+rerr.Error())
 		} else {

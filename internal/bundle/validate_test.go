@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/paulsmith/twee/internal/tracearchive"
 	"github.com/paulsmith/twee/internal/tracepolicy"
 )
 
@@ -62,10 +63,10 @@ func TestValidateRejectsUnsafeAndAmbiguousArchiveStructure(t *testing.T) {
 
 func TestCheckArchiveRejectsUnreasonableDeclarations(t *testing.T) {
 	zr := &zip.Reader{File: []*zip.File{
-		{FileHeader: zip.FileHeader{Name: "manifest.json", UncompressedSize64: maxManifestSize + 1}},
-		{FileHeader: zip.FileHeader{Name: "events.jsonl", UncompressedSize64: maxEventsSize + 1}},
+		{FileHeader: zip.FileHeader{Name: "manifest.json", UncompressedSize64: tracepolicy.MaxManifestBytes + 1}},
+		{FileHeader: zip.FileHeader{Name: "events.jsonl", UncompressedSize64: tracepolicy.MaxEventsBytes + 1}},
 	}}
-	_, issues := checkArchive(zr)
+	_, issues := tracearchive.Check(zr)
 	if !hasIssueContaining(issues, "manifest.json declares unreasonable") ||
 		!hasIssueContaining(issues, "events.jsonl declares unreasonable") ||
 		!hasIssueContaining(issues, "total uncompressed size") {
@@ -74,14 +75,14 @@ func TestCheckArchiveRejectsUnreasonableDeclarations(t *testing.T) {
 }
 
 func TestCheckArchiveRejectsUnreasonableEntryNamesAndCount(t *testing.T) {
-	files := make([]*zip.File, maxArchiveEntries+1)
+	files := make([]*zip.File, tracepolicy.MaxArchiveEntries+1)
 	files[0] = &zip.File{FileHeader: zip.FileHeader{Name: "manifest.json"}}
 	files[1] = &zip.File{FileHeader: zip.FileHeader{Name: "events.jsonl"}}
-	files[2] = &zip.File{FileHeader: zip.FileHeader{Name: strings.Repeat("x", maxEntryNameBytes+1)}}
+	files[2] = &zip.File{FileHeader: zip.FileHeader{Name: strings.Repeat("x", tracepolicy.MaxEntryNameBytes+1)}}
 	for i := 3; i < len(files); i++ {
 		files[i] = &zip.File{FileHeader: zip.FileHeader{Name: fmt.Sprintf("extra-%d", i)}}
 	}
-	_, issues := checkArchive(&zip.Reader{File: files})
+	_, issues := tracearchive.Check(&zip.Reader{File: files})
 	if !hasIssueContaining(issues, "too many zip entries") ||
 		!hasIssueContaining(issues, "unsafe zip entry name length") {
 		t.Fatalf("issues = %v, want entry-count and entry-name-length issues", issues)
