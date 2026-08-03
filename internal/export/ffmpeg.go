@@ -17,8 +17,7 @@ import (
 // concat-demuxer invocation on close. ffmpeg executes with the temp dir as its
 // working directory, so the list uses bare relative filenames.
 type ffmpegSink struct {
-	outPath string
-	tempOut string
+	output  *stagedOutput
 	ffmpeg  string
 	quality string
 	dir     string
@@ -30,29 +29,23 @@ type ffmpegSink struct {
 }
 
 func newFFmpegSink(outPath, ffmpeg, quality string) (*ffmpegSink, error) {
-	abs, err := filepath.Abs(outPath)
-	if err != nil {
-		return nil, err
-	}
 	dir, err := os.MkdirTemp("", "twee-export-")
 	if err != nil {
 		return nil, err
 	}
-	ext := filepath.Ext(abs)
-	base := strings.TrimSuffix(filepath.Base(abs), ext)
-	temp, err := os.CreateTemp(filepath.Dir(abs), "."+base+".*.tmp"+ext)
+	ext := filepath.Ext(outPath)
+	output, temp, err := newStagedOutput(outPath, ext)
 	if err != nil {
 		_ = os.RemoveAll(dir)
 		return nil, err
 	}
 	if err := temp.Close(); err != nil {
-		_ = os.Remove(temp.Name())
+		output.abort()
 		_ = os.RemoveAll(dir)
 		return nil, err
 	}
 	return &ffmpegSink{
-		outPath: abs,
-		tempOut: temp.Name(),
+		output:  output,
 		ffmpeg:  ffmpeg,
 		quality: quality,
 		dir:     dir,
@@ -140,7 +133,7 @@ func (s *ffmpegSink) close() error {
 	if err := os.WriteFile(filepath.Join(s.dir, listName), []byte(s.concatList()), 0o644); err != nil {
 		return err
 	}
-	cmd := exec.Command(s.ffmpeg, ffmpegArgs(listName, s.tempOut, s.quality)...)
+	cmd := exec.Command(s.ffmpeg, ffmpegArgs(listName, s.output.temporary, s.quality)...)
 	cmd.Dir = s.dir
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -155,21 +148,11 @@ func (s *ffmpegSink) close() error {
 		return fmt.Errorf("remove temporary frames: %w", err)
 	}
 	s.dir = ""
-	if err := preserveDestinationMode(s.tempOut, s.outPath); err != nil {
-		return err
-	}
-	if err := os.Rename(s.tempOut, s.outPath); err != nil {
-		return err
-	}
-	s.tempOut = ""
-	return nil
+	return s.output.commit()
 }
 
 func (s *ffmpegSink) abort() {
-	if s.tempOut != "" {
-		_ = os.Remove(s.tempOut)
-		s.tempOut = ""
-	}
+	s.output.abort()
 	if s.dir != "" && !s.keepDir {
 		_ = s.remove(s.dir)
 		s.dir = ""
