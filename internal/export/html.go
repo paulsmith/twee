@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"image"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/paulsmith/twee/internal/render"
@@ -16,27 +15,21 @@ import (
 // temporary file beside the destination makes the final rename atomic on the
 // filesystems supported by os.Rename.
 type htmlSink struct {
-	outPath  string
-	tempPath string
-	file     *os.File
-	w        *bufio.Writer
-	frames   int
+	output *stagedOutput
+	file   *os.File
+	w      *bufio.Writer
+	frames int
 }
 
 func newHTMLSink(outPath string) (*htmlSink, error) {
-	abs, err := filepath.Abs(outPath)
-	if err != nil {
-		return nil, err
-	}
-	f, err := os.CreateTemp(filepath.Dir(abs), "."+filepath.Base(abs)+".*.tmp")
+	output, f, err := newStagedOutput(outPath, "")
 	if err != nil {
 		return nil, err
 	}
 	s := &htmlSink{
-		outPath:  abs,
-		tempPath: f.Name(),
-		file:     f,
-		w:        bufio.NewWriterSize(f, 64*1024),
+		output: output,
+		file:   f,
+		w:      bufio.NewWriterSize(f, 64*1024),
 	}
 	if _, err := s.w.WriteString(htmlPrefix); err != nil {
 		s.abort()
@@ -83,14 +76,7 @@ func (s *htmlSink) close() error {
 		return err
 	}
 	s.file = nil
-	if err := preserveDestinationMode(s.tempPath, s.outPath); err != nil {
-		return err
-	}
-	if err := os.Rename(s.tempPath, s.outPath); err != nil {
-		return err
-	}
-	s.tempPath = ""
-	return nil
+	return s.output.commit()
 }
 
 // abort removes an uncommitted page. It is safe to call after close.
@@ -99,10 +85,7 @@ func (s *htmlSink) abort() {
 		_ = s.file.Close()
 		s.file = nil
 	}
-	if s.tempPath != "" {
-		_ = os.Remove(s.tempPath)
-		s.tempPath = ""
-	}
+	s.output.abort()
 }
 
 const htmlPrefix = `<!doctype html>
