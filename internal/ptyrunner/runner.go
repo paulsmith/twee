@@ -4,6 +4,7 @@ package ptyrunner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -50,6 +51,9 @@ func Start(ctx context.Context, cfg Config) (*Runner, error) {
 		cfg.Rows = 24
 	}
 	cmd := exec.CommandContext(ctx, cfg.Command[0], cfg.Command[1:]...)
+	cmd.Cancel = func() error {
+		return signalProcessGroup(cmd, syscall.SIGKILL)
+	}
 	if cfg.Env != nil {
 		cmd.Env = cfg.Env
 	}
@@ -103,7 +107,9 @@ func (r *Runner) Resize(cols, rows int) error {
 		return err
 	}
 	if r.cmd.Process != nil {
-		_ = r.cmd.Process.Signal(syscall.SIGWINCH)
+		if err := signalProcessGroup(r.cmd, syscall.SIGWINCH); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			return err
+		}
 	}
 	return nil
 }
@@ -114,7 +120,27 @@ func (r *Runner) Signal(sig os.Signal) error {
 	if r.cmd == nil || r.cmd.Process == nil {
 		return errors.New("ptyrunner: child not started")
 	}
-	return r.cmd.Process.Signal(sig)
+	return signalProcessGroup(r.cmd, sig)
+}
+
+// signalProcessGroup signals the session/process group created by pty.Start.
+// A negative PID targets every process in the group, including descendants
+// that remain after the original child has exited.
+func signalProcessGroup(cmd *exec.Cmd, sig os.Signal) error {
+	if cmd == nil || cmd.Process == nil {
+		return os.ErrProcessDone
+	}
+	sysSig, ok := sig.(syscall.Signal)
+	if !ok {
+		return fmt.Errorf("ptyrunner: unsupported signal %v", sig)
+	}
+	if err := syscall.Kill(-cmd.Process.Pid, sysSig); err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return os.ErrProcessDone
+		}
+		return err
+	}
+	return nil
 }
 
 // ExitedCh closes when the child has been reaped.
@@ -156,25 +182,32 @@ func (r *Runner) Close() error {
 // wait before escalating. Safe to call multiple times.
 func (r *Runner) CloseWithGrace(grace time.Duration) error {
 	if r.cmd.Process != nil {
-		_ = r.cmd.Process.Signal(syscall.SIGTERM)
+		_ = signalProcessGroup(r.cmd, syscall.SIGTERM)
 	}
-	exited := false
-	if grace > 0 {
-		select {
-		case <-r.exited:
-			exited = true
-		case <-time.After(grace):
-		}
+	if r.cmd.Process != nil && !waitProcessGroupDone(r.cmd.Process.Pid, grace) {
+		_ = signalProcessGroup(r.cmd, syscall.SIGKILL)
 	}
-	if !exited {
-		if r.cmd.Process != nil {
-			_ = r.cmd.Process.Kill()
-		}
-		select {
-		case <-r.exited:
-		case <-time.After(2 * time.Second):
-			// give up; close the PTY anyway
-		}
+	select {
+	case <-r.exited:
+	case <-time.After(2 * time.Second):
+		// give up; close the PTY anyway
 	}
 	return r.master.Close()
+}
+
+func waitProcessGroupDone(pgid int, grace time.Duration) bool {
+	if grace <= 0 {
+		return false
+	}
+	deadline := time.Now().Add(grace)
+	for {
+		if err := syscall.Kill(-pgid, 0); errors.Is(err, syscall.ESRCH) {
+			return true
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return false
+		}
+		time.Sleep(min(10*time.Millisecond, remaining))
+	}
 }
