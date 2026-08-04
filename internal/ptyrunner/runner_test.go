@@ -65,6 +65,9 @@ func TestRunnerExitCode(t *testing.T) {
 	if got := r.ExitCode(); got != 6 {
 		t.Fatalf("ExitCode = %d, want 6", got)
 	}
+	if err := r.Err(); err != nil {
+		t.Fatalf("Err = %v, want nil for an ordinary nonzero exit", err)
+	}
 }
 
 func TestRunnerCloseTerminatesChild(t *testing.T) {

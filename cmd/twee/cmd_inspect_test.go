@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/paulsmith/twee/internal/inspect"
 )
 
 func TestInspectDefaultJSON(t *testing.T) {
@@ -89,6 +91,7 @@ func TestInspectTextOutput(t *testing.T) {
 		"Events: 5 total",
 		"Input: key=1, type=1",
 		"Exit: code 7",
+		"Network capture: none",
 	} {
 		if !strings.Contains(string(out), want) {
 			t.Fatalf("inspect text missing %q:\n%s", want, out)
@@ -96,6 +99,19 @@ func TestInspectTextOutput(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(string(out)), "screenshots") {
 		t.Fatalf("inspect text should not mention screenshots:\n%s", out)
+	}
+}
+
+func TestPrintInspectTextReportsNetworkCapture(t *testing.T) {
+	var out bytes.Buffer
+	printInspectText(&out, inspect.Summary{
+		Network: inspect.NetworkSummary{
+			Present: true, Format: "pcap", PacketCount: 12, SizeBytes: 4096,
+			Status: "truncated", Truncated: true,
+		},
+	})
+	if want := "Network capture: pcap, 12 packets, 4096 bytes, status truncated (truncated)"; !strings.Contains(out.String(), want) {
+		t.Fatalf("inspect text missing %q:\n%s", want, &out)
 	}
 }
 

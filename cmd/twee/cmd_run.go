@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -26,6 +27,10 @@ Flags:
   --dir <path>     child working directory
   --trace-out <path.twee>
                   record a .twee trace bundle for the whole run
+  --network-capture
+                  capture the managed program's IPv4 traffic (Linux; requires --trace-out)
+  --publish-tcp <listen=guest>
+                  publish LISTEN_IPV4:PORT=10.0.2.100:GUEST_PORT (repeatable)
   --emit results   stream NDJSON op responses instead of one summary
 
 The script is a JSON array of RPC bodies (op + args). Use the wire
@@ -56,8 +61,16 @@ func runRun(args []string) {
 		}
 	}
 
+	var traceConfig *engine.WholeSessionTraceConfig
+	if opts.tracePath != "" {
+		traceConfig = &engine.WholeSessionTraceConfig{Path: opts.tracePath}
+		if opts.networkCapture {
+			traceConfig.Network = &engine.NetworkCaptureConfig{PublishTCP: opts.publishTCP}
+		}
+	}
 	te, err := engine.Start(context.Background(), engine.Config{
 		Cmd: opts.cmd, Cols: opts.cols, Rows: opts.rows, Dir: opts.dir,
+		WholeSessionTrace: traceConfig,
 	})
 	if err != nil {
 		emitError(rpc.CodeIO, "engine.Start: "+err.Error(), nil, 1)
@@ -74,12 +87,8 @@ func runRun(args []string) {
 		if !traceActive {
 			return nil
 		}
-		resp, err := dispatchRunControl(te, rpc.OpTraceStop, nil)
-		if err != nil {
-			return &rpc.Error{Code: rpc.CodeInternal, Message: err.Error()}
-		}
-		if !resp.OK {
-			return resp.Error
+		if err := te.FinalizeArtifacts(); err != nil {
+			return &rpc.Error{Code: rpc.CodeIO, Message: err.Error()}
 		}
 		traceActive = false
 		return nil
@@ -105,16 +114,7 @@ func runRun(args []string) {
 		emitError(code, msg, details, 1)
 	}
 
-	if opts.tracePath != "" {
-		resp, err := dispatchRunControl(te, rpc.OpTraceStart, rpc.TraceStartArgs{Out: opts.tracePath})
-		if err != nil {
-			fail(rpc.CodeInternal, err.Error(), nil)
-		}
-		if !resp.OK {
-			fail(resp.Error.Code, resp.Error.Message, resp.Error.Details)
-		}
-		traceActive = true
-	}
+	traceActive = opts.tracePath != ""
 
 	tmpDir, err = os.MkdirTemp("", "twee-run-")
 	if err != nil {
@@ -142,15 +142,17 @@ func runRun(args []string) {
 }
 
 type runOptions struct {
-	cmd        []string
-	scriptPath string
-	cols       int
-	rows       int
-	dir        string
-	emit       string
-	tracePath  string
-	colsSet    bool
-	rowsSet    bool
+	cmd            []string
+	scriptPath     string
+	cols           int
+	rows           int
+	dir            string
+	emit           string
+	tracePath      string
+	colsSet        bool
+	rowsSet        bool
+	networkCapture bool
+	publishTCP     []engine.TCPPublication
 }
 
 func parseRunArgs(args []string) (runOptions, error) {
@@ -160,14 +162,19 @@ func parseRunArgs(args []string) (runOptions, error) {
 		return opts, err
 	}
 	var parsed struct {
-		ScriptPath string  `arg:"--script"`
-		Cols       *string `arg:"--cols"`
-		Rows       *string `arg:"--rows"`
-		Dir        string  `arg:"--dir"`
-		Emit       string  `arg:"--emit"`
-		TracePath  string  `arg:"--trace-out"`
+		ScriptPath     string   `arg:"--script"`
+		Cols           *string  `arg:"--cols"`
+		Rows           *string  `arg:"--rows"`
+		Dir            string   `arg:"--dir"`
+		Emit           string   `arg:"--emit"`
+		TracePath      string   `arg:"--trace-out"`
+		NetworkCapture bool     `arg:"--network-capture"`
+		PublishTCP     []string `arg:"--publish-tcp,separate"`
 	}
 	if err := parseArg("run", &parsed, before); err != nil {
+		return opts, err
+	}
+	if err := requireSeparateValues(before, "--publish-tcp"); err != nil {
 		return opts, err
 	}
 	if n, ok, err := positiveIntFlag("--cols", parsed.Cols); err != nil {
@@ -190,6 +197,17 @@ func parseRunArgs(args []string) (runOptions, error) {
 		return opts, err
 	}
 	opts.tracePath = tracePath
+	opts.networkCapture = parsed.NetworkCapture
+	if opts.networkCapture && tracePath == "" {
+		return opts, fmt.Errorf("--network-capture requires --trace-out")
+	}
+	if len(parsed.PublishTCP) > 0 && !opts.networkCapture {
+		return opts, fmt.Errorf("--publish-tcp requires --network-capture")
+	}
+	opts.publishTCP, err = parseTCPPublications(parsed.PublishTCP)
+	if err != nil {
+		return opts, err
+	}
 	opts.cmd = cmd
 	return opts, nil
 }

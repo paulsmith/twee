@@ -1,6 +1,10 @@
 # Network Capture Plan
 
-Status: proposal.
+Status: implemented with netwrap. The historical slirp4netns design below is
+superseded by the netwrap TUN/gVisor library integration described in the
+repository README. The README is normative for the implemented CLI, fixed
+`10.0.2.100` guest address, raw-PCAP format, lifecycle, limits, and capture
+scope; the remainder of this file preserves the earlier design record.
 
 This document uses ASD-STE100 Simplified Technical English, Issue 9.
 Software terms are project technical nouns and technical verbs.

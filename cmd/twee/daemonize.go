@@ -27,6 +27,8 @@ const (
 	envDaemonDir     = "TWEE_DAEMON_DIR"
 	envDaemonEnv     = "TWEE_DAEMON_ENV"
 	envDaemonTrace   = "TWEE_DAEMON_TRACE"
+	envDaemonNetwork = "TWEE_DAEMON_NETWORK"
+	envDaemonPublish = "TWEE_DAEMON_PUBLISH_TCP"
 )
 
 // readyMessage is what the child writes to the parent over the pipe.
@@ -47,6 +49,7 @@ type quickExitDetails struct {
 	ExitCode      *int     `json:"exit_code"`
 	SocketCreated bool     `json:"socket_created"`
 	TracePath     string   `json:"trace_path,omitempty"`
+	ArtifactError string   `json:"artifact_error,omitempty"`
 }
 
 // inDaemonModeReal returns true when this process was invoked as a daemon child.
@@ -69,6 +72,10 @@ func runDaemonChildReal() {
 	var envOverrides map[string]string
 	_ = json.Unmarshal([]byte(os.Getenv(envDaemonEnv)), &envOverrides)
 	dir := os.Getenv(envDaemonDir)
+	networkCapture, _ := strconv.ParseBool(os.Getenv(envDaemonNetwork))
+	var publishTCP []engine.TCPPublication
+	_ = json.Unmarshal([]byte(os.Getenv(envDaemonPublish)), &publishTCP)
+	tracePath := os.Getenv(envDaemonTrace)
 
 	readyW := os.NewFile(uintptr(readyFD), "ready-pipe")
 	lockFile := os.NewFile(uintptr(lockFD), "lock-file")
@@ -90,19 +97,26 @@ func runDaemonChildReal() {
 	}
 	_ = os.Remove(sock) // stale socket; lock confirmed no live owner
 
+	var wholeSessionTrace *engine.WholeSessionTraceConfig
+	if networkCapture {
+		wholeSessionTrace = &engine.WholeSessionTraceConfig{
+			Path:    tracePath,
+			Network: &engine.NetworkCaptureConfig{PublishTCP: publishTCP},
+		}
+	}
 	te, err := engine.Start(context.Background(), engine.Config{
-		Cmd:  cmdv,
-		Env:  envOverrides,
-		Dir:  dir,
-		Cols: cols,
-		Rows: rows,
+		Cmd:               cmdv,
+		Env:               envOverrides,
+		Dir:               dir,
+		Cols:              cols,
+		Rows:              rows,
+		WholeSessionTrace: wholeSessionTrace,
 	})
 	if err != nil {
 		failDaemonStartup(readyW, lockFile, name, fmt.Errorf("engine.Start: %w", err))
 	}
 
-	tracePath := os.Getenv(envDaemonTrace)
-	if tracePath != "" {
+	if tracePath != "" && !networkCapture {
 		// Reuse the trace_start handler so `start --trace` and the trace
 		// verb produce identical bundles.
 		resp, err := dispatchRunControl(te, rpc.OpTraceStart, rpc.TraceStartArgs{Out: tracePath})
@@ -131,7 +145,7 @@ func runDaemonChildReal() {
 	case <-te.ExitedCh():
 		// Finalize first so a requested trace bundle survives even a
 		// child that died inside the observation window.
-		_ = daemon.FinalizeArtifacts(te)
+		finalizeErr := daemon.FinalizeArtifacts(te)
 		code := te.ExitCode()
 		details, _ := json.Marshal(quickExitDetails{
 			Name:          name,
@@ -139,6 +153,7 @@ func runDaemonChildReal() {
 			ExitCode:      &code,
 			SocketCreated: true,
 			TracePath:     te.FinalizedTracePath(),
+			ArtifactError: errorString(finalizeErr),
 		})
 		_ = l.Close()
 		_ = te.Close()
@@ -192,10 +207,12 @@ func runDaemonChildReal() {
 // caller and which never leaves a socket behind to need a tombstone.
 func buildTombstone(name string, te *engine.Term) tombstone {
 	ts := tombstone{
-		Name:      name,
-		Stopped:   te.StopRequested(),
-		StoppedAt: time.Now(),
-		Command:   te.Cmd(),
+		Name:          name,
+		Stopped:       te.StopRequested(),
+		StoppedAt:     time.Now(),
+		Command:       te.Cmd(),
+		TracePath:     te.FinalizedTracePath(),
+		ArtifactError: errorString(te.ArtifactError()),
 	}
 	if sig, ok := te.ExitSignal(); ok {
 		ts.Signal = sig
@@ -204,6 +221,13 @@ func buildTombstone(name string, te *engine.Term) tombstone {
 		ts.ExitCode = &code
 	}
 	return ts
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // failDaemonStartup reports a startup error to the parent, removes the
@@ -324,7 +348,7 @@ func waitForPIDExit(pid int, timeout time.Duration) {
 // daemonize re-execs into daemon mode with the given config, holding
 // the named lock file. Returns the ready message read back from the
 // child.
-func daemonize(name, dir string, cmd []string, cols, rows int, envOverrides map[string]string, tracePath string) (readyMessage, error) {
+func daemonize(name, dir string, cmd []string, cols, rows int, envOverrides map[string]string, tracePath string, networkCapture bool, publishTCP []engine.TCPPublication) (readyMessage, error) {
 	if err := validateName(name); err != nil {
 		return readyMessage{}, err
 	}
@@ -357,6 +381,7 @@ func daemonize(name, dir string, cmd []string, cols, rows int, envOverrides map[
 
 	cmdJSON, _ := json.Marshal(cmd)
 	envJSON, _ := json.Marshal(envOverrides)
+	publishJSON, _ := json.Marshal(publishTCP)
 
 	child := exec.Command(exe)
 	child.Env = append(os.Environ(),
@@ -370,6 +395,8 @@ func daemonize(name, dir string, cmd []string, cols, rows int, envOverrides map[
 		envDaemonEnv+"="+string(envJSON),
 		envDaemonDir+"="+dir,
 		envDaemonTrace+"="+tracePath,
+		envDaemonNetwork+"="+strconv.FormatBool(networkCapture),
+		envDaemonPublish+"="+string(publishJSON),
 	)
 	child.ExtraFiles = []*os.File{pw, lf}
 	child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

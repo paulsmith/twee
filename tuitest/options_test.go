@@ -41,6 +41,30 @@ func TestRecordOptionWritesTweeBundle(t *testing.T) {
 	}
 }
 
+func TestNetworkCaptureOptionConfiguresWholeSessionTrace(t *testing.T) {
+	cfg := newConfig()
+	NetworkCapture("session.twee", TCPPublication{
+		Listen: "127.0.0.1:8080", Guest: "10.0.2.100:3000",
+	})(cfg)
+
+	engineConfig := cfg.toEngine()
+	whole := engineConfig.WholeSessionTrace
+	if whole == nil || whole.Path != "session.twee" || whole.Network == nil {
+		t.Fatalf("whole-session trace = %+v", whole)
+	}
+	if got := whole.Network.PublishTCP; len(got) != 1 || got[0].Listen != "127.0.0.1:8080" || got[0].Guest != "10.0.2.100:3000" {
+		t.Fatalf("publications = %+v", got)
+	}
+}
+
+func TestNetworkCaptureWithEmptyPathFailsClosed(t *testing.T) {
+	cfg := newConfig()
+	NetworkCapture("")(cfg)
+	if cfg.toEngine().WholeSessionTrace == nil {
+		t.Fatal("NetworkCapture with an empty path omitted the network configuration")
+	}
+}
+
 func TestWithContextCancelsWait(t *testing.T) {
 	term := Run(t, "/bin/sh", Args("-c", "sleep 30"), Size(20, 4))
 	ctx, cancel := context.WithCancel(context.Background())

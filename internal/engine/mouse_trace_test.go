@@ -158,15 +158,17 @@ func startTracedMouseTerm(t *testing.T, path string) *Term {
 func startTracedTerm(t *testing.T, path, script string) *Term {
 	t.Helper()
 	term, err := Start(context.Background(), Config{
-		Cmd:       []string{"/bin/sh", "-c", script},
-		Cols:      40,
-		Rows:      5,
-		TracePath: path,
+		Cmd:  []string{"/bin/sh", "-c", script},
+		Cols: 40,
+		Rows: 5,
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	t.Cleanup(func() { _ = term.Close() })
+	if err := term.EnableTrace(path); err != nil {
+		t.Fatalf("EnableTrace: %v", err)
+	}
 	if err := term.WaitForText("READY"); err != nil {
 		t.Fatalf("WaitForText READY: %v", err)
 	}

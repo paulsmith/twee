@@ -20,6 +20,8 @@ type config struct {
 	stableQuietWindow time.Duration
 
 	tracePath string
+	network   bool
+	publish   []TCPPublication
 }
 
 func newConfig() *config {
@@ -33,6 +35,17 @@ func newConfig() *config {
 }
 
 func (c *config) toEngine() engine.Config {
+	var wholeSessionTrace *engine.WholeSessionTraceConfig
+	if c.tracePath != "" || c.network {
+		wholeSessionTrace = &engine.WholeSessionTraceConfig{Path: c.tracePath}
+		if c.network {
+			publications := make([]engine.TCPPublication, len(c.publish))
+			for i, publication := range c.publish {
+				publications[i] = engine.TCPPublication{Listen: publication.Listen, Guest: publication.Guest}
+			}
+			wholeSessionTrace.Network = &engine.NetworkCaptureConfig{PublishTCP: publications}
+		}
+	}
 	return engine.Config{
 		Cmd:               c.cmd,
 		Env:               c.env,
@@ -41,7 +54,7 @@ func (c *config) toEngine() engine.Config {
 		Rows:              c.rows,
 		DefaultTimeout:    c.defaultTimeout,
 		StableQuietWindow: c.stableQuietWindow,
-		TracePath:         c.tracePath,
+		WholeSessionTrace: wholeSessionTrace,
 	}
 }
 
@@ -84,4 +97,22 @@ func Record(path string) Option {
 // zip bundle containing a manifest and JSONL event stream.
 func Trace(path string) Option {
 	return func(c *config) { c.tracePath = path }
+}
+
+// TCPPublication maps a host TCP listener to an address in the managed
+// program's private network. Guest must be 10.0.2.100:PORT.
+type TCPPublication struct {
+	Listen string
+	Guest  string
+}
+
+// NetworkCapture records the managed program's IPv4 traffic in the .twee
+// bundle at path. Publications let host clients reach servers in the private
+// network. Network capture is supported on Linux only.
+func NetworkCapture(path string, publications ...TCPPublication) Option {
+	return func(c *config) {
+		c.tracePath = path
+		c.network = true
+		c.publish = append([]TCPPublication(nil), publications...)
+	}
 }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/paulsmith/twee/third_party/netwrap"
 	"golang.org/x/sys/unix"
 )
 
@@ -23,21 +24,53 @@ type Config struct {
 	Dir     string
 	Cols    int
 	Rows    int
+	Network *NetworkConfig
+}
+
+type NetworkConfig struct {
+	PCAPPath   string
+	PublishTCP []netwrap.TCPPublication
 }
 
 // Runner owns the child process and the PTY master.
 type Runner struct {
-	cfg Config
-	cmd *exec.Cmd
+	master    *os.File
+	backend   runnerBackend
+	closeOnce sync.Once
+	closeErr  error
+}
 
-	master *os.File
+type runnerBackend interface {
+	pid() int
+	exitedCh() <-chan struct{}
+	exitInfo() exitInfo
+	signal(os.Signal) error
+	closeWithGrace(time.Duration) error
+	networkCapture() (NetworkCaptureResult, bool)
+}
+
+type localBackend struct {
+	cmd    *exec.Cmd
+	group  *processGroup
 	exited chan struct{}
 	reaped chan struct{}
 	exit   exitInfo
+}
 
-	group     *processGroup
-	closeOnce sync.Once
-	closeErr  error
+type networkBackend struct {
+	process *netwrap.Process
+	exited  chan struct{}
+	exit    exitInfo
+	capture NetworkCaptureResult
+}
+
+// NetworkCaptureResult describes a completed network capture. It is available
+// after ExitedCh closes, at which point the PCAP is closed and stable.
+type NetworkCaptureResult struct {
+	MaxBytes     int64
+	BytesWritten int64
+	PacketCount  uint64
+	Truncated    bool
 }
 
 type exitInfo struct {
@@ -47,6 +80,12 @@ type exitInfo struct {
 }
 
 func exitInfoFromProcessState(err error, state *os.ProcessState) exitInfo {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		// A command exit is status, not a runner failure. Backends report
+		// setup, supervision, and I/O failures through Err instead.
+		err = nil
+	}
 	info := exitInfo{err: err}
 	if state == nil {
 		return info
@@ -54,6 +93,9 @@ func exitInfoFromProcessState(err error, state *os.ProcessState) exitInfo {
 	info.code = state.ExitCode()
 	if ws, ok := state.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
 		info.signal = ws.Signal()
+		// Match the network backend: signal deaths report the shell's
+		// 128+signal convention instead of ProcessState's -1.
+		info.code = 128 + int(info.signal)
 	}
 	return info
 }
@@ -68,6 +110,9 @@ func Start(ctx context.Context, cfg Config) (*Runner, error) {
 	}
 	if cfg.Rows <= 0 {
 		cfg.Rows = 24
+	}
+	if cfg.Network != nil {
+		return startNetwork(ctx, cfg)
 	}
 	group := newProcessGroup()
 	cmd := exec.CommandContext(ctx, cfg.Command[0], cfg.Command[1:]...)
@@ -88,34 +133,86 @@ func Start(ctx context.Context, cfg Config) (*Runner, error) {
 		group.startFailed()
 		return nil, err
 	}
-	r := &Runner{
-		cfg:    cfg,
-		cmd:    cmd,
-		master: master,
-		exited: make(chan struct{}),
-		reaped: make(chan struct{}),
-		group:  group,
-	}
+	backend := &localBackend{cmd: cmd, group: group, exited: make(chan struct{}), reaped: make(chan struct{})}
+	r := &Runner{master: master, backend: backend}
 	group.started(cmd.Process.Pid)
-	go r.wait()
+	go backend.wait()
 	return r, nil
 }
 
-func (r *Runner) wait() {
-	r.group.wait(r.cmd, func(info exitInfo) {
-		r.exit = info
-		close(r.exited)
+func startNetwork(ctx context.Context, cfg Config) (*Runner, error) {
+	if err := netwrap.Preflight(); err != nil {
+		return nil, err
+	}
+	master, slave, err := pty.Open()
+	if err != nil {
+		return nil, fmt.Errorf("open PTY: %w", err)
+	}
+	if err := pty.Setsize(master, &pty.Winsize{Cols: uint16(cfg.Cols), Rows: uint16(cfg.Rows)}); err != nil {
+		_ = master.Close()
+		_ = slave.Close()
+		return nil, err
+	}
+	// Capture-limit warnings arrive after this function's slave copy closes,
+	// so netwrap needs its own duplicate to reach the managed terminal.
+	warningsFd, err := unix.FcntlInt(slave.Fd(), unix.F_DUPFD_CLOEXEC, 0)
+	if err != nil {
+		_ = master.Close()
+		_ = slave.Close()
+		return nil, fmt.Errorf("dup PTY slave for capture warnings: %w", err)
+	}
+	warnings := os.NewFile(uintptr(warningsFd), slave.Name())
+	process, err := netwrap.Start(ctx, netwrap.Config{
+		Command: cfg.Command, Env: cfg.Env, Dir: cfg.Dir,
+		Stdin: slave, Stdout: slave, Stderr: slave, ControllingTTY: true,
+		Warnings:   warnings,
+		PCAPPath:   cfg.Network.PCAPPath,
+		PublishTCP: cfg.Network.PublishTCP,
 	})
-	close(r.reaped)
+	if err != nil {
+		_ = master.Close()
+		_ = slave.Close()
+		_ = warnings.Close()
+		return nil, err
+	}
+	// The command inherited its own descriptor for the slave. Keeping this copy
+	// open would prevent the master from observing EOF after command exit.
+	_ = slave.Close()
+	backend := &networkBackend{process: process, exited: make(chan struct{})}
+	r := &Runner{master: master, backend: backend}
+	go func() {
+		result, runErr := process.Wait()
+		// Wait returns after the recorder closes, so no warning can still be
+		// written. Closing the duplicate lets the master observe EOF.
+		_ = warnings.Close()
+		backend.exit = exitInfo{err: runErr, code: result.ExitCode}
+		if sig, ok := result.Signal.(syscall.Signal); ok {
+			backend.exit.signal = sig
+		}
+		backend.capture = NetworkCaptureResult{
+			MaxBytes: result.Capture.MaxBytes, BytesWritten: result.Capture.BytesWritten,
+			PacketCount: result.Capture.PacketCount, Truncated: result.Capture.Truncated,
+		}
+		close(backend.exited)
+	}()
+	return r, nil
+}
+
+func (b *localBackend) wait() {
+	b.group.wait(b.cmd, func(info exitInfo) {
+		b.exit = info
+		close(b.exited)
+	})
+	close(b.reaped)
 }
 
 // Pid returns the child process ID, or 0 if the process has not started.
 func (r *Runner) Pid() int {
-	if r.cmd.Process != nil {
-		return r.cmd.Process.Pid
-	}
-	return 0
+	return r.backend.pid()
 }
+
+func (b *localBackend) pid() int   { return b.cmd.Process.Pid }
+func (b *networkBackend) pid() int { return b.process.PID() }
 
 // Master returns the PTY master fd. Reads on it produce app output;
 // writes deliver input to the app.
@@ -129,10 +226,8 @@ func (r *Runner) Resize(cols, rows int) error {
 	}); err != nil {
 		return err
 	}
-	if r.cmd.Process != nil {
-		if err := r.group.signal(syscall.SIGWINCH); err != nil && !errors.Is(err, os.ErrProcessDone) {
-			return err
-		}
+	if err := r.backend.signal(syscall.SIGWINCH); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return err
 	}
 	return nil
 }
@@ -140,15 +235,18 @@ func (r *Runner) Resize(cols, rows int) error {
 // Signal forwards a signal to the child. Returns an error if the
 // process has not been started.
 func (r *Runner) Signal(sig os.Signal) error {
-	if r.cmd == nil || r.cmd.Process == nil {
-		return errors.New("ptyrunner: child not started")
-	}
+	return r.backend.signal(sig)
+}
+
+func (b *localBackend) signal(sig os.Signal) error {
 	sysSig, ok := sig.(syscall.Signal)
 	if !ok {
 		return fmt.Errorf("ptyrunner: unsupported signal %v", sig)
 	}
-	return r.group.signal(sysSig)
+	return b.group.signal(sysSig)
 }
+
+func (b *networkBackend) signal(sig os.Signal) error { return b.process.Signal(sig) }
 
 func killProcessGroup(pgid int, sysSig syscall.Signal) error {
 	if err := syscall.Kill(-pgid, sysSig); err != nil {
@@ -160,22 +258,50 @@ func killProcessGroup(pgid int, sysSig syscall.Signal) error {
 	return nil
 }
 
-// ExitedCh closes when the session leader exits. On Linux, the leader remains
-// waitable until Close so its PID continues to identify the PTY process group.
-func (r *Runner) ExitedCh() <-chan struct{} { return r.exited }
+// ExitedCh closes when exit information is available. Network-backed runners
+// also wait for the netstack and capture recorder to close. On Linux, a local
+// runner's leader remains waitable until Close so its PID continues to identify
+// the PTY process group.
+func (r *Runner) ExitedCh() <-chan struct{} { return r.backend.exitedCh() }
 
-// ExitCode is valid after ExitedCh fires.
-func (r *Runner) ExitCode() int { return r.exit.code }
+func (b *localBackend) exitedCh() <-chan struct{}   { return b.exited }
+func (b *networkBackend) exitedCh() <-chan struct{} { return b.exited }
+
+// ExitCode is valid after ExitedCh fires. A child terminated by a signal
+// reports the shell convention 128+signal on both backends; ExitSignal
+// names the signal.
+func (r *Runner) ExitCode() int { return r.backend.exitInfo().code }
+
+// Err reports a runtime, network, or recorder failure after ExitedCh closes.
+// A non-zero command exit is reported through ExitCode rather than Err.
+func (r *Runner) Err() error { return r.backend.exitInfo().err }
+
+func (b *localBackend) exitInfo() exitInfo   { return b.exit }
+func (b *networkBackend) exitInfo() exitInfo { return b.exit }
 
 // ExitSignal reports the signal that terminated the child, as its
 // conventional name (e.g. "SIGTERM"), and true — or ("", false) if the
 // child instead exited via a normal exit code. Valid after ExitedCh
 // fires.
 func (r *Runner) ExitSignal() (string, bool) {
-	if r.exit.signal == 0 {
+	info := r.backend.exitInfo()
+	if info.signal == 0 {
 		return "", false
 	}
-	return unix.SignalName(r.exit.signal), true
+	return unix.SignalName(info.signal), true
+}
+
+// NetworkCapture returns capture completion metadata after ExitedCh closes.
+func (r *Runner) NetworkCapture() (NetworkCaptureResult, bool) {
+	return r.backend.networkCapture()
+}
+
+func (b *localBackend) networkCapture() (NetworkCaptureResult, bool) {
+	return NetworkCaptureResult{}, false
+}
+
+func (b *networkBackend) networkCapture() (NetworkCaptureResult, bool) {
+	return b.capture, true
 }
 
 // DefaultGrace is the SIGTERM-to-SIGKILL escalation window used by
@@ -196,16 +322,27 @@ func (r *Runner) Close() error {
 // wait before escalating. Safe to call multiple times.
 func (r *Runner) CloseWithGrace(grace time.Duration) error {
 	r.closeOnce.Do(func() {
-		_ = r.group.signal(syscall.SIGTERM)
-		if !r.group.waitDone(grace) {
-			_ = r.group.signal(syscall.SIGKILL)
-		}
-		r.group.release()
-		select {
-		case <-r.reaped:
-		case <-time.After(2 * time.Second):
-		}
-		r.closeErr = r.master.Close()
+		r.closeErr = errors.Join(r.backend.closeWithGrace(grace), r.master.Close())
 	})
 	return r.closeErr
+}
+
+func (b *localBackend) closeWithGrace(grace time.Duration) error {
+	_ = b.group.signal(syscall.SIGTERM)
+	if !b.group.waitDone(grace) {
+		_ = b.group.signal(syscall.SIGKILL)
+	}
+	b.group.release()
+	select {
+	case <-b.reaped:
+	case <-time.After(2 * time.Second):
+		return errors.New("ptyrunner: timed out reaping child")
+	}
+	return nil
+}
+
+func (b *networkBackend) closeWithGrace(grace time.Duration) error {
+	err := b.process.CloseWithGrace(grace)
+	<-b.exited
+	return err
 }

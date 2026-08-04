@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/tracearchive"
 	"github.com/paulsmith/twee/internal/tracepolicy"
 )
@@ -49,20 +50,24 @@ func Validate(path string) (ValidateResult, error) {
 	entries, structureIssues := tracearchive.Check(&zr.Reader)
 	issues = append(issues, structureIssues...)
 
+	var manifest *trace.Manifest
 	if f := entries["manifest.json"]; f != nil {
 		body, rerr := tracearchive.Read(f)
 		if rerr != nil {
 			issues = append(issues, "manifest.json: "+rerr.Error())
 		} else {
-			var man struct {
-				Version int `json:"version"`
-			}
+			var man trace.Manifest
 			if jerr := json.Unmarshal(body, &man); jerr != nil {
 				issues = append(issues, "manifest.json: "+jerr.Error())
 			} else if man.Version != 1 {
 				issues = append(issues, fmt.Sprintf("unsupported bundle version %d", man.Version))
+			} else {
+				manifest = &man
 			}
 		}
+	}
+	if manifest != nil {
+		issues = append(issues, tracearchive.CheckNetworkCapture(networkMetadata(manifest.Network), entries[tracepolicy.NetworkCaptureStream])...)
 	}
 
 	events := 0
@@ -89,6 +94,17 @@ func Validate(path string) (ValidateResult, error) {
 		Events: events,
 		Issues: issues,
 	}, nil
+}
+
+func networkMetadata(capture *trace.NetworkCapture) *tracearchive.NetworkMetadata {
+	if capture == nil {
+		return nil
+	}
+	return &tracearchive.NetworkMetadata{
+		Format: capture.Format, Stream: capture.Stream, GVisorVersion: capture.GVisorVersion,
+		ByteLimit: capture.ByteLimit, CapturedBytes: capture.CapturedBytes, PacketCount: capture.PacketCount,
+		Truncated: capture.Truncated, Status: capture.Status,
+	}
 }
 
 // knownEventTypes are the event "type" values twee itself ever writes

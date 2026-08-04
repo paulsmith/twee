@@ -26,9 +26,13 @@ func Check(zr *zip.Reader) (map[string]*zip.File, []string) {
 
 	var nameBytes uint64
 	var uncompressed uint64
+	var nonNetworkUncompressed uint64
 	for _, f := range zr.File {
 		nameBytes += uint64(len(f.Name))
 		uncompressed = saturatingAdd(uncompressed, f.UncompressedSize64)
+		if f.Name != tracepolicy.NetworkCaptureStream {
+			nonNetworkUncompressed = saturatingAdd(nonNetworkUncompressed, f.UncompressedSize64)
+		}
 		if len(f.Name) == 0 || len(f.Name) > tracepolicy.MaxEntryNameBytes {
 			issues = append(issues, fmt.Sprintf("unsafe zip entry name length %d", len(f.Name)))
 		}
@@ -51,6 +55,12 @@ func Check(zr *zip.Reader) (map[string]*zip.File, []string) {
 			if f.UncompressedSize64 > tracepolicy.MaxEventsBytes {
 				issues = append(issues, fmt.Sprintf("events.jsonl declares unreasonable uncompressed size %d", f.UncompressedSize64))
 			}
+		case tracepolicy.NetworkCaptureStream:
+			counts[f.Name]++
+			entries[f.Name] = f
+			if f.UncompressedSize64 > tracepolicy.MaxNetworkCaptureBytes {
+				issues = append(issues, fmt.Sprintf("streams/network.pcap declares unreasonable uncompressed size %d", f.UncompressedSize64))
+			}
 		}
 	}
 	if nameBytes > tracepolicy.MaxArchiveEntryNameBytes {
@@ -58,6 +68,9 @@ func Check(zr *zip.Reader) (map[string]*zip.File, []string) {
 	}
 	if uncompressed > tracepolicy.MaxArchiveUncompressedBytes {
 		issues = append(issues, fmt.Sprintf("zip declares unreasonable total uncompressed size %d", uncompressed))
+	}
+	if nonNetworkUncompressed > tracepolicy.MaxManifestBytes+tracepolicy.MaxEventsBytes {
+		issues = append(issues, fmt.Sprintf("zip declares unreasonable total uncompressed size %d excluding network capture", nonNetworkUncompressed))
 	}
 	for _, name := range []string{"manifest.json", "events.jsonl"} {
 		switch counts[name] {
@@ -67,6 +80,9 @@ func Check(zr *zip.Reader) (map[string]*zip.File, []string) {
 		default:
 			issues = append(issues, fmt.Sprintf("duplicate required zip entry %s (%d copies)", name, counts[name]))
 		}
+	}
+	if counts[tracepolicy.NetworkCaptureStream] > 1 {
+		issues = append(issues, fmt.Sprintf("duplicate optional zip entry %s (%d copies)", tracepolicy.NetworkCaptureStream, counts[tracepolicy.NetworkCaptureStream]))
 	}
 	if len(issues) != 0 {
 		return nil, issues

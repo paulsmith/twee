@@ -63,9 +63,18 @@ func printInspectText(w io.Writer, s inspect.Summary) {
 	fmt.Fprintf(w, "Input: %s\n", formatCounts(s.Events.InputByKind))
 	if s.Exit.Recorded && s.Exit.Code != nil {
 		fmt.Fprintf(w, "Exit: code %d\n", *s.Exit.Code)
+	} else {
+		fmt.Fprintln(w, "Exit: not recorded")
+	}
+	if !s.Network.Present {
+		fmt.Fprintln(w, "Network capture: none")
 		return
 	}
-	fmt.Fprintln(w, "Exit: not recorded")
+	fmt.Fprintf(w, "Network capture: %s, %d packets, %d bytes, status %s", s.Network.Format, s.Network.PacketCount, s.Network.SizeBytes, s.Network.Status)
+	if s.Network.Truncated {
+		fmt.Fprint(w, " (truncated)")
+	}
+	fmt.Fprintln(w)
 }
 
 func formatCommand(command []string) string {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"syscall"
@@ -13,8 +14,9 @@ func init() {
 	registerUsage("stop", `twee stop [--name <name>] [--grace <dur>]
 twee stop --all [--grace <dur>]
 SIGTERM the child, wait for --grace (default 250ms), escalate to
-SIGKILL, then remove the daemon's socket and lock file. Returns
-{"name": ..., "stopped": true}.
+SIGKILL, finalize artifacts, then remove the daemon's socket and lock file.
+Returns {"name": ..., "stopped": true, "trace_path": ...}; trace_path is
+omitted when the session had no trace.
 
 --grace overrides the SIGTERM-to-SIGKILL escalation window. "0"
 means SIGKILL immediately, skipping the wait. A negative grace is
@@ -99,7 +101,14 @@ func stopSession(name string, args rpc.StopArgs) stopOutcome {
 	if lp, err := lockPath(name); err == nil {
 		_ = os.Remove(lp)
 	}
-	return stopOutcome{data: map[string]any{"name": name, "stopped": true}}
+	data := map[string]any{"name": name, "stopped": true}
+	var responseData struct {
+		TracePath string `json:"trace_path"`
+	}
+	if err := json.Unmarshal(resp.Data, &responseData); err == nil && responseData.TracePath != "" {
+		data["trace_path"] = responseData.TracePath
+	}
+	return stopOutcome{data: data}
 }
 
 // stopAll stops every live session and cleans up every stale one found

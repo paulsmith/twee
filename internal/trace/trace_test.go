@@ -6,12 +6,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/paulsmith/twee/internal/tracepolicy"
 )
 
 func TestTraceCloseReportsCleanupFailureAndPreservesPrimaryError(t *testing.T) {
@@ -224,7 +227,12 @@ func TestTraceRoundTrip(t *testing.T) {
 		}
 		nEvents++
 	}
-	ef.Close()
+	if err := sc.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ef.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if nEvents != 7 { // 2 output + 3 input + 1 resize + 1 exit
 		t.Errorf("events count = %d, want 7", nEvents)
 	}
@@ -233,6 +241,262 @@ func TestTraceRoundTrip(t *testing.T) {
 	}
 	if !sawMouse {
 		t.Error("events missing mouse event")
+	}
+}
+
+func TestTraceIncludesNetworkCapture(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "capture.pcap")
+	want := makeTestPCAP()
+	if err := os.WriteFile(source, want, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "session.twee")
+	tr, err := New(path, Manifest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.AttachNetworkCapture(source, NetworkCapture{
+		Format: NetworkCaptureFormat, Stream: NetworkCaptureStream,
+		GVisorVersion: "test", PublishTCP: []string{"127.0.0.1:8080=10.0.2.100:80"},
+		ByteLimit: 1024, CapturedBytes: int64(len(want)), Status: NetworkCaptureStatusComplete,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Close(); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	r, err := zr.Open("streams/network.pcap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(r)
+	_ = r.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("capture = %x, want %x", got, want)
+	}
+}
+
+func TestTraceRejectsReservedAndDuplicateAttachments(t *testing.T) {
+	tr, err := New(filepath.Join(t.TempDir(), "session.twee"), Manifest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tr.Close() })
+
+	for _, name := range []string{"manifest.json", "events.jsonl", NetworkCaptureStream} {
+		if err := tr.AttachFile("source", name); err == nil || !strings.Contains(err.Error(), "reserved") {
+			t.Errorf("AttachFile(%q) error = %v, want reserved-name error", name, err)
+		}
+	}
+	if err := tr.AttachFile("first", "extra/data.bin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.AttachFile("second", "extra/data.bin"); err == nil || !strings.Contains(err.Error(), "already attached") {
+		t.Fatalf("duplicate AttachFile error = %v, want duplicate error", err)
+	}
+}
+
+func TestTraceRejectsInvalidNetworkCaptureMetadata(t *testing.T) {
+	valid := makeTestPCAP()
+	base := NetworkCapture{
+		Format: NetworkCaptureFormat, Stream: NetworkCaptureStream,
+		GVisorVersion: "test", ByteLimit: 1024,
+		CapturedBytes: int64(len(valid)),
+		Status:        NetworkCaptureStatusComplete,
+	}
+	tests := []struct {
+		name    string
+		prepare func(t *testing.T, tr *Trace, source string)
+		edit    func(*NetworkCapture)
+		want    string
+	}{
+		{
+			name: "wrong format",
+			edit: func(c *NetworkCapture) { c.Format = "pcapng" },
+			want: `format "pcapng" is unsupported`,
+		},
+		{
+			name: "wrong stream",
+			edit: func(c *NetworkCapture) { c.Stream = "capture.pcap" },
+			want: "capture stream must be",
+		},
+		{
+			name: "empty gVisor version",
+			edit: func(c *NetworkCapture) { c.GVisorVersion = "" },
+			want: "gVisor version is empty",
+		},
+		{
+			name: "byte limit zero",
+			edit: func(c *NetworkCapture) { c.ByteLimit = 0 },
+			want: "byte limit must be in 1..",
+		},
+		{
+			name: "byte limit above policy maximum",
+			edit: func(c *NetworkCapture) { c.ByteLimit = tracepolicy.MaxNetworkCaptureBytes + 1 },
+			want: "byte limit must be in 1..",
+		},
+		{
+			name: "captured bytes negative",
+			edit: func(c *NetworkCapture) { c.CapturedBytes = -1 },
+			want: "size -1 is outside byte limit 1024",
+		},
+		{
+			name: "captured bytes above byte limit",
+			edit: func(c *NetworkCapture) { c.CapturedBytes = c.ByteLimit + 1 },
+			want: "size 1025 is outside byte limit 1024",
+		},
+		{
+			name: "captured bytes mismatch staged file size",
+			edit: func(c *NetworkCapture) { c.CapturedBytes++ },
+			want: "does not match staged file size",
+		},
+		{
+			name: "packet count negative",
+			edit: func(c *NetworkCapture) { c.PacketCount = -1 },
+			want: "packet count -1 does not match staged file count 0",
+		},
+		{
+			name: "packet count mismatch",
+			edit: func(c *NetworkCapture) { c.PacketCount = 1 },
+			want: "packet count 1 does not match staged file count 0",
+		},
+		{
+			name: "complete status with truncated flag",
+			edit: func(c *NetworkCapture) { c.Truncated = true },
+			want: `status "complete" is inconsistent with truncated=true`,
+		},
+		{
+			name: "truncated status without truncated flag",
+			edit: func(c *NetworkCapture) { c.Status = NetworkCaptureStatusTruncated },
+			want: `status "truncated" is inconsistent with truncated=false`,
+		},
+		{
+			name: "double attach",
+			prepare: func(t *testing.T, tr *Trace, source string) {
+				t.Helper()
+				if err := tr.AttachNetworkCapture(source, base); err != nil {
+					t.Fatalf("first AttachNetworkCapture: %v", err)
+				}
+			},
+			edit: func(*NetworkCapture) {},
+			want: "already attached",
+		},
+		{
+			name: "attach after close",
+			prepare: func(t *testing.T, tr *Trace, _ string) {
+				t.Helper()
+				if err := tr.Close(); err != nil {
+					t.Fatalf("Close: %v", err)
+				}
+			},
+			edit: func(*NetworkCapture) {},
+			want: "already closed",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			source := filepath.Join(dir, "capture.pcap")
+			if err := os.WriteFile(source, valid, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			tr, err := New(filepath.Join(dir, "session.twee"), Manifest{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = tr.Close() })
+			if tt.prepare != nil {
+				tt.prepare(t, tr, source)
+			}
+			capture := base
+			tt.edit(&capture)
+			err = tr.AttachNetworkCapture(source, capture)
+			if err == nil {
+				t.Fatal("AttachNetworkCapture succeeded with invalid metadata")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("AttachNetworkCapture error = %q, want substring %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestTraceRejectsInvalidNetworkCaptureSource(t *testing.T) {
+	valid := makeTestPCAP()
+	base := NetworkCapture{
+		Format: NetworkCaptureFormat, Stream: NetworkCaptureStream,
+		GVisorVersion: "test", ByteLimit: 1024,
+		CapturedBytes: int64(len(valid)),
+		Status:        NetworkCaptureStatusComplete,
+	}
+	tests := []struct {
+		name   string
+		source func(t *testing.T, dir string) string
+		want   string
+	}{
+		{
+			name:   "empty path",
+			source: func(*testing.T, string) string { return "" },
+			want:   "source is empty",
+		},
+		{
+			name: "missing file",
+			source: func(_ *testing.T, dir string) string {
+				return filepath.Join(dir, "missing.pcap")
+			},
+			want: "stat network capture",
+		},
+		{
+			name:   "directory",
+			source: func(_ *testing.T, dir string) string { return dir },
+			want:   "not a regular file",
+		},
+		{
+			name: "invalid PCAP content",
+			source: func(t *testing.T, dir string) string {
+				t.Helper()
+				path := filepath.Join(dir, "zeros.pcap")
+				if err := os.WriteFile(path, make([]byte, len(makeTestPCAP())), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				return path
+			},
+			want: "invalid PCAP magic",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tr, err := New(filepath.Join(dir, "session.twee"), Manifest{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = tr.Close() })
+			err = tr.AttachNetworkCapture(tt.source(t, dir), base)
+			if err == nil {
+				t.Fatal("AttachNetworkCapture succeeded with invalid source")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("AttachNetworkCapture error = %q, want substring %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func makeTestPCAP() []byte {
+	return []byte{
+		0xd4, 0xc3, 0xb2, 0xa1, 0x02, 0x00, 0x04, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0xff, 0xff, 0x00, 0x00, 0x65, 0x00, 0x00, 0x00,
 	}
 }
 
@@ -266,6 +530,24 @@ func TestTraceIdempotentClose(t *testing.T) {
 	}
 }
 
+func TestTraceAbortDoesNotPublishBundle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.twee")
+	tr, err := New(path, Manifest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cause := errors.New("capture did not close")
+	if err := tr.Abort(cause); !errors.Is(err, cause) {
+		t.Fatalf("Abort error = %v, want cause", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("published path after Abort: %v", err)
+	}
+	if err := tr.Close(); !errors.Is(err, cause) {
+		t.Fatalf("Close after Abort = %v, want cause", err)
+	}
+}
+
 func TestTraceNewValidatesOutputPath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing", "session.twee")
 	if _, err := New(path, Manifest{Command: []string{"echo"}, Cols: 10, Rows: 3}); err == nil {
@@ -290,6 +572,13 @@ func TestTraceNewValidatesOutputPath(t *testing.T) {
 	}
 	if _, err := os.Stat(validPath); err != nil {
 		t.Fatalf("final path after Close: %v", err)
+	}
+}
+
+func TestTraceNewRejectsPredeclaredNetworkCapture(t *testing.T) {
+	_, err := New(filepath.Join(t.TempDir(), "session.twee"), Manifest{Network: &NetworkCapture{}})
+	if err == nil || !strings.Contains(err.Error(), "AttachNetworkCapture") {
+		t.Fatalf("New error = %v, want typed network attachment guidance", err)
 	}
 }
 

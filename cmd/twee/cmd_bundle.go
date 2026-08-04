@@ -19,6 +19,7 @@ Inspect or verify a .twee trace bundle without opening a terminal.`)
 Print a summary of a .twee bundle: manifest fields (version, command,
 cols, rows, started_at, stopped_at) plus duration_ms, size_bytes, and
 events (a count per event type, e.g. {"output":12,"input":3,...}).
+The network_capture object reports optional PCAP metadata and statistics.
 
 A missing or unreadable file fails with code IO; a file that exists but
 isn't a usable bundle (bad zip, manifest, or version) fails with code
@@ -26,7 +27,9 @@ INVALID_ARGUMENT.`)
 	registerUsage("bundle validate", `twee bundle validate <file.twee>
 Verify a .twee bundle: zip integrity, a manifest that parses with a
 supported version, every events.jsonl line parsing as a known event
-type, and non-decreasing timestamps.
+type, and non-decreasing timestamps. A declared network capture is fully read
+to verify its CRC, PCAP framing, raw-IP link type, limits, packet and byte
+counts, truncation, and manifest/stream consistency.
 
 On success: {"valid":true,"events":N}. On failure: exits non-zero with
 code INVALID_ARGUMENT; error.details.issues lists every problem found,

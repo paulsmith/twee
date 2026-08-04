@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/paulsmith/twee/internal/engine"
 	"github.com/paulsmith/twee/internal/rpc"
 )
 
@@ -23,6 +24,10 @@ Flags:
   --trace <path.twee>
                   record the whole session, spawn to teardown, to a
                   trace bundle; finalized automatically at child exit
+  --network-capture
+                  capture the managed program's IPv4 traffic (Linux; requires --trace)
+  --publish-tcp <listen=guest>
+                  publish LISTEN_IPV4:PORT=10.0.2.100:GUEST_PORT (repeatable)
   --force          if a live session of this name already exists, stop
                   it first (default grace) instead of failing with
                   ALREADY_RUNNING; adds "replaced":true to the response
@@ -40,7 +45,7 @@ func runStart(args []string) {
 	if opts.force {
 		replaced = forceStopExisting(opts.name)
 	}
-	msg, err := daemonize(opts.name, opts.dir, opts.cmd, opts.cols, opts.rows, opts.env, opts.trace)
+	msg, err := daemonize(opts.name, opts.dir, opts.cmd, opts.cols, opts.rows, opts.env, opts.trace, opts.networkCapture, opts.publishTCP)
 	if err != nil {
 		code := rpc.CodeIO
 		var collision *alreadyRunningError
@@ -81,14 +86,16 @@ func forceStopExisting(name string) bool {
 }
 
 type startOptions struct {
-	name  string
-	cmd   []string
-	cols  int
-	rows  int
-	dir   string
-	env   map[string]string
-	trace string
-	force bool
+	name           string
+	cmd            []string
+	cols           int
+	rows           int
+	dir            string
+	env            map[string]string
+	trace          string
+	force          bool
+	networkCapture bool
+	publishTCP     []engine.TCPPublication
 }
 
 func parseStartArgs(args []string) (startOptions, error) {
@@ -97,15 +104,20 @@ func parseStartArgs(args []string) (startOptions, error) {
 		return startOptions{}, err
 	}
 	var parsed struct {
-		Name  *string  `arg:"--name"`
-		Cols  *string  `arg:"--cols"`
-		Rows  *string  `arg:"--rows"`
-		Dir   string   `arg:"--dir"`
-		Env   []string `arg:"--env,separate"`
-		Trace string   `arg:"--trace"`
-		Force bool     `arg:"--force"`
+		Name           *string  `arg:"--name"`
+		Cols           *string  `arg:"--cols"`
+		Rows           *string  `arg:"--rows"`
+		Dir            string   `arg:"--dir"`
+		Env            []string `arg:"--env,separate"`
+		Trace          string   `arg:"--trace"`
+		Force          bool     `arg:"--force"`
+		NetworkCapture bool     `arg:"--network-capture"`
+		PublishTCP     []string `arg:"--publish-tcp,separate"`
 	}
 	if err := requireSeparateValues(before, "--env"); err != nil {
+		return startOptions{}, err
+	}
+	if err := requireSeparateValues(before, "--publish-tcp"); err != nil {
 		return startOptions{}, err
 	}
 	if err := parseArg("start", &parsed, before); err != nil {
@@ -135,7 +147,17 @@ func parseStartArgs(args []string) (startOptions, error) {
 	if err != nil {
 		return startOptions{}, err
 	}
-	return startOptions{name: name, cmd: cmd, cols: cols, rows: rows, dir: parsed.Dir, env: envOverrides, trace: trace, force: parsed.Force}, nil
+	if parsed.NetworkCapture && trace == "" {
+		return startOptions{}, fmt.Errorf("--network-capture requires --trace")
+	}
+	if len(parsed.PublishTCP) > 0 && !parsed.NetworkCapture {
+		return startOptions{}, fmt.Errorf("--publish-tcp requires --network-capture")
+	}
+	pubs, err := parseTCPPublications(parsed.PublishTCP)
+	if err != nil {
+		return startOptions{}, err
+	}
+	return startOptions{name: name, cmd: cmd, cols: cols, rows: rows, dir: parsed.Dir, env: envOverrides, trace: trace, force: parsed.Force, networkCapture: parsed.NetworkCapture, publishTCP: pubs}, nil
 }
 
 func splitKV(s string) (string, string, bool) {

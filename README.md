@@ -224,6 +224,7 @@ command list is:
 | `find` | Find text in the viewport. |
 | `help` | Print top-level or per-command help. |
 | `hover` | Move the mouse to a viewport cell. |
+| `inspect` | Summarize a `.twee` bundle, including network capture metadata. |
 | `key` | Send one named key. |
 | `keys` | Send multiple named keys. |
 | `lines` | Show visible viewport lines. |
@@ -471,6 +472,10 @@ carries an `id`, the op index) instead of the summary envelope. Use
 `--trace-out session.twee` to record the whole single-shot run as a
 replayable trace bundle.
 
+On Linux, `--network-capture` adds the managed program's raw IPv4 packets to a
+whole-session trace. See [Network capture](#network-capture) for host
+requirements, port publication, capture limits, and a complete example.
+
 ### CI replay artifacts
 
 For a scripted CI scenario, record with `--trace-out`, export the resulting
@@ -600,6 +605,71 @@ $ twee wait exit
 {"ok":true,"data":{"exit_code":0,"trace_path":"/tmp/run.twee"}}
 ```
 
+### Network capture
+
+`--network-capture` runs the managed program and its descendants in netwrap's
+private IPv4 network. The resulting whole-session `.twee` bundle contains a
+classic PCAP stream at `streams/network.pcap`, in addition to terminal events.
+It is a raw packet capture, not a HAR file: analysis tools reconstruct requests
+and responses from the packets when the application protocol permits it.
+
+Network capture is Linux-only. The host must permit unprivileged user
+namespaces and let the current user open `/dev/net/tun`. Setup fails closed; it
+does not silently run the program on the host network. The managed program has
+the fixed private address `10.0.2.100`.
+
+Use repeatable `--publish-tcp LISTEN=GUEST` options when a host client must
+reach a managed server. Both sides require literal IPv4 addresses and numeric
+ports from 1 through 65535. `GUEST` must use `10.0.2.100`; for example,
+`127.0.0.1:8080=10.0.2.100:3000`. Bind the server to `0.0.0.0` or
+`10.0.2.100`, not guest loopback. A host listener on `127.0.0.1` accepts only
+local clients. A listener on `0.0.0.0` can expose the development server to
+other machines, subject to host routing and firewall rules.
+
+This example starts a named development server, sends a client request, stops
+the session, waits for durable artifacts, and extracts and inspects the PCAP:
+
+```sh
+trace_path="$PWD/web-session.twee"
+
+twee start --name web --trace "$trace_path" --network-capture \
+  --publish-tcp 127.0.0.1:8080=10.0.2.100:3000 -- \
+  ./dev-server --host 0.0.0.0 --port 3000
+
+twee wait text --name web --pattern "listening" --timeout 2m
+curl --fail http://127.0.0.1:8080/health
+twee stop --name web --grace 2s
+
+# stop returns only after the known trace path is durable.
+twee bundle validate "$trace_path"
+twee inspect --format text "$trace_path"
+unzip -p "$trace_path" streams/network.pcap >network.pcap
+tcpdump -nn -r network.pcap
+```
+
+For one-shot automation, use the same options with `twee run --trace-out
+web-session.twee --script ops.json -- ...`.
+
+Capture begins before the managed command starts and ends only when the
+session exits or is stopped. Because network capture and its trace cover the
+whole session, `twee trace stop` cannot stop such a trace early, and `twee
+trace start` cannot add network capture to an existing session. Wait for exit
+or stop the session to finalize the bundle.
+
+The PCAP limit is 64 MiB, including its header. When the next complete packet
+would exceed that limit, packet recording stops, netwrap prints one warning to
+the managed terminal, and the program continues. Captures do not rotate.
+
+Capture covers IPv4 packets crossing netwrap's TUN boundary. It does not cover
+guest loopback traffic, IPv6, UNIX sockets or other local IPC, traffic through
+inherited standard-stream descriptors, or traffic after the session ends.
+TLS and other encrypted protocols remain encrypted. Netwrap proxies sockets,
+so guest addresses, timing, and network behavior can differ from the host.
+
+PCAP data can contain passwords, tokens, cookies, request bodies, DNS names,
+and other secrets. `.twee` files and extracted PCAPs are sensitive artifacts;
+restrict their access and retention.
+
 [`scripts/example-vim.sh`](scripts/example-vim.sh) is a complete worked
 example: it pins a session via `TWEE_SESSION`, records the whole run
 with `start --trace`, drives a vim edit, and leaves a replayable bundle
@@ -618,7 +688,7 @@ directly — no daemon, no terminal — for debugging and CI.
 
 ```
 $ twee bundle info /tmp/run.twee
-{"ok":true,"data":{"version":1,"command":["./myapp"],"cols":80,"rows":24,"started_at":"2026-01-01T12:00:00Z","stopped_at":"2026-01-01T12:00:05Z","duration_ms":5000,"size_bytes":4096,"events":{"exit":1,"input":2,"output":9,"resize":1}}}
+{"ok":true,"data":{"version":1,"command":["./myapp"],"cols":80,"rows":24,"started_at":"2026-01-01T12:00:00Z","stopped_at":"2026-01-01T12:00:05Z","duration_ms":5000,"size_bytes":4096,"events":{"exit":1,"input":2,"output":9,"resize":1},"network_capture":{"present":false,"truncated":false}}}
 
 $ twee bundle validate /tmp/run.twee
 {"ok":true,"data":{"valid":true,"events":13}}
@@ -627,11 +697,15 @@ $ twee bundle validate /tmp/run.twee
 `bundle info`'s `data` carries a subset of the manifest (`version`,
 `command`, `cols`, `rows`, `started_at`, `stopped_at`) plus `duration_ms`
 and `size_bytes` (both derived) and `events`, a count per event type
-present in the bundle.
+present in the bundle. `network_capture` reports whether the optional PCAP is
+present and, when it is, its format, stream path, packet and byte counts,
+capture limit, gVisor version, published ports, truncation, and status.
 
 `bundle validate` checks zip integrity, that the manifest parses with a
 supported version, that every `events.jsonl` line parses as a known
-event type, and that timestamps are non-decreasing. An invalid bundle
+event type, and that timestamps are non-decreasing. For network traces it also
+fully reads the PCAP, verifies its CRC and framing, and checks its declared
+size, packet count, format, link type, limit, and status. An invalid bundle
 reports `ok:false` with code `INVALID_ARGUMENT` and every problem found
 (not just the first) in `error.details.issues`:
 

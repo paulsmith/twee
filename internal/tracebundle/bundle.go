@@ -66,6 +66,9 @@ func Open(path string) (Bundle, error) {
 	if man.Version != 1 {
 		return Bundle{}, fmt.Errorf("unsupported bundle version %d", man.Version)
 	}
+	if issues := tracearchive.CheckNetworkCapture(networkMetadata(man.Network), entries[tracepolicy.NetworkCaptureStream]); len(issues) != 0 {
+		return Bundle{}, fmt.Errorf("invalid network capture: %s", strings.Join(issues, "; "))
+	}
 
 	eventsReader, err := entries["events.jsonl"].Open()
 	if err != nil {
@@ -96,6 +99,17 @@ func Open(path string) (Bundle, error) {
 		}
 	}
 	return Bundle{Manifest: man, Events: events, MaxCols: maxCols, MaxRows: maxRows}, nil
+}
+
+func networkMetadata(capture *trace.NetworkCapture) *tracearchive.NetworkMetadata {
+	if capture == nil {
+		return nil
+	}
+	return &tracearchive.NetworkMetadata{
+		Format: capture.Format, Stream: capture.Stream, GVisorVersion: capture.GVisorVersion,
+		ByteLimit: capture.ByteLimit, CapturedBytes: capture.CapturedBytes, PacketCount: capture.PacketCount,
+		Truncated: capture.Truncated, Status: capture.Status,
+	}
 }
 
 type eventJSON struct {

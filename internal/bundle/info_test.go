@@ -97,6 +97,49 @@ func TestInspectValidBundle(t *testing.T) {
 			t.Errorf("events[%q] = %d, want %d (got %#v)", typ, info.Events[typ], n, info.Events)
 		}
 	}
+	if info.NetworkCapture.Present {
+		t.Fatalf("network capture = %+v, want absent", info.NetworkCapture)
+	}
+}
+
+func TestInspectReportsNetworkCaptureMetadata(t *testing.T) {
+	dir := t.TempDir()
+	pcap := testPCAP()
+	pcapPath := filepath.Join(dir, "network.pcap")
+	if err := os.WriteFile(pcapPath, pcap, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bundlePath := filepath.Join(dir, "session.twee")
+	tr, err := trace.New(bundlePath, trace.Manifest{Command: []string{"server"}, Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.AttachNetworkCapture(pcapPath, trace.NetworkCapture{
+		Format: trace.NetworkCaptureFormat, Stream: trace.NetworkCaptureStream,
+		GVisorVersion: "test-version", PublishTCP: []string{"127.0.0.1:8080=10.0.2.100:80"},
+		ByteLimit: 4096, CapturedBytes: int64(len(pcap)),
+		Truncated: true, Status: trace.NetworkCaptureStatusTruncated,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := Inspect(bundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	network := info.NetworkCapture
+	if !network.Present || network.Format != "pcap" || network.Stream != trace.NetworkCaptureStream || network.SizeBytes != int64(len(pcap)) {
+		t.Fatalf("network capture = %+v", network)
+	}
+	if !network.Truncated || network.Status != trace.NetworkCaptureStatusTruncated || network.ByteLimit != 4096 {
+		t.Fatalf("network truncation metadata = %+v", network)
+	}
+	if len(network.PublishTCP) != 1 || network.PublishTCP[0] != "127.0.0.1:8080=10.0.2.100:80" {
+		t.Fatalf("publications = %#v", network.PublishTCP)
+	}
 }
 
 func TestInspectMissingFileIsIO(t *testing.T) {

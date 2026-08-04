@@ -10,10 +10,10 @@ import (
 func TestCloseReturnsTraceCloseError(t *testing.T) {
 	tracePath := filepath.Join(t.TempDir(), "session.twee")
 	term, err := Start(context.Background(), Config{
-		Cmd:       []string{"/bin/sh", "-c", "sleep 30"},
-		Cols:      40,
-		Rows:      5,
-		TracePath: tracePath,
+		Cmd:               []string{"/bin/sh", "-c", "sleep 30"},
+		Cols:              40,
+		Rows:              5,
+		WholeSessionTrace: &WholeSessionTraceConfig{Path: tracePath},
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

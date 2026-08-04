@@ -1,6 +1,14 @@
 // Package tracepolicy defines resource limits shared by trace bundle readers.
 package tracepolicy
 
+const (
+	NetworkCaptureFormat = "pcap"
+	NetworkCaptureStream = "streams/network.pcap"
+
+	NetworkCaptureStatusComplete  = "complete"
+	NetworkCaptureStatusTruncated = "truncated"
+)
+
 // These conservative pre-release limits admit long recordings while bounding
 // decompression and retained memory from untrusted bundles.
 const (
@@ -12,5 +20,6 @@ const (
 	MaxEventLineBytes           = 1 * 1024 * 1024
 	MaxEventCount               = 1_000_000
 	MaxDecodedPayloadBytes      = 32 * 1024 * 1024
-	MaxArchiveUncompressedBytes = MaxManifestBytes + MaxEventsBytes
+	MaxNetworkCaptureBytes      = 64 * 1024 * 1024
+	MaxArchiveUncompressedBytes = MaxManifestBytes + MaxEventsBytes + MaxNetworkCaptureBytes
 )

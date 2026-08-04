@@ -58,5 +58,5 @@ func handleStop(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	if err := t.CloseWithGrace(grace); err != nil {
 		return nil, ioFailure(err)
 	}
-	return nil, nil
+	return map[string]any{"trace_path": t.FinalizedTracePath()}, nil
 }

@@ -76,6 +76,25 @@ func TestParseRunArgsRunFlagsAndCommandFlags(t *testing.T) {
 	}
 }
 
+func TestParseRunNetworkCapture(t *testing.T) {
+	opts, err := parseRunArgs([]string{"--trace-out", "session.twee", "--network-capture", "--publish-tcp", "127.0.0.1:8080=10.0.2.100:3000", "--", "server"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.networkCapture || len(opts.publishTCP) != 1 {
+		t.Fatalf("opts = %+v", opts)
+	}
+	if opts.publishTCP[0].Guest != "10.0.2.100:3000" {
+		t.Fatalf("publication = %+v", opts.publishTCP[0])
+	}
+}
+
+func TestParseRunNetworkCaptureRequiresTrace(t *testing.T) {
+	if _, err := parseRunArgs([]string{"--network-capture", "--", "server"}); err == nil {
+		t.Fatal("network capture without trace succeeded")
+	}
+}
+
 func TestRunTraceOutWritesBundle(t *testing.T) {
 	bin := buildBinary(t)
 	dir := t.TempDir()

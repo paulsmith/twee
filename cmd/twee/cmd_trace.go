@@ -32,11 +32,16 @@ events, and the process exit. If --out is omitted, twee creates a temporary
 Example:
   twee trace start --out /tmp/session.twee
   twee key Enter
-  twee trace stop`)
+  twee trace stop
+
+Sessions started with --network-capture already have a non-reconfigurable
+whole-session trace; trace start is rejected for those sessions.`)
 	registerUsage("trace stop", `twee trace stop [--name <name>]
 Stop a trace recording and write the .twee bundle.
 
-Trace stop closes the trace and returns the saved path as {"path": "..."}.`)
+Trace stop closes the trace and returns the saved path as {"path": "..."}.
+It is rejected for a whole-session network trace; stop the session or wait for
+its exit to finalize that bundle.`)
 }
 
 func runTrace(args []string) {

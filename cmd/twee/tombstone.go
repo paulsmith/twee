@@ -16,11 +16,13 @@ type tombstone struct {
 	Name string `json:"name"`
 	// ExitCode is nil when the child was terminated by a signal instead
 	// of exiting normally; Signal names that signal in that case.
-	ExitCode  *int      `json:"exit_code"`
-	Signal    string    `json:"signal,omitempty"`
-	Stopped   bool      `json:"stopped"`
-	StoppedAt time.Time `json:"stopped_at"`
-	Command   []string  `json:"command"`
+	ExitCode      *int      `json:"exit_code"`
+	Signal        string    `json:"signal,omitempty"`
+	Stopped       bool      `json:"stopped"`
+	StoppedAt     time.Time `json:"stopped_at"`
+	Command       []string  `json:"command"`
+	TracePath     string    `json:"trace_path,omitempty"`
+	ArtifactError string    `json:"artifact_error,omitempty"`
 }
 
 // writeTombstone best-effort records name's tombstone. Errors are

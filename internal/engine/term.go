@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,7 +14,9 @@ import (
 	"github.com/paulsmith/twee/internal/ptyrunner"
 	"github.com/paulsmith/twee/internal/pump"
 	"github.com/paulsmith/twee/internal/trace"
+	"github.com/paulsmith/twee/internal/tracepolicy"
 	"github.com/paulsmith/twee/internal/vt"
+	"github.com/paulsmith/twee/third_party/netwrap"
 )
 
 // DefaultCloseGrace is the SIGTERM-to-SIGKILL escalation window Close
@@ -38,6 +42,7 @@ type Term struct {
 	runner      *ptyrunner.Runner
 	pump        *pump.Pump
 	tr          *trace.Trace
+	tracePath   string // guarded by cfgMu
 
 	closeOnce sync.Once
 	closeErr  error
@@ -68,6 +73,12 @@ type Term struct {
 
 	inputsMu sync.Mutex
 	inputs   []InputEvent
+	network  *networkArtifacts
+}
+
+type networkArtifacts struct {
+	dir      string
+	pcapPath string
 }
 
 // InputEvent is a single recorded input action for diagnostics.
@@ -84,6 +95,26 @@ func Start(ctx context.Context, cfg Config) (*Term, error) {
 	if len(cfg.Cmd) == 0 {
 		return nil, errors.New("engine.Start: cfg.Cmd is empty")
 	}
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
+	var network *networkArtifacts
+	var networkCfg *ptyrunner.NetworkConfig
+	if whole := cfg.WholeSessionTrace; whole != nil && whole.Network != nil {
+		var err error
+		networkDir, err := os.MkdirTemp("", "twee-network-*")
+		if err != nil {
+			return nil, fmt.Errorf("network capture staging: %w", err)
+		}
+		network = &networkArtifacts{
+			dir: networkDir, pcapPath: filepath.Join(networkDir, "network.pcap"),
+		}
+		pubs := make([]netwrap.TCPPublication, len(whole.Network.PublishTCP))
+		for i, p := range whole.Network.PublishTCP {
+			pubs[i] = netwrap.TCPPublication{Listen: p.Listen, Guest: p.Guest}
+		}
+		networkCfg = &ptyrunner.NetworkConfig{PCAPPath: network.pcapPath, PublishTCP: pubs}
+	}
 
 	runner, err := ptyrunner.Start(ctx, ptyrunner.Config{
 		Command: cfg.Cmd,
@@ -91,8 +122,12 @@ func Start(ctx context.Context, cfg Config) (*Term, error) {
 		Dir:     cfg.Dir,
 		Cols:    cfg.Cols,
 		Rows:    cfg.Rows,
+		Network: networkCfg,
 	})
 	if err != nil {
+		if network != nil {
+			_ = os.RemoveAll(network.dir)
+		}
 		return nil, fmt.Errorf("spawn: %w", err)
 	}
 
@@ -107,10 +142,14 @@ func Start(ctx context.Context, cfg Config) (*Term, error) {
 		pumpDone:      make(chan struct{}),
 		artifactsDone: make(chan struct{}),
 		startedAt:     time.Now(),
+		network:       network,
 	}
-	if cfg.TracePath != "" {
-		if err := t.EnableTrace(cfg.TracePath); err != nil {
+	if cfg.WholeSessionTrace != nil {
+		if err := t.startTrace(cfg.WholeSessionTrace.Path); err != nil {
 			cleanupErr := runner.Close()
+			if network != nil {
+				cleanupErr = errors.Join(cleanupErr, os.RemoveAll(network.dir))
+			}
 			if cleanupErr != nil {
 				cleanupErr = fmt.Errorf("close PTY after trace setup failure: %w", cleanupErr)
 			}
@@ -185,11 +224,20 @@ func (t *Term) FinalizeArtifactsWithGrace(grace time.Duration) error {
 		var err error
 		if t.tr != nil {
 			t.tr.WriteExit(t.runner.ExitCode())
+			if t.network != nil {
+				err = errors.Join(err, t.attachNetworkCaptureLocked())
+			}
+			if err != nil {
+				_ = t.tr.Abort(err)
+			}
 			err = t.closeTraceLocked()
 		}
 		t.cfgMu.Unlock()
 		t.inputMu.Unlock()
 		t.finalizeErr = err
+		if t.network != nil {
+			t.finalizeErr = errors.Join(t.finalizeErr, os.RemoveAll(t.network.dir))
+		}
 		close(t.artifactsDone)
 	})
 	return t.finalizeErr
@@ -198,6 +246,17 @@ func (t *Term) FinalizeArtifactsWithGrace(grace time.Duration) error {
 // ArtifactsDone is closed once FinalizeArtifacts (or Close) has finished
 // writing artifacts.
 func (t *Term) ArtifactsDone() <-chan struct{} { return t.artifactsDone }
+
+// ArtifactError returns the finalization error after ArtifactsDone closes.
+// It returns nil while finalization is still pending.
+func (t *Term) ArtifactError() error {
+	select {
+	case <-t.artifactsDone:
+		return t.finalizeErr
+	default:
+		return nil
+	}
+}
 
 // FinalizedTracePath returns the path of the last trace bundle written
 // (by DisableTrace or FinalizeArtifacts), or "" if none was written.
@@ -211,10 +270,10 @@ func (t *Term) FinalizedTracePath() string {
 // path on success, and clears trace state. Caller must hold cfgMu and
 // have checked t.tr != nil.
 func (t *Term) closeTraceLocked() error {
-	path := t.cfg.TracePath
+	path := t.tracePath
 	err := t.tr.Close()
 	t.tr = nil
-	t.cfg.TracePath = ""
+	t.tracePath = ""
 	t.updateOutputHookLocked()
 	if err == nil {
 		t.finalizedTracePath = path
@@ -238,7 +297,7 @@ func (t *Term) StartedAt() time.Time { return t.startedAt }
 func (t *Term) TracePath() string {
 	t.cfgMu.Lock()
 	defer t.cfgMu.Unlock()
-	return t.cfg.TracePath
+	return t.tracePath
 }
 
 // EnableTrace starts a trace recording to path.
@@ -248,6 +307,9 @@ func (t *Term) EnableTrace(path string) error {
 
 	t.cfgMu.Lock()
 	defer t.cfgMu.Unlock()
+	if t.cfg.WholeSessionTrace != nil {
+		return errors.New("EnableTrace: trace is configured for the whole session")
+	}
 	if t.finalized {
 		return errors.New("EnableTrace: artifacts already finalized")
 	}
@@ -256,6 +318,18 @@ func (t *Term) EnableTrace(path string) error {
 			return err
 		}
 	}
+	return t.startTraceLocked(path)
+}
+
+func (t *Term) startTrace(path string) error {
+	t.inputMu.Lock()
+	defer t.inputMu.Unlock()
+	t.cfgMu.Lock()
+	defer t.cfgMu.Unlock()
+	return t.startTraceLocked(path)
+}
+
+func (t *Term) startTraceLocked(path string) error {
 	tr, err := trace.New(path, trace.Manifest{
 		Command: t.cfg.Cmd,
 		Env:     t.cfg.Env,
@@ -270,9 +344,48 @@ func (t *Term) EnableTrace(path string) error {
 		tr.WriteOutput(seed, time.Now())
 	}
 	t.tr = tr
-	t.cfg.TracePath = path
+	t.tracePath = path
 	t.updateOutputHookLocked()
 	return nil
+}
+
+func (t *Term) networkManifest() *trace.NetworkCapture {
+	whole := t.cfg.WholeSessionTrace
+	if whole == nil || whole.Network == nil {
+		return nil
+	}
+	pubs := make([]string, len(whole.Network.PublishTCP))
+	for i, p := range whole.Network.PublishTCP {
+		pubs[i] = p.Listen + "=" + p.Guest
+	}
+	return &trace.NetworkCapture{
+		Format: trace.NetworkCaptureFormat, Stream: trace.NetworkCaptureStream,
+		GVisorVersion: netwrap.GVisorVersion, PublishTCP: pubs,
+		ByteLimit: tracepolicy.MaxNetworkCaptureBytes,
+	}
+}
+
+// attachNetworkCaptureLocked bridges completed runner lifecycle state into the
+// trace manifest. FinalizeArtifacts drains the runner before calling it, so the
+// returned statistics and PCAP are stable.
+func (t *Term) attachNetworkCaptureLocked() error {
+	if err := t.runner.Err(); err != nil {
+		return fmt.Errorf("network capture runtime: %w", err)
+	}
+	result, ok := t.runner.NetworkCapture()
+	if !ok {
+		return errors.New("network capture: runner did not provide capture results")
+	}
+	capture := t.networkManifest()
+	capture.ByteLimit = result.MaxBytes
+	capture.CapturedBytes = result.BytesWritten
+	capture.PacketCount = int64(result.PacketCount)
+	capture.Truncated = result.Truncated
+	capture.Status = trace.NetworkCaptureStatusComplete
+	if result.Truncated {
+		capture.Status = trace.NetworkCaptureStatusTruncated
+	}
+	return t.tr.AttachNetworkCapture(t.network.pcapPath, *capture)
 }
 
 // DisableTrace stops tracing and writes the zip bundle.
@@ -282,6 +395,9 @@ func (t *Term) DisableTrace() error {
 
 	t.cfgMu.Lock()
 	defer t.cfgMu.Unlock()
+	if t.cfg.WholeSessionTrace != nil {
+		return errors.New("DisableTrace: trace is configured for the whole session")
+	}
 	if t.tr == nil {
 		return nil
 	}

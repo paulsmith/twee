@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"errors"
 	"os"
 	"sort"
 	"strings"
@@ -20,7 +21,27 @@ type Config struct {
 	DefaultTimeout    time.Duration
 	StableQuietWindow time.Duration
 
-	TracePath string
+	// WholeSessionTrace starts recording before the command and finalizes it
+	// only after the command and any network recorder have stopped.
+	WholeSessionTrace *WholeSessionTraceConfig
+}
+
+// WholeSessionTraceConfig describes artifacts whose lifetime must match the
+// launched command. Network capture cannot be enabled independently of it.
+type WholeSessionTraceConfig struct {
+	Path    string
+	Network *NetworkCaptureConfig
+}
+
+// NetworkCaptureConfig enables managed network capture for a whole-session
+// trace.
+type NetworkCaptureConfig struct {
+	PublishTCP []TCPPublication
+}
+
+type TCPPublication struct {
+	Listen string
+	Guest  string
 }
 
 // applyDefaults fills in zero fields with sensible values.
@@ -40,6 +61,13 @@ func (c *Config) applyDefaults() {
 	if c.Env == nil {
 		c.Env = map[string]string{}
 	}
+}
+
+func (c Config) validate() error {
+	if c.WholeSessionTrace != nil && c.WholeSessionTrace.Path == "" {
+		return errors.New("engine.Start: whole-session trace path is empty")
+	}
+	return nil
 }
 
 // BuildEnv assembles the final []string env for exec, inheriting the parent

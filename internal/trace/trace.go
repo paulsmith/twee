@@ -9,11 +9,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
+
+	"github.com/paulsmith/twee/internal/tracearchive"
+	"github.com/paulsmith/twee/internal/tracepolicy"
 )
 
 // Manifest is the top-level metadata written to manifest.json inside
@@ -28,7 +33,28 @@ type Manifest struct {
 	Host      HostInfo          `json:"host"`
 	StartedAt time.Time         `json:"started_at"`
 	StoppedAt time.Time         `json:"stopped_at"`
+	Network   *NetworkCapture   `json:"network_capture,omitempty"`
 }
+
+type NetworkCapture struct {
+	Format        string   `json:"format"`
+	Stream        string   `json:"stream"`
+	GVisorVersion string   `json:"gvisor_version"`
+	PublishTCP    []string `json:"publish_tcp,omitempty"`
+	ByteLimit     int64    `json:"byte_limit"`
+	CapturedBytes int64    `json:"captured_bytes"`
+	PacketCount   int64    `json:"packet_count"`
+	Truncated     bool     `json:"truncated"`
+	Status        string   `json:"status"`
+}
+
+const (
+	NetworkCaptureFormat = tracepolicy.NetworkCaptureFormat
+	NetworkCaptureStream = tracepolicy.NetworkCaptureStream
+
+	NetworkCaptureStatusComplete  = tracepolicy.NetworkCaptureStatusComplete
+	NetworkCaptureStatusTruncated = tracepolicy.NetworkCaptureStatusTruncated
+)
 
 // HostInfo captures details about the machine that recorded the trace.
 type HostInfo struct {
@@ -90,10 +116,121 @@ type Trace struct {
 	eventsFile *os.File
 	evEnc      *json.Encoder
 
-	start     time.Time
-	closed    bool
-	err       error
-	removeAll func(string) error
+	start       time.Time
+	closed      bool
+	err         error
+	removeAll   func(string) error
+	attachments []attachment
+	attached    map[string]struct{}
+}
+
+type attachment struct{ source, name string }
+
+// AttachFile adds a staged file to the bundle when Close is called. The three
+// format-owned entry names are reserved; callers must use
+// AttachNetworkCapture for the network stream.
+func (tr *Trace) AttachFile(source, name string) error {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	if tr.closed {
+		return errors.New("trace: already closed")
+	}
+	if source == "" || !fs.ValidPath(name) {
+		return errors.New("trace: invalid attachment")
+	}
+	if isReservedEntry(name) {
+		return fmt.Errorf("trace: attachment name %q is reserved", name)
+	}
+	if _, exists := tr.attached[name]; exists {
+		return fmt.Errorf("trace: attachment name %q is already attached", name)
+	}
+	tr.attachments = append(tr.attachments, attachment{source: source, name: name})
+	tr.attached[name] = struct{}{}
+	return nil
+}
+
+// AttachNetworkCapture adds the format-owned network stream and its completed
+// capture metadata. It must be called only after the capture writer has
+// stopped, so CapturedBytes and Status describe the durable file.
+func (tr *Trace) AttachNetworkCapture(source string, capture NetworkCapture) error {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	if tr.closed {
+		return errors.New("trace: already closed")
+	}
+	if source == "" {
+		return errors.New("trace: network capture source is empty")
+	}
+	info, err := os.Stat(source)
+	if err != nil {
+		return fmt.Errorf("trace: stat network capture: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("trace: network capture source is not a regular file")
+	}
+	if capture.Format != NetworkCaptureFormat {
+		return fmt.Errorf("trace: network capture format %q is unsupported", capture.Format)
+	}
+	if capture.Stream != NetworkCaptureStream {
+		return fmt.Errorf("trace: network capture stream must be %q", NetworkCaptureStream)
+	}
+	if capture.GVisorVersion == "" {
+		return errors.New("trace: network capture gVisor version is empty")
+	}
+	if capture.ByteLimit <= 0 || capture.ByteLimit > tracepolicy.MaxNetworkCaptureBytes {
+		return fmt.Errorf("trace: network capture byte limit must be in 1..%d", tracepolicy.MaxNetworkCaptureBytes)
+	}
+	if capture.CapturedBytes < 0 || capture.CapturedBytes > capture.ByteLimit {
+		return fmt.Errorf("trace: network capture size %d is outside byte limit %d", capture.CapturedBytes, capture.ByteLimit)
+	}
+	if capture.CapturedBytes != info.Size() {
+		return fmt.Errorf("trace: network capture size %d does not match staged file size %d", capture.CapturedBytes, info.Size())
+	}
+	pcapInfo, err := tracearchive.ValidatePCAPFile(source)
+	if err != nil {
+		return fmt.Errorf("trace: invalid network capture: %w", err)
+	}
+	if capture.PacketCount < 0 || capture.PacketCount != pcapInfo.Packets {
+		return fmt.Errorf("trace: network capture packet count %d does not match staged file count %d", capture.PacketCount, pcapInfo.Packets)
+	}
+	wantStatus := NetworkCaptureStatusComplete
+	if capture.Truncated {
+		wantStatus = NetworkCaptureStatusTruncated
+	}
+	if capture.Status != wantStatus {
+		return fmt.Errorf("trace: network capture status %q is inconsistent with truncated=%t", capture.Status, capture.Truncated)
+	}
+	if _, exists := tr.attached[NetworkCaptureStream]; exists {
+		return errors.New("trace: network capture is already attached")
+	}
+	capture.PublishTCP = slices.Clone(capture.PublishTCP)
+	tr.man.Network = &capture
+	tr.attachments = append(tr.attachments, attachment{source: source, name: NetworkCaptureStream})
+	tr.attached[NetworkCaptureStream] = struct{}{}
+	return nil
+}
+
+// Abort closes and removes trace staging without publishing a bundle. The
+// cause is retained as Close's idempotent result.
+func (tr *Trace) Abort(cause error) error {
+	if cause == nil {
+		cause = errors.New("trace: aborted")
+	}
+	tr.mu.Lock()
+	if !tr.closed {
+		tr.err = errors.Join(tr.err, cause)
+	}
+	tr.mu.Unlock()
+	return tr.Close()
+}
+
+func isReservedEntry(name string) bool {
+	switch name {
+	case "manifest.json", "events.jsonl", NetworkCaptureStream:
+		return true
+	default:
+		return false
+	}
 }
 
 // New creates a Trace that will be written to path on Close.
@@ -125,6 +262,9 @@ type traceFS struct {
 func newWithFS(path string, m Manifest, fsys traceFS) (*Trace, error) {
 	if path == "" {
 		return nil, errors.New("trace: empty output path")
+	}
+	if m.Network != nil {
+		return nil, errors.New("trace: network capture metadata must be added with AttachNetworkCapture")
 	}
 	if st, err := os.Stat(path); err == nil && st.IsDir() {
 		return nil, fmt.Errorf("trace: output path is a directory: %s", path)
@@ -160,6 +300,7 @@ func newWithFS(path string, m Manifest, fsys traceFS) (*Trace, error) {
 		eventsFile: eventsFile,
 		start:      now,
 		removeAll:  os.RemoveAll,
+		attached:   make(map[string]struct{}),
 	}
 	tr.evEnc = json.NewEncoder(eventsFile)
 	return tr, nil
@@ -342,6 +483,29 @@ func (tr *Trace) writeLocked() (err error) {
 	if err := events.Close(); err != nil {
 		_ = f.Close()
 		return err
+	}
+
+	for _, item := range tr.attachments {
+		aw, err := zw.Create(item.name)
+		if err != nil {
+			_ = f.Close()
+			return err
+		}
+		af, err := os.Open(item.source)
+		if err != nil {
+			_ = f.Close()
+			return err
+		}
+		_, copyErr := io.Copy(aw, af)
+		closeErr := af.Close()
+		if copyErr != nil {
+			_ = f.Close()
+			return copyErr
+		}
+		if closeErr != nil {
+			_ = f.Close()
+			return closeErr
+		}
 	}
 
 	if err := zw.Close(); err != nil {

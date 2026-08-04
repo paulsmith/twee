@@ -14,10 +14,10 @@ import (
 func TestFinalizeArtifactsWritesTraceBundleAndSignalsDone(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "session.twee")
 	te, err := Start(context.Background(), Config{
-		Cmd:       []string{"/bin/sh", "-c", "echo done"},
-		Cols:      40,
-		Rows:      5,
-		TracePath: out,
+		Cmd:               []string{"/bin/sh", "-c", "echo done"},
+		Cols:              40,
+		Rows:              5,
+		WholeSessionTrace: &WholeSessionTraceConfig{Path: out},
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -48,6 +48,9 @@ func TestFinalizeArtifactsWritesTraceBundleAndSignalsDone(t *testing.T) {
 	if got := te.FinalizedTracePath(); got != out {
 		t.Fatalf("FinalizedTracePath = %q, want %q", got, out)
 	}
+	if err := te.ArtifactError(); err != nil {
+		t.Fatalf("ArtifactError = %v, want nil", err)
+	}
 	zr, err := zip.OpenReader(out)
 	if err != nil {
 		t.Fatalf("bundle is not a valid zip: %v", err)
@@ -61,10 +64,10 @@ func TestFinalizeArtifactsWritesTraceBundleAndSignalsDone(t *testing.T) {
 func TestFinalizeArtifactsIdempotent(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "session.twee")
 	te, err := Start(context.Background(), Config{
-		Cmd:       []string{"/bin/sh", "-c", "echo done"},
-		Cols:      40,
-		Rows:      5,
-		TracePath: out,
+		Cmd:               []string{"/bin/sh", "-c", "echo done"},
+		Cols:              40,
+		Rows:              5,
+		WholeSessionTrace: &WholeSessionTraceConfig{Path: out},
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -87,10 +90,10 @@ func TestFinalizeArtifactsIdempotent(t *testing.T) {
 func TestCloseFinalizesArtifacts(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "session.twee")
 	te, err := Start(context.Background(), Config{
-		Cmd:       []string{"/bin/sh", "-c", "echo done"},
-		Cols:      40,
-		Rows:      5,
-		TracePath: out,
+		Cmd:               []string{"/bin/sh", "-c", "echo done"},
+		Cols:              40,
+		Rows:              5,
+		WholeSessionTrace: &WholeSessionTraceConfig{Path: out},
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

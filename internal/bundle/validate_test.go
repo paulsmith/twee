@@ -2,6 +2,8 @@ package bundle
 
 import (
 	"archive/zip"
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +22,16 @@ func TestValidateRejectsUnsafeAndAmbiguousArchiveStructure(t *testing.T) {
 		entries []zipTestEntry
 		want    string
 	}{
+		{
+			name: "duplicate network capture",
+			entries: []zipTestEntry{
+				{name: "manifest.json", body: `{"version":1}`},
+				{name: "events.jsonl"},
+				{name: tracepolicy.NetworkCaptureStream, body: string(testPCAP())},
+				{name: tracepolicy.NetworkCaptureStream, body: string(testPCAP())},
+			},
+			want: "duplicate optional zip entry streams/network.pcap",
+		},
 		{
 			name: "duplicate manifest",
 			entries: []zipTestEntry{
@@ -59,6 +71,119 @@ func TestValidateRejectsUnsafeAndAmbiguousArchiveStructure(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateNetworkCaptureManifestAndPCAP(t *testing.T) {
+	pcap := testPCAP()
+	manifest := fmt.Sprintf(`{
+		"version":1,
+		"network_capture":{
+			"format":"pcap",
+			"stream":"streams/network.pcap",
+			"gvisor_version":"test",
+			"byte_limit":1024,
+			"captured_bytes":%d,
+			"packet_count":0,
+			"truncated":false,
+			"status":"complete"
+		}
+	}`, len(pcap))
+	tests := []struct {
+		name    string
+		entries []zipTestEntry
+		want    string
+	}{
+		{
+			name:    "missing declared stream",
+			entries: []zipTestEntry{{name: "manifest.json", body: manifest}, {name: "events.jsonl"}},
+			want:    "declares network capture but streams/network.pcap is missing",
+		},
+		{
+			name: "undeclared stream",
+			entries: []zipTestEntry{
+				{name: "manifest.json", body: `{"version":1}`}, {name: "events.jsonl"},
+				{name: tracepolicy.NetworkCaptureStream, body: string(pcap)},
+			},
+			want: "present but not declared",
+		},
+		{
+			name: "packet count mismatch",
+			entries: []zipTestEntry{
+				{name: "manifest.json", body: strings.Replace(manifest, `"packet_count":0`, `"packet_count":1`, 1)},
+				{name: "events.jsonl"},
+				{name: tracepolicy.NetworkCaptureStream, body: string(pcap)},
+			},
+			want: "packet_count 1 does not match stream packet count 0",
+		},
+		{
+			name: "invalid magic",
+			entries: []zipTestEntry{
+				{name: "manifest.json", body: manifest}, {name: "events.jsonl"},
+				{name: tracepolicy.NetworkCaptureStream, body: string(append([]byte{0, 0, 0, 0}, pcap[4:]...))},
+			},
+			want: "invalid PCAP magic",
+		},
+		{
+			name: "truncated record",
+			entries: []zipTestEntry{
+				{name: "manifest.json", body: strings.Replace(manifest, fmt.Sprintf(`"captured_bytes":%d`, len(pcap)), fmt.Sprintf(`"captured_bytes":%d`, len(pcap)+8), 1)},
+				{name: "events.jsonl"},
+				{name: tracepolicy.NetworkCaptureStream, body: string(append(pcap, make([]byte, 8)...))},
+			},
+			want: "packet 1 header",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := Validate(writeZipEntries(t, tt.entries))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Valid || !hasIssueContaining(result.Issues, tt.want) {
+				t.Fatalf("result = %+v, want issue containing %q", result, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateNetworkCaptureChecksCRC(t *testing.T) {
+	pcap := testPCAP()
+	manifest := fmt.Sprintf(`{"version":1,"network_capture":{"format":"pcap","stream":"streams/network.pcap","gvisor_version":"test","byte_limit":1024,"captured_bytes":%d,"truncated":false,"status":"complete"}}`, len(pcap))
+	path := writeZipEntries(t, []zipTestEntry{
+		{name: "manifest.json", body: manifest}, {name: "events.jsonl"},
+		{name: tracepolicy.NetworkCaptureStream, body: string(pcap)},
+	})
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := bytes.Index(body, pcap)
+	if i < 0 {
+		t.Fatal("PCAP bytes not found in stored zip")
+	}
+	body[i+12] ^= 0xff
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Validate(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Valid || !hasIssueContaining(result.Issues, "checksum") {
+		t.Fatalf("result = %+v, want checksum issue", result)
+	}
+}
+
+func testPCAP() []byte {
+	var out bytes.Buffer
+	_ = binary.Write(&out, binary.LittleEndian, uint32(0xa1b2c3d4))
+	_ = binary.Write(&out, binary.LittleEndian, uint16(2))
+	_ = binary.Write(&out, binary.LittleEndian, uint16(4))
+	_ = binary.Write(&out, binary.LittleEndian, int32(0))
+	_ = binary.Write(&out, binary.LittleEndian, uint32(0))
+	_ = binary.Write(&out, binary.LittleEndian, uint32(65535))
+	_ = binary.Write(&out, binary.LittleEndian, uint32(101))
+	return out.Bytes()
 }
 
 func TestCheckArchiveRejectsUnreasonableDeclarations(t *testing.T) {

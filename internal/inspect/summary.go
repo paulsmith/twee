@@ -9,17 +9,18 @@ import (
 
 // Summary is the JSON/text inspect shape for a .twee trace bundle.
 type Summary struct {
-	Path        string       `json:"path"`
-	Version     int          `json:"version"`
-	Command     []string     `json:"command"`
-	Duration    string       `json:"duration"`
-	DurationMS  int64        `json:"duration_ms"`
-	EventSpanMS int64        `json:"event_span_ms"`
-	StartedAt   *time.Time   `json:"started_at"`
-	StoppedAt   *time.Time   `json:"stopped_at"`
-	Terminal    Terminal     `json:"terminal"`
-	Events      EventSummary `json:"events"`
-	Exit        ExitSummary  `json:"exit"`
+	Path        string         `json:"path"`
+	Version     int            `json:"version"`
+	Command     []string       `json:"command"`
+	Duration    string         `json:"duration"`
+	DurationMS  int64          `json:"duration_ms"`
+	EventSpanMS int64          `json:"event_span_ms"`
+	StartedAt   *time.Time     `json:"started_at"`
+	StoppedAt   *time.Time     `json:"stopped_at"`
+	Terminal    Terminal       `json:"terminal"`
+	Events      EventSummary   `json:"events"`
+	Exit        ExitSummary    `json:"exit"`
+	Network     NetworkSummary `json:"network_capture"`
 }
 
 // Terminal summarizes initial and maximum terminal dimensions.
@@ -41,6 +42,20 @@ type EventSummary struct {
 type ExitSummary struct {
 	Recorded bool `json:"recorded"`
 	Code     *int `json:"code"`
+}
+
+// NetworkSummary describes the optional packet capture in the bundle.
+type NetworkSummary struct {
+	Present       bool     `json:"present"`
+	Format        string   `json:"format,omitempty"`
+	Stream        string   `json:"stream,omitempty"`
+	SizeBytes     int64    `json:"size_bytes,omitempty"`
+	ByteLimit     int64    `json:"byte_limit,omitempty"`
+	PacketCount   int64    `json:"packet_count,omitempty"`
+	GVisorVersion string   `json:"gvisor_version,omitempty"`
+	PublishTCP    []string `json:"publish_tcp,omitempty"`
+	Truncated     bool     `json:"truncated"`
+	Status        string   `json:"status,omitempty"`
 }
 
 // Summarize computes an inspect summary for bundle.
@@ -79,6 +94,15 @@ func Summarize(path string, bundle tracebundle.Bundle) Summary {
 			code := ev.Code
 			s.Exit.Recorded = true
 			s.Exit.Code = &code
+		}
+	}
+	if capture := bundle.Manifest.Network; capture != nil {
+		s.Network = NetworkSummary{
+			Present: true, Format: capture.Format, Stream: capture.Stream,
+			SizeBytes: capture.CapturedBytes, ByteLimit: capture.ByteLimit, PacketCount: capture.PacketCount,
+			GVisorVersion: capture.GVisorVersion,
+			PublishTCP:    append([]string(nil), capture.PublishTCP...),
+			Truncated:     capture.Truncated, Status: capture.Status,
 		}
 	}
 	return s

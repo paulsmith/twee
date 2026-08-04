@@ -117,7 +117,9 @@ func waitInfoFromProc(pid int) (exitInfo, error) {
 	info := exitInfo{code: status.ExitStatus()}
 	if status.Signaled() {
 		info.signal = status.Signal()
-		info.code = -1
+		// Match the network backend: signal deaths report the shell's
+		// 128+signal convention.
+		info.code = 128 + int(info.signal)
 	}
 	return info, nil
 }

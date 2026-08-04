@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,8 +15,165 @@ import (
 	"testing"
 	"time"
 
+	"github.com/paulsmith/twee/third_party/netwrap"
 	"golang.org/x/sys/unix"
 )
+
+func TestNetworkStartReportsExecFailureSynchronously(t *testing.T) {
+	requireNetwrap(t)
+	_, err := Start(context.Background(), Config{
+		Command: []string{"/definitely/missing/twee-network-test"},
+		Network: &NetworkConfig{PCAPPath: filepath.Join(t.TempDir(), "capture.pcap")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "command setup failed") {
+		t.Fatalf("Start error = %v; want synchronous command setup error", err)
+	}
+}
+
+func TestNetworkRunnerHasControllingTTYAndPID(t *testing.T) {
+	r := startNetworkRunner(t, context.Background(), `/bin/sh -c 'test -t 0 && test -t 1 && : > /dev/tty && exit 17'`)
+	if r.Pid() <= 0 {
+		t.Fatalf("Pid = %d; want positive", r.Pid())
+	}
+	waitExited(t, r)
+	if err := r.Err(); err != nil {
+		t.Fatalf("Err = %v", err)
+	}
+	if got := r.ExitCode(); got != 17 {
+		t.Fatalf("ExitCode = %d; want natural exit 17", got)
+	}
+}
+
+func TestNetworkRunnerForwardsSignalsAndResize(t *testing.T) {
+	dir := t.TempDir()
+	winch := filepath.Join(dir, "winch")
+	usr1 := filepath.Join(dir, "usr1")
+	script := fmt.Sprintf(`trap ': > %s' WINCH; trap ': > %s; exit 23' USR1; echo ready; while :; do :; done`, shellQuote(winch), shellQuote(usr1))
+	r := startNetworkRunner(t, context.Background(), script)
+	if got := readPTY(t, r, "ready"); !strings.Contains(got, "ready") {
+		t.Fatalf("output = %q; want ready", got)
+	}
+	if err := r.Resize(101, 41); err != nil {
+		t.Fatalf("Resize: %v", err)
+	}
+	waitFile(t, winch)
+	if err := r.Signal(syscall.SIGUSR1); err != nil {
+		t.Fatalf("Signal(SIGUSR1): %v", err)
+	}
+	waitFile(t, usr1)
+	waitExited(t, r)
+	if got := r.ExitCode(); got != 23 {
+		t.Fatalf("ExitCode = %d; want 23", got)
+	}
+}
+
+func TestNetworkRunnerCloseUsesCallerGraceAndIsRepeatedlySafe(t *testing.T) {
+	r := startNetworkRunner(t, context.Background(), `trap '' TERM; echo ready; while :; do :; done`)
+	_ = readPTY(t, r, "ready")
+	started := time.Now()
+	if err := r.CloseWithGrace(120 * time.Millisecond); err != nil && !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("CloseWithGrace: %v", err)
+	}
+	elapsed := time.Since(started)
+	if elapsed < 90*time.Millisecond || elapsed > 2*time.Second {
+		t.Fatalf("CloseWithGrace took %s; want caller-selected grace", elapsed)
+	}
+	if err := r.CloseWithGrace(time.Second); err != nil && !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("repeated CloseWithGrace: %v", err)
+	}
+	if signal, ok := r.ExitSignal(); !ok || signal != "SIGKILL" {
+		t.Fatalf("ExitSignal = %q, %v; want SIGKILL", signal, ok)
+	}
+}
+
+func TestNetworkRunnerCloseReapsTermIgnoringDescendant(t *testing.T) {
+	r := startNetworkRunner(t, context.Background(), `/bin/sh -c 'trap "" HUP TERM; exec sleep 30' & echo $!; wait`)
+	line := strings.TrimSpace(readPTY(t, r, "\n"))
+	descendant, err := strconv.Atoi(line)
+	if err != nil {
+		t.Fatalf("descendant PID output %q: %v", line, err)
+	}
+	if err := r.CloseWithGrace(80 * time.Millisecond); err != nil && !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("CloseWithGrace: %v", err)
+	}
+	waitProcessGone(t, descendant)
+}
+
+func TestNetworkRunnerCancellationAndCaptureCompletion(t *testing.T) {
+	requireNetwrap(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	pcap := filepath.Join(t.TempDir(), "capture.pcap")
+	r, err := Start(ctx, Config{
+		Command: []string{"/bin/sh", "-c", "echo ready; while :; do :; done"},
+		Network: &NetworkConfig{PCAPPath: pcap},
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	_ = readPTY(t, r, "ready")
+	cancel()
+	waitExited(t, r)
+	if !errors.Is(r.Err(), context.Canceled) {
+		t.Fatalf("Err = %v; want context.Canceled", r.Err())
+	}
+	capture, ok := r.NetworkCapture()
+	if !ok || capture.MaxBytes == 0 || capture.BytesWritten < 24 {
+		t.Fatalf("NetworkCapture = %+v, %v", capture, ok)
+	}
+	info, err := os.Stat(pcap)
+	if err != nil {
+		t.Fatalf("stat completed PCAP: %v", err)
+	}
+	if info.Size() != capture.BytesWritten {
+		t.Fatalf("PCAP size = %d; capture bytes = %d", info.Size(), capture.BytesWritten)
+	}
+}
+
+func TestSignaledChildReportsSameExitCodeOnBothBackends(t *testing.T) {
+	const script = `kill -TERM $$; while :; do :; done`
+	local, err := Start(context.Background(), Config{Command: []string{"/bin/sh", "-c", script}})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = local.CloseWithGrace(0) })
+	waitExited(t, local)
+	if signal, ok := local.ExitSignal(); !ok || signal != "SIGTERM" {
+		t.Fatalf("local ExitSignal = %q, %v; want SIGTERM", signal, ok)
+	}
+	if got := local.ExitCode(); got != 143 {
+		t.Fatalf("local ExitCode = %d; want 128+SIGTERM = 143", got)
+	}
+
+	network := startNetworkRunner(t, context.Background(), script)
+	waitExited(t, network)
+	if signal, ok := network.ExitSignal(); !ok || signal != "SIGTERM" {
+		t.Fatalf("network ExitSignal = %q, %v; want SIGTERM", signal, ok)
+	}
+	if got := network.ExitCode(); got != 143 {
+		t.Fatalf("network ExitCode = %d; want 128+SIGTERM = 143", got)
+	}
+}
+
+func requireNetwrap(t *testing.T) {
+	t.Helper()
+	if err := netwrap.Preflight(); err != nil {
+		t.Skipf("netwrap prerequisites unavailable: %v", err)
+	}
+}
+
+func startNetworkRunner(t *testing.T, ctx context.Context, script string) *Runner {
+	t.Helper()
+	requireNetwrap(t)
+	r, err := Start(ctx, Config{
+		Command: []string{"/bin/sh", "-c", script},
+		Network: &NetworkConfig{PCAPPath: filepath.Join(t.TempDir(), "capture.pcap")},
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = r.CloseWithGrace(0) })
+	return r
+}
 
 func TestLeaderExitRetainsProcessGroupIdentityForDescendantSignal(t *testing.T) {
 	// Have the descendant signal readiness only after installing its traps. This

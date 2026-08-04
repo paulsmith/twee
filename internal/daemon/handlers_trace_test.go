@@ -236,6 +236,9 @@ func TestWaitExitReportsTraceFinalizationFailure(t *testing.T) {
 	if got := te.FinalizedTracePath(); got != "" {
 		t.Fatalf("FinalizedTracePath = %q after failure", got)
 	}
+	if err := te.ArtifactError(); err == nil || !strings.Contains(err.Error(), "rename") {
+		t.Fatalf("ArtifactError = %v, want retained finalization failure", err)
+	}
 }
 
 func TestTraceStopNoTrace(t *testing.T) {

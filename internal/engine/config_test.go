@@ -1,7 +1,10 @@
 package engine
 
 import (
+	"context"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -23,6 +26,33 @@ func TestBuildEnvInheritsParentAndAppliesOverrides(t *testing.T) {
 	}
 	if got["TWEE_CHILD_ENV_TEST"] != "child" {
 		t.Fatalf("TWEE_CHILD_ENV_TEST = %q, want child", got["TWEE_CHILD_ENV_TEST"])
+	}
+}
+
+func TestStartRejectsInvalidWholeSessionTraceConfig(t *testing.T) {
+	_, err := Start(context.Background(), Config{
+		Cmd: []string{"/bin/true"}, WholeSessionTrace: &WholeSessionTraceConfig{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "trace path is empty") {
+		t.Fatalf("Start error = %v, want empty whole-session trace path", err)
+	}
+}
+
+func TestWholeSessionTraceCannotBeReconfiguredMidSession(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.twee")
+	term, err := Start(context.Background(), Config{
+		Cmd:               []string{"/bin/sh", "-c", "sleep 30"},
+		WholeSessionTrace: &WholeSessionTraceConfig{Path: path},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = term.Close() })
+	if err := term.EnableTrace(filepath.Join(t.TempDir(), "replacement.twee")); err == nil {
+		t.Fatal("EnableTrace replaced whole-session trace")
+	}
+	if err := term.DisableTrace(); err == nil {
+		t.Fatal("DisableTrace stopped whole-session trace")
 	}
 }
 
