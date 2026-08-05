@@ -18,6 +18,10 @@ func newSixelSink(w io.Writer, terminalCols int) *sixelSink {
 	return &sixelSink{w: w, terminalCols: terminalCols}
 }
 
+func (s *sixelSink) SetTerminalSize(cols, _ int) {
+	s.terminalCols = cols
+}
+
 func (s *sixelSink) Emit(img *image.RGBA, cols, rows int, toast, status string) error {
 	// Sixel has no portable placement identifier. Erasing the alternate screen
 	// makes every opaque frame overwrite-safe, including after a resize.

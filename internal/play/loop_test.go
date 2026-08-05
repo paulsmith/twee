@@ -60,7 +60,8 @@ type frameRecord struct {
 }
 
 type fakeSink struct {
-	frames []frameRecord
+	frames        []frameRecord
+	terminalSizes []terminalSize
 }
 
 func (s *fakeSink) Emit(img *image.RGBA, cols, rows int, toast, status string) error {
@@ -68,6 +69,10 @@ func (s *fakeSink) Emit(img *image.RGBA, cols, rows int, toast, status string) e
 		cols: cols, rows: rows, toast: toast, status: status, size: img.Bounds(), img: img,
 	})
 	return nil
+}
+
+func (s *fakeSink) SetTerminalSize(cols, rows int) {
+	s.terminalSizes = append(s.terminalSizes, terminalSize{Cols: cols, Rows: rows})
 }
 
 func TestLoopStepAdvancesExactlyOneEvent(t *testing.T) {
@@ -668,6 +673,61 @@ func TestLoopDownscalesFrameToAvailableTerminal(t *testing.T) {
 				t.Fatalf("frame size = %dx%d, want %dx%d", got.Dx(), got.Dy(), tt.wantWidth, tt.wantHeight)
 			}
 		})
+	}
+}
+
+func TestLoopRescalesUnchangedFrameAfterTerminalResize(t *testing.T) {
+	sink := &fakeSink{}
+	l := testLoop(loopConfig{
+		Events: []Event{{TMS: 0, Type: "resize", Cols: 100, Rows: 40}},
+		Sink:   sink,
+		DisplayPixels: displayPixels{
+			Width:  800,
+			Height: 480,
+		},
+		TerminalSize: terminalSize{
+			Cols: 80,
+			Rows: 24,
+		},
+	})
+	now := time.Unix(0, 0)
+	l.tick(now)
+	initial := lastFrame(t, sink)
+	if initial.cols != 55 || initial.rows != 22 {
+		t.Fatalf("initial placement = %dx%d, want 55x22", initial.cols, initial.rows)
+	}
+
+	l.resizeViewport(
+		terminalSize{Cols: 120, Rows: 42},
+		displayPixels{Width: 1200, Height: 840},
+	)
+	l.tick(now)
+
+	if len(sink.frames) != 2 {
+		t.Fatalf("emitted frames = %d, want redraw after resize", len(sink.frames))
+	}
+	frame := lastFrame(t, sink)
+	if frame.cols != 100 || frame.rows != 40 {
+		t.Fatalf("resized placement = %dx%d, want 100x40", frame.cols, frame.rows)
+	}
+	if got := frame.size; got.Dx() != 1000 || got.Dy() != 800 {
+		t.Fatalf("resized frame = %dx%d, want 1000x800", got.Dx(), got.Dy())
+	}
+	if len(sink.terminalSizes) != 1 || sink.terminalSizes[0] != (terminalSize{Cols: 120, Rows: 42}) {
+		t.Fatalf("sink terminal sizes = %+v, want 120x42", sink.terminalSizes)
+	}
+}
+
+func TestLoopResizePreservesPixelDensityWhenPixelsUnavailable(t *testing.T) {
+	l := testLoop(loopConfig{
+		Sink:          &fakeSink{},
+		DisplayPixels: displayPixels{Width: 800, Height: 480},
+		TerminalSize:  terminalSize{Cols: 80, Rows: 24},
+	})
+	l.resizeViewport(terminalSize{Cols: 100, Rows: 30}, displayPixels{})
+
+	if l.displayPixels != (displayPixels{Width: 1000, Height: 600}) {
+		t.Fatalf("display pixels = %+v, want 1000x600", l.displayPixels)
 	}
 }
 

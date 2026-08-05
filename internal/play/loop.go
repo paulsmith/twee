@@ -28,6 +28,10 @@ type frameSink interface {
 	Emit(img *image.RGBA, cols, rows int, toast, status string) error
 }
 
+type terminalResizeSink interface {
+	SetTerminalSize(cols, rows int)
+}
+
 type loop struct {
 	events []Event
 	cursor int
@@ -299,6 +303,36 @@ func (l *loop) emitFrame(now time.Time) {
 	l.emittedStatus = status
 	l.emittedMouseFrame = mouseFrame
 	l.emittedMouseGeneration = mouseGeneration
+}
+
+func (l *loop) resizeViewport(size terminalSize, pixels displayPixels) {
+	if size.Cols < 1 || size.Rows < 3 {
+		return
+	}
+	if pixels.Width <= 0 || pixels.Height <= 0 {
+		pixels = scaleDisplayPixels(l.displayPixels, l.terminalSize, size)
+	}
+	if size == l.terminalSize && pixels == l.displayPixels {
+		return
+	}
+	l.terminalSize = size
+	l.displayPixels = pixels
+	l.snapHash = nil
+	if sink, ok := l.sink.(terminalResizeSink); ok {
+		sink.SetTerminalSize(size.Cols, size.Rows)
+	}
+}
+
+func scaleDisplayPixels(pixels displayPixels, oldSize, newSize terminalSize) displayPixels {
+	if pixels.Width <= 0 || pixels.Height <= 0 ||
+		oldSize.Cols <= 0 || oldSize.Rows <= 0 ||
+		newSize.Cols <= 0 || newSize.Rows <= 0 {
+		return pixels
+	}
+	return displayPixels{
+		Width:  scaledPixels(pixels.Width, newSize.Cols, oldSize.Cols),
+		Height: scaledPixels(pixels.Height, newSize.Rows, oldSize.Rows),
+	}
 }
 
 func (l *loop) mouseFrame(now time.Time) (*trace.MouseInput, float64, int, uint64) {

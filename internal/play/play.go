@@ -42,6 +42,9 @@ type Options struct {
 
 	// termOps is an internal preflight test hook.
 	termOps terminalOps
+
+	// resizeSignals is an internal SIGWINCH test hook.
+	resizeSignals <-chan os.Signal
 }
 
 // Run plays path until the user quits, stdin closes, or an error occurs.
@@ -73,11 +76,13 @@ func Run(path string, opts Options) error {
 	if opts.Stderr == nil {
 		opts.Stderr = os.Stderr
 	}
+	termOps := opts.termOps
+	if termOps == nil {
+		termOps = realTerminalOps{}
+	}
 
 	pf := defaultPreflightOptions(opts.Stdin, opts.Stdout)
-	if opts.termOps != nil {
-		pf.Term = opts.termOps
-	}
+	pf.Term = termOps
 	pf.Pixels = displayPixels{Width: opts.DisplayPixelWidth, Height: opts.DisplayPixelHeight}
 	terminal := terminalSize{}
 	backend := opts.Backend
@@ -153,6 +158,8 @@ func Run(path string, opts Options) error {
 	restore := func() { restoreOnce.Do(restoreFn) }
 	stopSignals := installSignalRestore(restore)
 	defer stopSignals()
+	resizeSignals, stopResizeSignals := installResizeSignals(opts.resizeSignals)
+	defer stopResizeSignals()
 	defer func() {
 		if r := recover(); r != nil {
 			restore()
@@ -192,7 +199,15 @@ func Run(path string, opts Options) error {
 		if l.tick(now) {
 			break
 		}
-		<-ticker.C
+		select {
+		case <-ticker.C:
+		case _, ok := <-resizeSignals:
+			if !ok {
+				resizeSignals = nil
+				continue
+			}
+			resizePlaybackViewport(l, opts.Stdout, termOps)
+		}
 	}
 	restore()
 
@@ -233,4 +248,30 @@ func installSignalRestore(restore func()) func() {
 		signal.Stop(sigCh)
 		close(done)
 	}
+}
+
+func installResizeSignals(provided <-chan os.Signal) (<-chan os.Signal, func()) {
+	if provided != nil {
+		return provided, func() {}
+	}
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGWINCH)
+	return sigCh, func() { signal.Stop(sigCh) }
+}
+
+func resizePlaybackViewport(l *loop, stdout *os.File, termOps terminalOps) {
+	cols, rows, err := termOps.GetSize(int(stdout.Fd()))
+	if err != nil {
+		return
+	}
+	pixels := displayPixels{}
+	if pixelOps, ok := termOps.(interface {
+		GetPixelSize(*os.File) (width, height int, err error)
+	}); ok {
+		width, height, err := pixelOps.GetPixelSize(stdout)
+		if err == nil && width > 0 && height > 0 {
+			pixels = displayPixels{Width: width, Height: height}
+		}
+	}
+	l.resizeViewport(terminalSize{Cols: cols, Rows: rows}, pixels)
 }

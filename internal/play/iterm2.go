@@ -19,6 +19,10 @@ func newITerm2Sink(w io.Writer, terminalCols int) *iterm2Sink {
 	return &iterm2Sink{w: w, terminalCols: terminalCols}
 }
 
+func (s *iterm2Sink) SetTerminalSize(cols, _ int) {
+	s.terminalCols = cols
+}
+
 func (s *iterm2Sink) Emit(img *image.RGBA, cols, rows int, toast, status string) error {
 	// iTerm2 attaches inline images to cells. Clearing the alternate screen
 	// before each frame removes the previous attachment even when a trace

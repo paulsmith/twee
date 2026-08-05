@@ -39,6 +39,10 @@ func newKittySink(w io.Writer, terminalCols int) *kittySink {
 	}
 }
 
+func (s *kittySink) SetTerminalSize(cols, _ int) {
+	s.terminalCols = cols
+}
+
 func (s *kittySink) Emit(img *image.RGBA, cols, rows int, toast, status string) error {
 	if _, err := io.WriteString(s.w, "\x1b[H"); err != nil {
 		return err

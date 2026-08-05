@@ -34,7 +34,8 @@ Flags:
 Backend selection:
   auto tries Kitty, then iTerm2, then Sixel. Graphics playback requires a
   direct terminal; tmux and screen passthrough are not supported. Sixel also
-  requires the terminal to report reliable native pixel geometry.`)
+  requires the terminal to report reliable native pixel geometry. Playback
+  automatically rescales when the terminal window is resized.`)
 }
 
 func runPlay(args []string) {

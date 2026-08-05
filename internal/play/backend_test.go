@@ -7,7 +7,9 @@ import (
 	"io"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestValidBackend(t *testing.T) {
@@ -41,6 +43,37 @@ type lifecycleSink struct {
 type capturePlaybackSink struct {
 	fakeSink
 	closed bool
+}
+
+type resizeCaptureSink struct {
+	frames chan frameRecord
+	sizes  chan terminalSize
+	closed bool
+}
+
+type pixelResizeTermOps struct {
+	fakeTermOps
+	pixelWidth, pixelHeight int
+}
+
+func (o *pixelResizeTermOps) GetPixelSize(*os.File) (int, int, error) {
+	return o.pixelWidth, o.pixelHeight, nil
+}
+
+func (s *resizeCaptureSink) Emit(img *image.RGBA, cols, rows int, toast, status string) error {
+	s.frames <- frameRecord{
+		cols: cols, rows: rows, toast: toast, status: status, size: img.Bounds(), img: img,
+	}
+	return nil
+}
+
+func (s *resizeCaptureSink) SetTerminalSize(cols, rows int) {
+	s.sizes <- terminalSize{Cols: cols, Rows: rows}
+}
+
+func (s *resizeCaptureSink) Close() error {
+	s.closed = true
+	return nil
 }
 
 func (s *capturePlaybackSink) Close() error {
@@ -138,6 +171,90 @@ func TestRunUsesPreflightTerminalSizeToFitRecording(t *testing.T) {
 	}
 	if !sink.closed {
 		t.Fatal("sink was not closed")
+	}
+}
+
+func TestRunRescalesPlaybackOnSIGWINCH(t *testing.T) {
+	path := writeTestBundle(t, map[string]string{
+		"manifest.json": `{"version":1,"cols":100,"rows":40}`,
+		"events.jsonl":  "",
+	})
+	in, input, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close()
+	out, err := os.CreateTemp(t.TempDir(), "terminal-*.out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+
+	sink := &resizeCaptureSink{
+		frames: make(chan frameRecord, 2),
+		sizes:  make(chan terminalSize, 1),
+	}
+	termOps := &pixelResizeTermOps{
+		fakeTermOps: fakeTermOps{width: 80, height: 24},
+		pixelWidth:  640, pixelHeight: 360,
+	}
+	resizeSignals := make(chan os.Signal, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(path, Options{
+			Backend:           BackendKitty,
+			DisplayPixelWidth: 1000, DisplayPixelHeight: 840,
+			Stdin: in, Stdout: out, Stderr: io.Discard,
+			SkipPreflight: true, SkipRaw: true, sink: sink,
+			termOps: termOps, resizeSignals: resizeSignals,
+		})
+	}()
+
+	initial := receiveFrame(t, sink.frames)
+	if initial.cols != 100 || initial.rows != 40 {
+		t.Fatalf("initial placement = %dx%d, want 100x40", initial.cols, initial.rows)
+	}
+	resizeSignals <- syscall.SIGWINCH
+	select {
+	case size := <-sink.sizes:
+		if size != (terminalSize{Cols: 80, Rows: 24}) {
+			t.Fatalf("sink terminal size = %+v, want 80x24", size)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for sink resize")
+	}
+	frame := receiveFrame(t, sink.frames)
+	if frame.cols != 55 || frame.rows != 22 {
+		t.Fatalf("resized placement = %dx%d, want 55x22", frame.cols, frame.rows)
+	}
+	if got := frame.size; got.Dx() != 440 || got.Dy() != 330 {
+		t.Fatalf("resized frame = %dx%d, want 440x330", got.Dx(), got.Dy())
+	}
+
+	if err := input.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for playback to stop")
+	}
+	if !sink.closed {
+		t.Fatal("sink was not closed")
+	}
+}
+
+func receiveFrame(t *testing.T, frames <-chan frameRecord) frameRecord {
+	t.Helper()
+	select {
+	case frame := <-frames:
+		return frame
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for playback frame")
+		return frameRecord{}
 	}
 }
 

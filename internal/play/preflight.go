@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/creack/pty"
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
@@ -33,6 +34,13 @@ type realTerminalOps struct{}
 func (realTerminalOps) IsTerminal(fd int) bool { return term.IsTerminal(fd) }
 func (realTerminalOps) GetSize(fd int) (int, int, error) {
 	return term.GetSize(fd)
+}
+func (realTerminalOps) GetPixelSize(file *os.File) (int, int, error) {
+	size, err := pty.GetsizeFull(file)
+	if err != nil {
+		return 0, 0, err
+	}
+	return int(size.X), int(size.Y), nil
 }
 func (realTerminalOps) MakeRaw(fd int) (*term.State, error) { return term.MakeRaw(fd) }
 func (realTerminalOps) Restore(fd int, old *term.State) error {
