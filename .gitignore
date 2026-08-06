@@ -9,3 +9,4 @@ result-*
 .sw?
 *.twee
 !examples/recordings/*/*.twee
+.envrc
