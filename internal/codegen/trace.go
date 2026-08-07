@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/paulsmith/twee/internal/engine"
@@ -13,12 +12,13 @@ import (
 	"github.com/paulsmith/twee/internal/vt"
 )
 
-type traceMode int
+type recorderState int
 
 const (
-	traceModeNone traceMode = iota
-	traceModeFullSession
-	traceModeHotkey
+	recorderIdle recorderState = iota
+	recorderRecording
+	recorderFinalized
+	recorderFailed
 )
 
 type traceController struct {
@@ -27,13 +27,22 @@ type traceController struct {
 	cols    int
 	rows    int
 	pid     int
-	outPath string
 	stderr  io.Writer
 
-	tr        *trace.Trace
-	mode      traceMode
-	path      string
-	startedAt time.Time
+	tr           traceWriter
+	state        recorderState
+	path         string
+	startedAt    time.Time
+	reservation  *pathReservation
+	exitRecorded bool
+}
+
+type traceWriter interface {
+	Close() error
+	WriteOutput([]byte, time.Time)
+	WriteInput(string, string, []byte)
+	WriteExit(int)
+	WriteResize(int, int)
 }
 
 func newTraceController(opts Options, cols, rows, pid int) *traceController {
@@ -43,41 +52,35 @@ func newTraceController(opts Options, cols, rows, pid int) *traceController {
 		cols:    cols,
 		rows:    rows,
 		pid:     pid,
-		outPath: opts.OutPath,
 		stderr:  opts.Stderr,
 	}
 }
 
-func (c *traceController) startFullSession(path string, snap vt.Snapshot) error {
-	return c.start(path, traceModeFullSession, snap)
-}
-
-func (c *traceController) toggleHotkey(snap vt.Snapshot) error {
-	switch c.mode {
-	case traceModeFullSession:
-		fmt.Fprintf(c.stderr, "\r\ntwee codegen: already tracing full session: %s\r\n", c.path)
-		return nil
-	case traceModeHotkey:
-		path := c.path
-		if err := c.close(); err != nil {
-			return err
-		}
-		fmt.Fprintf(c.stderr, "\r\ntwee codegen: stopped trace recording: %s\r\n", path)
-		return nil
-	default:
-		path, err := nextHotkeyTracePath(c.outPath, time.Now())
-		if err != nil {
-			return err
-		}
-		if err := c.start(path, traceModeHotkey, snap); err != nil {
-			return err
-		}
-		fmt.Fprintf(c.stderr, "\r\ntwee codegen: started trace recording: %s\r\n", path)
-		return nil
+func (c *traceController) start(path string, snap vt.Snapshot) error {
+	if c.state != recorderIdle {
+		return fmt.Errorf("trace already finalized: %s", terminalPath(c.path))
 	}
+	generated := path == ""
+	var reservation *pathReservation
+	if generated {
+		var err error
+		path, reservation, err = reserveRecorderPath("twee-trace", ".twee", time.Now())
+		if err != nil {
+			c.state = recorderFailed
+			return err
+		}
+	}
+	if err := c.open(path, snap); err != nil {
+		cleanupReservedPath(path, reservation)
+		c.state = recorderFailed
+		c.path = path
+		return err
+	}
+	c.reservation = reservation
+	return nil
 }
 
-func (c *traceController) start(path string, mode traceMode, snap vt.Snapshot) error {
+func (c *traceController) open(path string, snap vt.Snapshot) error {
 	startedAt := time.Now()
 	tr, err := trace.New(path, trace.Manifest{
 		Command: c.command,
@@ -93,7 +96,7 @@ func (c *traceController) start(path string, mode traceMode, snap vt.Snapshot) e
 		tr.WriteOutput(seed, time.Now())
 	}
 	c.tr = tr
-	c.mode = mode
+	c.state = recorderRecording
 	c.path = path
 	c.startedAt = startedAt
 	return nil
@@ -101,16 +104,17 @@ func (c *traceController) start(path string, mode traceMode, snap vt.Snapshot) e
 
 func (c *traceController) close() error {
 	if c.tr == nil {
-		c.mode = traceModeNone
-		c.path = ""
-		c.startedAt = time.Time{}
 		return nil
 	}
 	err := c.tr.Close()
 	c.tr = nil
-	c.mode = traceModeNone
-	c.path = ""
-	c.startedAt = time.Time{}
+	if err != nil {
+		cleanupReservedPath(c.path, c.reservation)
+		c.state = recorderFailed
+	} else {
+		releaseReservation(c.reservation)
+		c.state = recorderFinalized
+	}
 	return err
 }
 
@@ -136,6 +140,19 @@ func (c *traceController) recordInput(in inputEvent) {
 	}
 }
 
+func (c *traceController) recordTerminalReply(b []byte) {
+	if c.tr != nil && len(b) > 0 {
+		c.tr.WriteInput("terminal_reply", "", b)
+	}
+}
+
+func (c *traceController) recordExit(code int) {
+	if c.tr != nil && !c.exitRecorded {
+		c.tr.WriteExit(code)
+		c.exitRecorded = true
+	}
+}
+
 func (c *traceController) recordResize(cols, rows int) {
 	c.cols = cols
 	c.rows = rows
@@ -144,24 +161,71 @@ func (c *traceController) recordResize(cols, rows int) {
 	}
 }
 
-func nextHotkeyTracePath(outPath string, now time.Time) (string, error) {
-	dir := filepath.Dir(outPath)
-	base := filepath.Base(outPath)
-	ext := filepath.Ext(base)
-	stem := strings.TrimSuffix(base, ext)
-	if stem == "" {
-		stem = "trace"
+func nextRecorderPath(prefix, ext string, now time.Time) (string, error) {
+	path, reservation, err := reserveRecorderPath(prefix, ext, now)
+	releaseReservation(reservation)
+	return path, err
+}
+
+func nextRecorderPathInDir(dir, prefix, ext string, now time.Time) (string, error) {
+	path, reservation, err := reserveRecorderPathInDir(dir, prefix, ext, now)
+	releaseReservation(reservation)
+	return path, err
+}
+
+type pathReservation struct {
+	file *os.File
+	info os.FileInfo
+}
+
+func reserveRecorderPath(prefix, ext string, now time.Time) (string, *pathReservation, error) {
+	return reserveRecorderPathInDir("", prefix, ext, now)
+}
+
+func reserveRecorderPathInDir(dir, prefix, ext string, now time.Time) (string, *pathReservation, error) {
+	var err error
+	if dir == "" {
+		dir, err = os.Getwd()
 	}
-	prefix := filepath.Join(dir, fmt.Sprintf("%s-trace-%s", stem, now.Format("20060102-150405")))
+	if err != nil {
+		return "", nil, err
+	}
+	prefix = filepath.Join(dir, fmt.Sprintf("%s-%s", prefix, now.Format("20060102-150405")))
 	for i := 0; ; i++ {
-		path := prefix + ".twee"
+		path := prefix + ext
 		if i > 0 {
-			path = fmt.Sprintf("%s-%02d.twee", prefix, i+1)
+			path = fmt.Sprintf("%s-%02d%s", prefix, i+1, ext)
 		}
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			return path, nil
-		} else if err != nil {
-			return "", err
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			info, statErr := f.Stat()
+			if statErr != nil {
+				_ = f.Close()
+				return "", nil, statErr
+			}
+			return path, &pathReservation{file: f, info: info}, nil
 		}
+		if os.IsExist(err) {
+			continue
+		}
+		return "", nil, err
+	}
+}
+
+func cleanupReservedPath(path string, reservation *pathReservation) {
+	if reservation == nil || reservation.info == nil {
+		return
+	}
+	current, err := os.Stat(path)
+	if err == nil && os.SameFile(reservation.info, current) {
+		_ = os.Remove(path)
+	}
+	releaseReservation(reservation)
+}
+
+func releaseReservation(reservation *pathReservation) {
+	if reservation != nil && reservation.file != nil {
+		_ = reservation.file.Close()
+		reservation.file = nil
 	}
 }

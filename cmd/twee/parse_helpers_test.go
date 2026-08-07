@@ -111,9 +111,9 @@ func TestParsePlayArgs(t *testing.T) {
 	}
 }
 
-func TestParseCodegenArgs(t *testing.T) {
-	opts, err := parseCodegenArgs([]string{
-		"--out", "ops.json",
+func TestParseWrapArgs(t *testing.T) {
+	opts, err := parseWrapArgs([]string{
+		"--script-out", "ops.json",
 		"--trace-out", "session.twee",
 		"--cols", "90",
 		"--rows", "20",
@@ -138,30 +138,29 @@ func TestParseCodegenArgs(t *testing.T) {
 	}
 }
 
-func TestParseCodegenArgsErrors(t *testing.T) {
+func TestParseWrapArgsErrors(t *testing.T) {
 	tests := []struct {
 		name string
 		args []string
 		want string
 	}{
-		{"missing command", []string{"--out", "ops.json"}, "missing --"},
-		{"missing out", []string{"--", "vim"}, "missing --out"},
-		{"out value", []string{"--out", "--", "vim"}, "missing value"},
+		{"missing command", []string{"--script-out", "ops.json"}, "missing --"},
+		{"script value", []string{"--script-out", "--", "vim"}, "missing value"},
 		{"trace value", []string{"--trace-out", "--", "vim"}, "missing value"},
 		{"cols value", []string{"--cols", "--", "vim"}, "missing value"},
-		{"cols bad", []string{"--out", "ops.json", "--cols", "bad", "--", "vim"}, "positive integer"},
+		{"cols bad", []string{"--script-out", "ops.json", "--cols", "bad", "--", "vim"}, "positive integer"},
 		{"rows value", []string{"--rows", "--", "vim"}, "missing value"},
-		{"rows bad", []string{"--out", "ops.json", "--rows", "0", "--", "vim"}, "positive integer"},
+		{"rows bad", []string{"--script-out", "ops.json", "--rows", "0", "--", "vim"}, "positive integer"},
 		{"dir value", []string{"--dir", "--", "vim"}, "missing value"},
 		{"env value", []string{"--env", "--", "vim"}, "missing value"},
-		{"env bad", []string{"--out", "ops.json", "--env", "NOPE", "--", "vim"}, "bad --env"},
-		{"env empty key", []string{"--out", "ops.json", "--env", "=value", "--", "vim"}, "bad --env"},
+		{"env bad", []string{"--script-out", "ops.json", "--env", "NOPE", "--", "vim"}, "bad --env"},
+		{"env empty key", []string{"--script-out", "ops.json", "--env", "=value", "--", "vim"}, "bad --env"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := parseCodegenArgs(tt.args)
+			_, err := parseWrapArgs(tt.args)
 			if err == nil {
-				t.Fatal("parseCodegenArgs unexpectedly succeeded")
+				t.Fatal("parseWrapArgs unexpectedly succeeded")
 			}
 			if !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error = %q, want substring %q", err, tt.want)

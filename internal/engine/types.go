@@ -14,6 +14,7 @@ type Snapshot struct {
 type Cursor struct {
 	Col, Row int
 	Visible  bool
+	Style    vt.CursorStyle
 }
 
 // Line is a row of cells.
@@ -59,7 +60,7 @@ func FromVT(s vt.Snapshot) Snapshot {
 	out := Snapshot{
 		Cols:      s.Size.Cols,
 		Rows:      s.Size.Rows,
-		Cursor:    Cursor{Col: s.Cursor.Col, Row: s.Cursor.Row, Visible: s.Cursor.Visible},
+		Cursor:    Cursor{Col: s.Cursor.Col, Row: s.Cursor.Row, Visible: s.Cursor.Visible, Style: s.Cursor.Style},
 		AltScreen: s.AltScreen,
 		Lines:     make([]Line, len(s.Lines)),
 	}

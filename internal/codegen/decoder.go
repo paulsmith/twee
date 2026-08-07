@@ -1,4 +1,4 @@
-// Package codegen records an interactive terminal session as replayable
+// Package codegen implements the interactive wrap recorder as replayable
 // twee RPC script operations.
 package codegen
 

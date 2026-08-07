@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"sync"
 
 	libghostty "github.com/mitchellh/go-libghostty"
 	"github.com/paulsmith/twee/internal/input"
@@ -20,10 +21,20 @@ type ghosttyTerm struct {
 
 	mouseEncoder *libghostty.MouseEncoder
 	mouseEvent   *libghostty.MouseEvent
+	replies      *ptyReplies
+}
+type ptyReplies struct {
+	mu   sync.Mutex
+	data [][]byte
 }
 
 func newGhosttyTerm(cols, rows int) *ghosttyTerm {
-	t, err := libghostty.NewTerminal(libghostty.WithSize(uint16(cols), uint16(rows)))
+	replies := &ptyReplies{}
+	t, err := libghostty.NewTerminal(libghostty.WithSize(uint16(cols), uint16(rows)), libghostty.WithWritePty(func(_ *libghostty.Terminal, b []byte) {
+		replies.mu.Lock()
+		replies.data = append(replies.data, append([]byte(nil), b...))
+		replies.mu.Unlock()
+	}))
 	if err != nil {
 		panic(fmt.Errorf("vt: NewTerminal: %w", err))
 	}
@@ -65,12 +76,21 @@ func newGhosttyTerm(cols, rows int) *ghosttyTerm {
 	g := &ghosttyTerm{
 		t: t, rs: rs, ri: ri, rc: rc,
 		mouseEncoder: mouseEncoder, mouseEvent: mouseEvent,
+		replies: replies,
 	}
 	// libghostty owns C-side allocations; release them on GC. Tests create
 	// many short-lived models — without a finalizer the cgo footprint grows
 	// for the duration of the process.
 	runtime.SetFinalizer(g, (*ghosttyTerm).finalize)
 	return g
+}
+
+func (g *ghosttyTerm) DrainPTYReplies() [][]byte {
+	g.replies.mu.Lock()
+	defer g.replies.mu.Unlock()
+	out := g.replies.data
+	g.replies.data = nil
+	return out
 }
 
 func (g *ghosttyTerm) finalize() {
@@ -85,6 +105,51 @@ func (g *ghosttyTerm) finalize() {
 func (g *ghosttyTerm) Feed(p []byte) error {
 	g.t.VTWrite(p)
 	return nil
+}
+
+// Presentation returns only terminal state that changes host-generated input
+// bytes or the cursor shape. Display state remains private to Snapshot.
+func (g *ghosttyTerm) Presentation() Presentation {
+	mode := func(m libghostty.Mode) bool {
+		set, err := g.t.ModeGet(m)
+		return err == nil && set
+	}
+	p := Presentation{Input: InputModes{
+		ApplicationCursor: mode(libghostty.ModeDECCKM),
+		ApplicationKeypad: mode(libghostty.ModeKeypadKeys),
+		BracketedPaste:    mode(libghostty.ModeBracketedPaste),
+		FocusEvents:       mode(libghostty.ModeFocusEvent),
+		MouseX10:          mode(libghostty.ModeX10Mouse),
+		MouseNormal:       mode(libghostty.ModeNormalMouse),
+		MouseButton:       mode(libghostty.ModeButtonMouse),
+		MouseAny:          mode(libghostty.ModeAnyMouse),
+		MouseUTF8:         mode(libghostty.ModeUTF8Mouse),
+		MouseSGR:          mode(libghostty.ModeSGRMouse),
+		MouseURxvt:        mode(libghostty.ModeURxvtMouse),
+		MouseSGRPixels:    mode(libghostty.ModeSGRPixelsMouse),
+	}}
+	if err := g.rs.Update(g.t); err == nil {
+		style, styleErr := g.rs.CursorVisualStyle()
+		if styleErr == nil {
+			p.Cursor = cursorStyleFromGhostty(style)
+		}
+	}
+	return p
+}
+
+func cursorStyleFromGhostty(style libghostty.CursorVisualStyle) CursorStyle {
+	switch style {
+	case libghostty.CursorVisualStyleBar:
+		return CursorStyleBar
+	case libghostty.CursorVisualStyleUnderline:
+		return CursorStyleUnderline
+	case libghostty.CursorVisualStyleBlockHollow:
+		return CursorStyleHollow
+	case libghostty.CursorVisualStyleBlock:
+		return CursorStyleBlock
+	default:
+		return CursorStyleDefault
+	}
 }
 
 func (g *ghosttyTerm) Resize(cols, rows int) error {
@@ -629,6 +694,9 @@ func (g *ghosttyTerm) Snapshot() Snapshot {
 			cells = append(cells, readCell(g.rc))
 		}
 		out.Lines = append(out.Lines, Line{Cells: cells})
+	}
+	if style, err := g.rs.CursorVisualStyle(); err == nil {
+		out.Cursor.Style = cursorStyleFromGhostty(style)
 	}
 	return out
 }

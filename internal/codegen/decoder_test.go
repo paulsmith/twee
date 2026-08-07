@@ -174,7 +174,7 @@ func TestWarningSummaryReportsOnce(t *testing.T) {
 	if !strings.Contains(got, "omitted 2 unknown input sequences") {
 		t.Fatalf("summary = %q", got)
 	}
-	if strings.Count(got, "twee codegen:") != 1 {
+	if strings.Count(got, "twee wrap:") != 1 {
 		t.Fatalf("summary reported multiple lines: %q", got)
 	}
 }

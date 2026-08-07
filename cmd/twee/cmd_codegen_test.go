@@ -21,9 +21,9 @@ import (
 	"golang.org/x/term"
 )
 
-func TestParseCodegenArgsInterspersedFlags(t *testing.T) {
-	opts, err := parseCodegenArgs([]string{
-		"--out", "ops.json", "--no-waits", "--cols", "100",
+func TestParseWrapArgsInterspersedFlags(t *testing.T) {
+	opts, err := parseWrapArgs([]string{
+		"--script-out", "ops.json", "--no-waits", "--cols", "100",
 		"--rows", "40", "--env", "FOO=bar", "--", "/bin/cat", "--literal-child-flag",
 	})
 	if err != nil {
@@ -46,9 +46,9 @@ func TestParseCodegenArgsInterspersedFlags(t *testing.T) {
 	}
 }
 
-func TestParseCodegenArgsTraceOut(t *testing.T) {
-	opts, err := parseCodegenArgs([]string{
-		"--out", "ops.json", "--trace-out", "session.twee", "--", "/bin/cat",
+func TestParseWrapArgsTraceOut(t *testing.T) {
+	opts, err := parseWrapArgs([]string{
+		"--script-out", "ops.json", "--trace-out", "session.twee", "--", "/bin/cat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -72,10 +72,10 @@ func TestLeadingResize(t *testing.T) {
 	}
 }
 
-func TestCodegenWritesScriptFromPTYInput(t *testing.T) {
+func TestWrapWritesScriptFromPTYInput(t *testing.T) {
 	bin := buildBinary(t)
 	outPath := filepath.Join(t.TempDir(), "ops.json")
-	cmd := exec.Command(bin, "codegen", "--out", outPath, "--no-waits", "--", "/bin/cat")
+	cmd := exec.Command(bin, "wrap", "--script-out", outPath, "--no-waits", "--no-status", "--", "/bin/cat")
 	cmd.Env = append(os.Environ(), testEnv(t)...)
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
 	if err != nil {
@@ -107,7 +107,7 @@ func TestCodegenWritesScriptFromPTYInput(t *testing.T) {
 	select {
 	case got := <-done:
 		if got.err != nil {
-			t.Fatalf("codegen: %v\n%s", got.err, got.out)
+			t.Fatalf("wrap: %v\n%s", got.err, got.out)
 		}
 		if !bytes.Contains(got.out, []byte("abc")) {
 			t.Fatalf("proxied output missing input echo:\n%s", got.out)
@@ -143,12 +143,12 @@ func TestCodegenWritesScriptFromPTYInput(t *testing.T) {
 	}
 }
 
-func TestCodegenTraceOutWritesBundleFromPTYInput(t *testing.T) {
+func TestWrapTraceOutWritesBundleFromPTYInput(t *testing.T) {
 	bin := buildBinary(t)
 	dir := t.TempDir()
 	outPath := filepath.Join(dir, "ops.json")
 	tracePath := filepath.Join(dir, "session.twee")
-	cmd := exec.Command(bin, "codegen", "--out", outPath, "--no-waits", "--trace-out", tracePath, "--", "/bin/cat")
+	cmd := exec.Command(bin, "wrap", "--script-out", outPath, "--no-waits", "--no-status", "--trace-out", tracePath, "--", "/bin/cat")
 	cmd.Env = append(os.Environ(), testEnv(t)...)
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
 	if err != nil {
@@ -163,7 +163,7 @@ func TestCodegenTraceOutWritesBundleFromPTYInput(t *testing.T) {
 
 	out, err := waitCodegenPTY(cmd, ptmx, 5*time.Second)
 	if err != nil {
-		t.Fatalf("codegen: %v\n%s", err, out)
+		t.Fatalf("wrap: %v\n%s", err, out)
 	}
 	if _, err := os.Stat(outPath); err != nil {
 		t.Fatalf("script missing at %s: %v", outPath, err)
@@ -187,11 +187,11 @@ func TestCodegenTraceOutWritesBundleFromPTYInput(t *testing.T) {
 	}
 }
 
-func TestCodegenHotkeyToggleWritesTraceBundle(t *testing.T) {
+func TestWrapHotkeyToggleWritesTraceBundle(t *testing.T) {
 	bin := buildBinary(t)
 	dir := t.TempDir()
-	outPath := filepath.Join(dir, "ops.json")
-	cmd := exec.Command(bin, "codegen", "--out", outPath, "--no-waits", "--", "/bin/cat")
+	cmd := exec.Command(bin, "wrap", "--no-waits", "--no-status", "--", "/bin/cat")
+	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), testEnv(t)...)
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
 	if err != nil {
@@ -215,10 +215,10 @@ func TestCodegenHotkeyToggleWritesTraceBundle(t *testing.T) {
 
 	out, err := proc.finish(5 * time.Second)
 	if err != nil {
-		t.Fatalf("codegen: %v\n%s", err, out)
+		t.Fatalf("wrap: %v\n%s", err, out)
 	}
 
-	matches, err := filepath.Glob(filepath.Join(dir, "ops-trace-*.twee"))
+	matches, err := filepath.Glob(filepath.Join(dir, "twee-trace-*.twee"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,10 +240,10 @@ func TestCodegenHotkeyToggleWritesTraceBundle(t *testing.T) {
 	}
 }
 
-func TestCodegenDoesNotHangOnHighVolumeChildExit(t *testing.T) {
+func TestWrapDoesNotHangOnHighVolumeChildExit(t *testing.T) {
 	bin := buildBinary(t)
 	outPath := filepath.Join(t.TempDir(), "ops.json")
-	cmd := exec.Command(bin, "codegen", "--out", outPath, "--no-waits", "--", "/bin/sh", "-c", "i=0; while [ $i -lt 400 ]; do printf '0123456789abcdef0123456789abcdef\\n'; i=$((i+1)); done")
+	cmd := exec.Command(bin, "wrap", "--script-out", outPath, "--no-waits", "--no-status", "--", "/bin/sh", "-c", "i=0; while [ $i -lt 400 ]; do printf '0123456789abcdef0123456789abcdef\\n'; i=$((i+1)); done")
 	cmd.Env = append(os.Environ(), testEnv(t)...)
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
 	if err != nil {
@@ -411,10 +411,10 @@ func traceVisibleText(bundle play.Bundle) string {
 	return vt.VisibleText(model.Snapshot())
 }
 
-func TestCodegenFlushesFinalWaitOnChildExit(t *testing.T) {
+func TestWrapFlushesFinalWaitOnChildExit(t *testing.T) {
 	bin := buildBinary(t)
 	outPath := filepath.Join(t.TempDir(), "ops.json")
-	cmd := exec.Command(bin, "codegen", "--out", outPath, "--", "/bin/sh", "-c", "read line; printf 'done\\n'")
+	cmd := exec.Command(bin, "wrap", "--script-out", outPath, "--no-status", "--", "/bin/sh", "-c", "read line; printf 'done\\n'")
 	cmd.Env = append(os.Environ(), testEnv(t)...)
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
 	if err != nil {
@@ -445,7 +445,7 @@ func TestCodegenFlushesFinalWaitOnChildExit(t *testing.T) {
 	select {
 	case got := <-done:
 		if got.err != nil {
-			t.Fatalf("codegen: %v\n%s", got.err, got.out)
+			t.Fatalf("wrap: %v\n%s", got.err, got.out)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("codegen did not exit after child exit")

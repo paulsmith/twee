@@ -151,7 +151,6 @@ var commandSummaries = []commandSummary{
 	{"bundle", "Inspect or verify a .twee trace bundle"},
 	{"cell", "Show one cell at x,y"},
 	{"click", "Click a viewport cell"},
-	{"codegen", "Interactively author a run script"},
 	{"completion", "Print shell completion setup"},
 	{"cursor", "Show cursor state"},
 	{"diff", "Compare the viewport to a saved text snapshot"},
@@ -188,6 +187,7 @@ var commandSummaries = []commandSummary{
 	{"type", "Write literal text to the PTY"},
 	{"version", "Print the twee version"},
 	{"wait", "Wait for terminal state or process exit"},
+	{"wrap", "Wrap a terminal command with optional recording"},
 }
 
 func runCompletion(args []string) {

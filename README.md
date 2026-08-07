@@ -214,7 +214,7 @@ command list is:
 | `bundle` | Inspect or verify a `.twee` trace bundle. |
 | `cell` | Show one cell at x,y. |
 | `click` | Click a viewport cell. |
-| `codegen` | Interactively author a run script. |
+| `wrap` | Wrap a terminal command with optional recording. |
 | `completion` | Print shell completion setup (currently a placeholder). |
 | `cursor` | Show cursor state. |
 | `diff` | Compare the viewport to a saved text snapshot. |
@@ -349,7 +349,7 @@ cannot use it, such as `WithButton` on `Hover`, is also an error.
 ### Flag syntax
 
 Long options only; `-n`-style short flags are usage errors. `start`,
-`run`, and `codegen` take `--` before the child command; `type` and
+`run`, and `wrap` take `--` before the child command; `type` and
 `paste` take `--` before literal text:
 
 ```
@@ -373,7 +373,7 @@ $ twee wait text --pattern="-- INSERT --"
 Every daemon-targeting invocation prints exactly one JSON value to
 stdout and exits 0 on success or non-zero on failure. Logs go to
 stderr, not stdout. (Meta commands — `version`, `help`, `completion` —
-print plain text; `play` and `codegen` are interactive.)
+print plain text; `play` and `wrap` are interactive.)
 
 ```json
 {"ok": true, "data": {...}}
@@ -520,29 +520,54 @@ there's no child to spawn. Ops like `stop` or `wait_exit` aren't
 special-cased: they do whatever they normally do, including ending the
 session.
 
-## Codegen
+## Wrap
 
-`twee codegen` runs a command interactively and writes the actions you
-take as a replayable JSON operations script. It can also record `.twee`
-trace bundles for `twee play`.
+`twee wrap` runs a command interactively in a parent-owned PTY. Script and
+`.twee` trace recording are independent and optional: with no output flags it
+only wraps the terminal until you start a recorder with a control chord.
 
 ```
-$ twee codegen --out ops.json --trace-out session.twee -- ./myapp
+$ twee wrap --script-out ops.json --trace-out session.twee -- ./myapp
 $ twee play session.twee
 ```
 
-Press `Ctrl+] q` to stop recording, terminate the child, and write the
-script. Codegen also accepts `--cols`/`--rows` (default: your terminal
+Press `Ctrl+] s` to start or finalize JSON script capture and `Ctrl+] t` to
+start or finalize trace capture. Each recorder is one-shot in a wrap session:
+after finalization it cannot resume. `Ctrl+] q` finalizes active recorders and
+terminates the child. Wrap also accepts `--cols`/`--rows` (default: your terminal
 size, falling back to 80x24), `--dir`, repeatable `--env KEY=VALUE`,
 and `--no-waits` to skip the automatically inserted `wait_stable` sync
 ops.
 
-Without `--trace-out`, press `Ctrl+] t` during codegen to start and
-stop a hotkey trace. Hotkey traces are written next to `--out`: for
-`--out ops.json`, the first path is
-`ops-trace-YYYYMMDD-HHMMSS.twee`; if that exists, codegen uses
-`-02`, `-03`, and so on. Codegen prints the selected path to stderr
-when hotkey tracing starts and when it stops.
+Hotkey artifacts use the invocation directory: `twee-script-YYYYMMDD-HHMMSS.json`
+and `twee-trace-YYYYMMDD-HHMMSS.twee`, with a numeric suffix on collision.
+A script started after prior session activity is marked partial in the status bar.
+That activity can be child output, user input, or a resize. The one-row
+status bar remains visible above full-screen applications and includes active
+recorder spinners and the available control chords; use `--no-status` when
+terminal fidelity is more important than status feedback.
+
+On an interactive capable terminal, wrap uses a wrapper-owned compositor so
+the status row is not part of child output or recordings. This presentation
+does not preserve graphics, OSC integrations, or uncommon terminal protocols;
+`--no-status` is the raw PTY passthrough escape hatch. On non-terminal output
+or `TERM=dumb`, wrap automatically uses that raw mode and does not emit status
+control sequences.
+
+The compositor mirrors only modes that change host-generated input: application
+cursor/keypad, bracketed paste, focus events, and the supported mouse reporting
+modes. It also reflects the child cursor shape. It intentionally does not
+forward arbitrary display modes, palettes, OSC, alternate-screen, or margin
+settings to the physical host terminal.
+
+SGR-pixel mouse reporting cannot be mapped safely to the child viewport while
+the status row is visible, so use `--no-status` when an application needs it.
+
+For xterm-compatible terminals, wrap saves and restores the affected private
+input modes and cursor visibility around its alternate screen. The alternate
+screen also restores the prior cursor shape after the child view closes. On an
+unrecognized terminal type, wrap uses a safe reset of only those input modes;
+use `--no-status` when preserving unknown terminal state is more important.
 
 ## Traces
 

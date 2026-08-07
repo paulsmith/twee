@@ -20,7 +20,7 @@ import (
 	"golang.org/x/term"
 )
 
-// Options configures an interactive codegen run.
+// Options configures an interactive wrap run.
 type Options struct {
 	Command   []string
 	Env       map[string]string
@@ -30,12 +30,20 @@ type Options struct {
 	OutPath   string
 	TracePath string
 	NoWaits   bool
+	NoStatus  bool
 
 	Stdin  *os.File
 	Stdout *os.File
 	Stderr io.Writer
 
 	Quiet time.Duration
+}
+
+// ExitError reports an otherwise successful wrapped command's exit status.
+type ExitError struct{ Code int }
+
+func (e *ExitError) Error() string {
+	return fmt.Sprintf("wrapped command exited with status %d", e.Code)
 }
 
 type outputEvent struct {
@@ -70,20 +78,17 @@ func (w warningSummary) Report(dst io.Writer) {
 		return
 	}
 	if w.count == 1 {
-		fmt.Fprintf(dst, "\ntwee codegen: %s\n", w.first)
+		fmt.Fprintf(dst, "\ntwee wrap: %s\n", w.first)
 		return
 	}
-	fmt.Fprintf(dst, "\ntwee codegen: omitted %d unknown input sequences from script; first: %s\n", w.count, w.first)
+	fmt.Fprintf(dst, "\ntwee wrap: omitted %d unknown input sequences from script; first: %s\n", w.count, w.first)
 }
 
 // Run starts the child under a PTY, proxies the user's terminal to it, and
 // writes a replayable twee run script when the child exits or the user quits.
 func Run(ctx context.Context, opts Options) error {
 	if len(opts.Command) == 0 {
-		return errors.New("codegen: missing command")
-	}
-	if opts.OutPath == "" {
-		return errors.New("codegen: missing output path")
+		return errors.New("wrap: missing command")
 	}
 	if opts.Stdin == nil {
 		opts.Stdin = os.Stdin
@@ -98,6 +103,11 @@ func Run(ctx context.Context, opts Options) error {
 		opts.Quiet = 100 * time.Millisecond
 	}
 	cols, rows := initialSize(opts)
+	statusRows := rows
+	compositorEnabled := compositorCapable(opts.NoStatus, os.Getenv("TERM"), term.IsTerminal(int(opts.Stdout.Fd())))
+	if compositorEnabled && rows > 1 {
+		rows--
+	}
 	ctx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stopSignals()
 
@@ -131,17 +141,63 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	model := vt.New(cols, rows)
-	rec := &recorder{}
-	if err := rec.Resize(cols, rows); err != nil {
-		_ = runner.Close()
-		return err
-	}
+	script := &scriptController{}
 	traces := newTraceController(opts, cols, rows, runner.Pid())
+	if opts.OutPath != "" {
+		if err := script.start(opts.OutPath, cols, rows, false); err != nil {
+			_ = runner.Close()
+			return fmt.Errorf("script: %w", err)
+		}
+	}
 	if opts.TracePath != "" {
-		if err := traces.startFullSession(opts.TracePath, model.Snapshot()); err != nil {
+		if err := traces.start(opts.TracePath, model.Snapshot()); err != nil {
 			_ = runner.Close()
 			return fmt.Errorf("trace: %w", err)
 		}
+	}
+	status := statusBar{w: opts.Stdout, enabled: compositorEnabled && statusRows > 1, rows: statusRows, cols: cols, ascii: statusASCII(os.Getenv("TERM")), composited: compositorEnabled}
+	var spinner spinnerLifecycle
+	defer spinner.close()
+	host := hostRenderer{w: opts.Stdout, active: false, hostRows: statusRows, status: status.enabled, preserve: nativeHostStateSaveCapable(os.Getenv("TERM"))}
+	if compositorEnabled {
+		host.enter()
+		host.render(model.Snapshot(), status.line(script, traces), presentationOf(model))
+	} else {
+		status.draw(script, traces)
+	}
+	redraw := func() {
+		if compositorEnabled {
+			host.status = status.enabled
+			host.hostRows = statusRows
+			host.render(model.Snapshot(), status.line(script, traces), presentationOf(model))
+		} else {
+			status.draw(script, traces)
+		}
+	}
+	var toastTimer *time.Timer
+	var toast <-chan time.Time
+	setToast := func(message string) {
+		status.toast = message
+		if toastTimer == nil {
+			toastTimer = time.NewTimer(2 * time.Second)
+		} else {
+			if !toastTimer.Stop() {
+				select {
+				case <-toastTimer.C:
+				default:
+				}
+			}
+			toastTimer.Reset(2 * time.Second)
+		}
+		toast = toastTimer.C
+	}
+	defer func() {
+		if toastTimer != nil {
+			toastTimer.Stop()
+		}
+	}()
+	spinnerActive := func() <-chan time.Time {
+		return spinner.update(script.state == recorderRecording || traces.state == recorderRecording)
 	}
 
 	events := make(chan any, 32)
@@ -151,11 +207,14 @@ func Run(ctx context.Context, opts Options) error {
 	go watchResize(opts.Stdout, events, auxDone)
 
 	dec := &Decoder{}
+	var mouseFilter statusMouseFilter
 	var warnings warningSummary
 	var runErr error
 	var stopping bool
+	var stopRequested bool
 	var ptyDone bool
 	var outputSinceAction bool
+	var hadSessionActivity bool
 	var waitingForQuiet bool
 	var quiet <-chan time.Time
 	timer := time.NewTimer(time.Hour)
@@ -195,8 +254,8 @@ func Run(ctx context.Context, opts Options) error {
 		waitingForQuiet = true
 	}
 	flushPendingWait := func() {
-		if !opts.NoWaits && waitingForQuiet && outputSinceAction {
-			if err := rec.WaitStable(); err != nil && runErr == nil {
+		if !opts.NoWaits && waitingForQuiet && outputSinceAction && script.state == recorderRecording {
+			if err := script.rec.WaitStable(); err != nil && runErr == nil {
 				runErr = err
 			}
 		}
@@ -207,6 +266,7 @@ func Run(ctx context.Context, opts Options) error {
 			return
 		}
 		stopping = true
+		stopRequested = true
 		go func() { _ = runner.Close() }()
 	}
 	handleInput := func(in inputEvent, forward bool) {
@@ -222,47 +282,95 @@ func Run(ctx context.Context, opts Options) error {
 		case inputControl:
 			switch in.control {
 			case 'q':
-				fmt.Fprint(opts.Stderr, "\r\ntwee codegen: stopping\r\n")
+				setToast("finalizing")
+				// Keep recorders live while the PTY drains so the final child
+				// output is represented; finalization happens after EOF below.
+				redraw()
 				stopChild()
 			case 't':
-				if err := traces.toggleHotkey(model.Snapshot()); err != nil && runErr == nil {
-					runErr = err
-					stopChild()
+				if traces.state == recorderIdle {
+					if err := traces.start("", model.Snapshot()); err != nil && runErr == nil {
+						runErr = err
+					} else if traces.state == recorderRecording {
+						setToast("trace started")
+						if !compositorEnabled {
+							fmt.Fprintf(opts.Stderr, "\r\ntwee wrap: started trace recording: %s\r\n", terminalPath(traces.path))
+						}
+					}
+				} else if traces.state == recorderRecording {
+					if err := traces.close(); err != nil && runErr == nil {
+						runErr = err
+					} else {
+						setToast("trace saved")
+						if !compositorEnabled {
+							fmt.Fprintf(opts.Stderr, "\r\ntwee wrap: stopped trace recording: %s\r\n", terminalPath(traces.path))
+						}
+					}
+				} else {
+					setToast("trace already finalized")
 				}
-			case 'd':
-				fmt.Fprint(opts.Stderr, "\r\ntwee codegen: detach is reserved for a future named-session backend\r\n")
+				redraw()
+			case 's':
+				if script.state == recorderIdle {
+					if err := script.start("", cols, rows, hadSessionActivity); err != nil && runErr == nil {
+						runErr = err
+					} else if script.state == recorderRecording && !compositorEnabled {
+						fmt.Fprintf(opts.Stderr, "\r\ntwee wrap: started script recording: %s\r\n", terminalPath(script.path))
+					}
+				} else if script.state == recorderRecording {
+					flushPendingWait()
+					if err := script.close(); err != nil && runErr == nil {
+						runErr = err
+					} else if !compositorEnabled {
+						fmt.Fprintf(opts.Stderr, "\r\ntwee wrap: saved script: %s\r\n", terminalPath(script.path))
+					}
+				} else {
+					setToast("script already finalized")
+				}
+				redraw()
 			default:
-				fmt.Fprintf(opts.Stderr, "\r\ntwee codegen: unknown Ctrl+] command %q\r\n", in.control)
+				setToast(fmt.Sprintf("unknown ^] command %q", in.control))
+				redraw()
 			}
 		case inputType:
 			writeInput(in.bytes)
+			hadSessionActivity = true
 			if forward {
 				traces.recordInput(in)
 			}
-			if err := rec.Type(in.text); err != nil && runErr == nil {
-				runErr = err
+			if script.state == recorderRecording {
+				if err := script.rec.Type(in.text); err != nil && runErr == nil {
+					runErr = err
+				}
 			}
 			armAfterAction()
 		case inputKey:
 			writeInput(in.bytes)
+			hadSessionActivity = true
 			if forward {
 				traces.recordInput(in)
 			}
-			if err := rec.Key(in.key); err != nil && runErr == nil {
-				runErr = err
+			if script.state == recorderRecording {
+				if err := script.rec.Key(in.key); err != nil && runErr == nil {
+					runErr = err
+				}
 			}
 			armAfterAction()
 		case inputPaste:
 			writeInput(in.bytes)
+			hadSessionActivity = true
 			if forward {
 				traces.recordInput(in)
 			}
-			if err := rec.Paste(in.text); err != nil && runErr == nil {
-				runErr = err
+			if script.state == recorderRecording {
+				if err := script.rec.Paste(in.text); err != nil && runErr == nil {
+					runErr = err
+				}
 			}
 			armAfterAction()
 		case inputUnknown:
 			writeInput(in.bytes)
+			hadSessionActivity = true
 			if forward {
 				traces.recordInput(in)
 			}
@@ -275,31 +383,57 @@ func Run(ctx context.Context, opts Options) error {
 		case ev := <-events:
 			switch ev := ev.(type) {
 			case outputEvent:
-				_, _ = opts.Stdout.Write(ev.bytes)
-				_ = model.Feed(ev.bytes)
+				hadSessionActivity = true
+				if !compositorEnabled {
+					_, _ = opts.Stdout.Write(ev.bytes)
+				}
 				traces.recordOutput(ev.bytes, ev.ts)
+				_ = model.Feed(ev.bytes)
+				if replies, ok := model.(vt.PTYReplySource); ok {
+					for _, reply := range replies.DrainPTYReplies() {
+						if compositorEnabled {
+							if _, err := runner.Master().Write(reply); err != nil && runErr == nil {
+								runErr = err
+							}
+							traces.recordTerminalReply(reply)
+						}
+					}
+				}
+				redraw()
 				if waitingForQuiet {
 					outputSinceAction = true
 					resetQuiet()
 				}
+				status.draw(script, traces)
 			case inputBytesEvent:
-				for _, in := range dec.Decode(ev.bytes) {
+				for _, in := range dec.Decode(mouseFilter.Feed(ev.bytes, rows, status.enabled)) {
 					handleInput(in, true)
 				}
 			case resizeEvent:
+				hadSessionActivity = true
 				if ev.cols <= 0 || ev.rows <= 0 {
 					continue
 				}
-				cols, rows = ev.cols, ev.rows
+				cols, statusRows = ev.cols, ev.rows
+				status.enabled = compositorEnabled && statusRows > 1
+				rows = statusRows
+				if status.enabled && rows > 1 {
+					rows--
+				}
 				if err := runner.Resize(cols, rows); err != nil && runErr == nil {
 					runErr = err
 				}
 				_ = model.Resize(cols, rows)
-				if err := rec.Resize(cols, rows); err != nil && runErr == nil {
-					runErr = err
+				status.cols, status.rows = cols, statusRows
+				host.hostRows, host.status = statusRows, status.enabled
+				if script.state == recorderRecording {
+					if err := script.rec.Resize(cols, rows); err != nil && runErr == nil {
+						runErr = err
+					}
 				}
 				traces.recordResize(cols, rows)
 				armAfterAction()
+				redraw()
 			case fatalEvent:
 				if runErr == nil {
 					runErr = ev.err
@@ -309,14 +443,23 @@ func Run(ctx context.Context, opts Options) error {
 				ptyDone = true
 			}
 		case <-quiet:
-			if waitingForQuiet && outputSinceAction {
-				if err := rec.WaitStable(); err != nil && runErr == nil {
+			if waitingForQuiet && outputSinceAction && script.state == recorderRecording {
+				if err := script.rec.WaitStable(); err != nil && runErr == nil {
 					runErr = err
 				}
 			}
 			clearQuiet()
+		case <-spinnerActive():
+			if script.state == recorderRecording || traces.state == recorderRecording {
+				status.phase++
+				redraw()
+			}
+		case <-toast:
+			status.toast = ""
+			toast = nil
+			redraw()
 		case <-runner.ExitedCh():
-			stopping = true
+			// The PTY reader will observe EOF/EIO after buffered output drains.
 		case <-ctx.Done():
 			runErr = ctx.Err()
 			stopChild()
@@ -324,19 +467,44 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	close(auxDone)
+	// PTY EOF can race the runner's wait goroutine. Wait for the child status
+	// before reporting a natural command failure.
+	<-runner.ExitedCh()
+	if err := runner.Err(); err != nil && runErr == nil {
+		runErr = err
+	}
+	for _, in := range dec.Decode(mouseFilter.Flush()) {
+		handleInput(in, false)
+	}
 	for _, in := range dec.Flush() {
 		handleInput(in, false)
 	}
 	flushPendingWait()
+	traces.recordExit(runner.ExitCode())
+	scriptErr := script.close()
 	traceErr := traces.close()
+	closeErr := runner.Close()
+	host.close()
 	restore()
+	if summary := artifactSummary(script, traces); summary != "" {
+		fmt.Fprintf(opts.Stderr, "twee wrap: %s\n", summary)
+	}
 	warnings.Report(opts.Stderr)
 
-	writeErr := writeScript(opts.OutPath, rec.Requests())
-	if runErr != nil || traceErr != nil {
-		return errors.Join(runErr, traceErr)
+	if runErr != nil || traceErr != nil || scriptErr != nil || closeErr != nil {
+		return errors.Join(runErr, traceErr, scriptErr, closeErr)
 	}
-	return writeErr
+	if !stopRequested && runner.ExitCode() != 0 {
+		return &ExitError{Code: runner.ExitCode()}
+	}
+	return nil
+}
+
+func presentationOf(model vt.Model) vt.Presentation {
+	if source, ok := model.(vt.PresentationSource); ok {
+		return source.Presentation()
+	}
+	return vt.Presentation{}
 }
 
 func initialSize(opts Options) (int, int) {

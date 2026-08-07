@@ -24,7 +24,7 @@ Flags:
 
 The script is a JSON array of RPC bodies (op + args), using wire op
 names (e.g. "wait_text", not "wait text") — identical to "twee run"'s
-script format; scripts written by "twee codegen --out" work unchanged.
+script format; scripts written by "twee wrap --script-out" work unchanged.
 Ops like "stop" or "wait_exit" are not special-cased: they do whatever
 they normally do, including ending the session.`)
 }
