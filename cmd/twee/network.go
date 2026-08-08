@@ -29,22 +29,19 @@ func parseTCPPublications(raws []string) ([]engine.TCPPublication, error) {
 }
 
 func parseTCPPublication(raw string) (engine.TCPPublication, error) {
-	listen, guest, ok := strings.Cut(raw, "=")
-	if !ok || listen == "" || guest == "" || strings.Contains(guest, "=") {
-		return engine.TCPPublication{}, fmt.Errorf("bad --publish-tcp value %q (want LISTEN=GUEST)", raw)
+	listen, guestPortText, ok := strings.Cut(raw, "=")
+	if !ok || listen == "" || guestPortText == "" || strings.Contains(guestPortText, "=") {
+		return engine.TCPPublication{}, fmt.Errorf("bad --publish-tcp value %q (want LISTEN=GUEST_PORT)", raw)
 	}
 	listenAddress, err := parseIPv4TCPAddress("listen", listen)
 	if err != nil {
 		return engine.TCPPublication{}, err
 	}
-	guestAddress, err := parseIPv4TCPAddress("guest", guest)
-	if err != nil {
-		return engine.TCPPublication{}, err
+	guestPort, err := strconv.Atoi(guestPortText)
+	if err != nil || guestPort < 1 || guestPort > 65535 {
+		return engine.TCPPublication{}, fmt.Errorf("bad --publish-tcp guest port %q: must be a number from 1 through 65535", guestPortText)
 	}
-	guestHost, _, _ := net.SplitHostPort(guestAddress)
-	if guestHost != netwrapGuestIPv4 {
-		return engine.TCPPublication{}, fmt.Errorf("bad --publish-tcp guest address %q: host must be %s", guest, netwrapGuestIPv4)
-	}
+	guestAddress := net.JoinHostPort(netwrapGuestIPv4, strconv.Itoa(guestPort))
 	return engine.TCPPublication{Listen: listenAddress, Guest: guestAddress}, nil
 }
 

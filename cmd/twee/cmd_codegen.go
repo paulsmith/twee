@@ -17,13 +17,17 @@ Wrap <cmd> in a PTY. Script and trace recording are independently optional.
 Controls:
   Ctrl+] q        finalize active recorders and terminate the child
   Ctrl+] s        start/stop JSON script capture (one-shot)
-  Ctrl+] t        start/stop trace recording (one-shot)
+  Ctrl+] t        start/stop trace recording (one-shot; network traces run until exit)
 
 Flags:
   --script-out <path.json>
                   start JSON script recording immediately
   --trace-out <path.twee>
                   start trace recording immediately
+  --network-capture
+                  capture the managed program's IPv4 traffic (Linux; requires --trace-out)
+  --publish-tcp <listen=guest-port>
+                  publish LISTEN_IPV4:PORT=GUEST_PORT (repeatable)
   --cols <int>    initial columns (default: terminal width or 80)
   --rows <int>    initial rows (default: terminal height or 24)
   --dir <path>    child working directory (default: inherit)
@@ -57,16 +61,21 @@ func parseWrapArgs(args []string) (codegen.Options, error) {
 		return opts, err
 	}
 	var parsed struct {
-		OutPath   string   `arg:"--script-out"`
-		TracePath string   `arg:"--trace-out"`
-		Cols      *string  `arg:"--cols"`
-		Rows      *string  `arg:"--rows"`
-		Dir       string   `arg:"--dir"`
-		Env       []string `arg:"--env,separate"`
-		NoWaits   bool     `arg:"--no-waits"`
-		NoStatus  bool     `arg:"--no-status"`
+		OutPath        string   `arg:"--script-out"`
+		TracePath      string   `arg:"--trace-out"`
+		Cols           *string  `arg:"--cols"`
+		Rows           *string  `arg:"--rows"`
+		Dir            string   `arg:"--dir"`
+		Env            []string `arg:"--env,separate"`
+		NoWaits        bool     `arg:"--no-waits"`
+		NoStatus       bool     `arg:"--no-status"`
+		NetworkCapture bool     `arg:"--network-capture"`
+		PublishTCP     []string `arg:"--publish-tcp,separate"`
 	}
 	if err := requireSeparateValues(before, "--env"); err != nil {
+		return opts, err
+	}
+	if err := requireSeparateValues(before, "--publish-tcp"); err != nil {
 		return opts, err
 	}
 	if err := parseArg("wrap", &parsed, before); err != nil {
@@ -91,6 +100,17 @@ func parseWrapArgs(args []string) (codegen.Options, error) {
 	}
 	opts.OutPath = parsed.OutPath
 	opts.TracePath = parsed.TracePath
+	opts.NetworkCapture = parsed.NetworkCapture
+	if opts.NetworkCapture && opts.TracePath == "" {
+		return opts, fmt.Errorf("--network-capture requires --trace-out")
+	}
+	if len(parsed.PublishTCP) > 0 && !opts.NetworkCapture {
+		return opts, fmt.Errorf("--publish-tcp requires --network-capture")
+	}
+	opts.PublishTCP, err = parseTCPPublications(parsed.PublishTCP)
+	if err != nil {
+		return opts, err
+	}
 	opts.Dir = parsed.Dir
 	opts.NoWaits = parsed.NoWaits
 	opts.NoStatus = parsed.NoStatus

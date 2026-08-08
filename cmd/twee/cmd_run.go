@@ -29,8 +29,8 @@ Flags:
                   record a .twee trace bundle for the whole run
   --network-capture
                   capture the managed program's IPv4 traffic (Linux; requires --trace-out)
-  --publish-tcp <listen=guest>
-                  publish LISTEN_IPV4:PORT=10.0.2.100:GUEST_PORT (repeatable)
+  --publish-tcp <listen=guest-port>
+                  publish LISTEN_IPV4:PORT=GUEST_PORT (repeatable)
   --emit results   stream NDJSON op responses instead of one summary
 
 The script is a JSON array of RPC bodies (op + args). Use the wire

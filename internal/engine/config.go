@@ -4,8 +4,11 @@ package engine
 
 import (
 	"errors"
+	"fmt"
+	"net"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -42,6 +45,21 @@ type NetworkCaptureConfig struct {
 type TCPPublication struct {
 	Listen string
 	Guest  string
+}
+
+// FormatTCPPublication returns the user-facing publication form stored in
+// trace metadata. The private guest address is a runtime implementation detail;
+// only its port belongs in public artifacts.
+func FormatTCPPublication(publication TCPPublication) (string, error) {
+	_, portText, err := net.SplitHostPort(publication.Guest)
+	if err != nil {
+		return "", fmt.Errorf("guest address %q: %w", publication.Guest, err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 1 || port > 65535 {
+		return "", fmt.Errorf("guest address %q: port must be a number from 1 through 65535", publication.Guest)
+	}
+	return publication.Listen + "=" + strconv.Itoa(port), nil
 }
 
 // applyDefaults fills in zero fields with sensible values.

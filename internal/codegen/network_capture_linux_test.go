@@ -1,12 +1,11 @@
 //go:build linux
 
-package engine_test
+package codegen
 
 import (
 	"archive/zip"
 	"bufio"
 	"bytes"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,9 +14,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/paulsmith/twee/internal/bundle"
 	"github.com/paulsmith/twee/internal/engine"
 	"github.com/paulsmith/twee/internal/trace"
@@ -26,9 +28,9 @@ import (
 	"github.com/paulsmith/twee/third_party/netwrap"
 )
 
-const networkCaptureHelperEnv = "TWEE_NETWORK_CAPTURE_TEST_HELPER"
+const wrapNetworkCaptureHelperEnv = "TWEE_WRAP_NETWORK_CAPTURE_TEST_HELPER"
 
-func TestNetworkCaptureIncludesPublishedTCPExchange(t *testing.T) {
+func TestRunNetworkCaptureIncludesPublishedTCPExchange(t *testing.T) {
 	if err := netwrap.Preflight(); err != nil {
 		t.Skipf("netwrap prerequisites unavailable: %v", err)
 	}
@@ -45,24 +47,38 @@ func TestNetworkCaptureIncludesPublishedTCPExchange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tracePath := filepath.Join(t.TempDir(), "network.twee")
-	te, err := engine.Start(t.Context(), engine.Config{
-		Cmd: []string{executable, "-test.run=^TestNetworkCaptureGuestHelper$"},
-		Env: map[string]string{networkCaptureHelperEnv: "1"},
-		WholeSessionTrace: &engine.WholeSessionTraceConfig{
-			Path: tracePath,
-			Network: &engine.NetworkCaptureConfig{PublishTCP: []engine.TCPPublication{{
-				Listen: hostAddress, Guest: "10.0.2.100:18091",
-			}}},
-		},
-	})
+	master, slave, err := pty.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = te.CloseWithGrace(0) })
-	if err := te.WaitForText("network-helper-ready", engine.WithTimeout(5*time.Second)); err != nil {
-		t.Fatal(err)
-	}
+	t.Cleanup(func() {
+		_ = master.Close()
+		_ = slave.Close()
+	})
+	var output lockedBuffer
+	readDone := make(chan error, 1)
+	go func() {
+		_, copyErr := io.Copy(&output, master)
+		if errors.Is(copyErr, syscall.EIO) || errors.Is(copyErr, os.ErrClosed) {
+			copyErr = nil
+		}
+		readDone <- copyErr
+	}()
+
+	tracePath := filepath.Join(t.TempDir(), "network.twee")
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- Run(t.Context(), Options{
+			Command: []string{executable, "-test.run=^TestWrapNetworkCaptureGuestHelper$"},
+			Env:     map[string]string{wrapNetworkCaptureHelperEnv: "1"},
+			Cols:    80, Rows: 24, TracePath: tracePath, NetworkCapture: true,
+			PublishTCP: []engine.TCPPublication{{
+				Listen: hostAddress, Guest: "10.0.2.100:18092",
+			}},
+			Stdin: slave, Stdout: slave, Stderr: slave, NoStatus: true,
+		})
+	}()
+	waitForBufferText(t, &output, "network-helper-ready", 5*time.Second)
 
 	conn, err := net.DialTimeout("tcp4", hostAddress, 5*time.Second)
 	if err != nil {
@@ -79,17 +95,28 @@ func TestNetworkCaptureIncludesPublishedTCPExchange(t *testing.T) {
 	if !strings.Contains(string(response), "200 OK") || !strings.Contains(string(response), "healthy") {
 		t.Fatalf("response = %q", response)
 	}
-	if _, err := te.WaitForExit(engine.WithTimeout(5 * time.Second)); err != nil {
-		t.Fatal(err)
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("wrap did not exit")
 	}
-	if err := te.FinalizeArtifacts(); err != nil {
-		t.Fatal(err)
+	_ = slave.Close()
+	select {
+	case err := <-readDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("outer PTY reader did not stop")
 	}
+
 	validation, err := bundle.Validate(tracePath)
 	if err != nil || !validation.Valid {
 		t.Fatalf("bundle validation = %+v, %v", validation, err)
 	}
-
 	zr, err := zip.OpenReader(tracePath)
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +134,7 @@ func TestNetworkCaptureIncludesPublishedTCPExchange(t *testing.T) {
 	if err := manifestFile.Close(); err != nil {
 		t.Fatal(err)
 	}
-	wantPublication := hostAddress + "=18091"
+	wantPublication := hostAddress + "=18092"
 	if manifest.Network == nil || len(manifest.Network.PublishTCP) != 1 || manifest.Network.PublishTCP[0] != wantPublication {
 		t.Fatalf("network manifest = %+v, want publication %q", manifest.Network, wantPublication)
 	}
@@ -125,47 +152,16 @@ func TestNetworkCaptureIncludesPublishedTCPExchange(t *testing.T) {
 		if info.Packets == 0 || info.Bytes <= 24 {
 			t.Fatalf("PCAP info = %+v, want captured packets", info)
 		}
-		sawRequest, sawResponse, err := pcapGuestDirections(file, net.ParseIP("10.0.2.100").To4())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !sawRequest || !sawResponse {
-			t.Fatalf("PCAP directions: request=%t response=%t, want both", sawRequest, sawResponse)
-		}
 		return
 	}
 	t.Fatal("bundle has no network capture stream")
 }
 
-func pcapGuestDirections(file *zip.File, guest net.IP) (request, response bool, returnErr error) {
-	r, err := file.Open()
-	if err != nil {
-		return false, false, err
-	}
-	defer func() { returnErr = errors.Join(returnErr, r.Close()) }()
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return false, false, err
-	}
-	for offset := 24; offset+16 <= len(data); {
-		captured := int(binary.LittleEndian.Uint32(data[offset+8 : offset+12]))
-		offset += 16
-		if captured < 20 || offset+captured > len(data) {
-			return false, false, fmt.Errorf("malformed PCAP packet at offset %d", offset)
-		}
-		packet := data[offset : offset+captured]
-		request = request || bytes.Equal(packet[16:20], guest)
-		response = response || bytes.Equal(packet[12:16], guest)
-		offset += captured
-	}
-	return request, response, nil
-}
-
-func TestNetworkCaptureGuestHelper(t *testing.T) {
-	if os.Getenv(networkCaptureHelperEnv) != "1" {
+func TestWrapNetworkCaptureGuestHelper(t *testing.T) {
+	if os.Getenv(wrapNetworkCaptureHelperEnv) != "1" {
 		return
 	}
-	listener, err := net.Listen("tcp4", "10.0.2.100:18091")
+	listener, err := net.Listen("tcp4", "10.0.2.100:18092")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,4 +177,33 @@ func TestNetworkCaptureGuestHelper(t *testing.T) {
 		t.Fatalf("request = %q, %v", request, err)
 	}
 	_, _ = io.WriteString(conn, "HTTP/1.0 200 OK\r\nContent-Length: 7\r\n\r\nhealthy")
+}
+
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.String()
+}
+
+func waitForBufferText(t *testing.T, output *lockedBuffer, want string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if strings.Contains(output.String(), want) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %q in %q", want, output.String())
 }

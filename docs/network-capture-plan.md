@@ -405,8 +405,8 @@ Twee must also write the error state to the trace when possible.
 
 ### Phase 2: Command and library support
 
-1. Add `--network-capture` to `start` and `run`.
-2. Add repeatable `--publish` options.
+1. Add `--network-capture` to `start`, `run`, and `wrap`.
+2. Add repeatable `--publish-tcp LISTEN=GUEST_PORT` options.
 3. Add equivalent options to `tuitest`.
 4. Show the active capture mode in command results.
 5. Show all capture limits in command help.

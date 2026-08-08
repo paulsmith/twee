@@ -349,20 +349,24 @@ func (t *Term) startTraceLocked(path string) error {
 	return nil
 }
 
-func (t *Term) networkManifest() *trace.NetworkCapture {
+func (t *Term) networkManifest() (*trace.NetworkCapture, error) {
 	whole := t.cfg.WholeSessionTrace
 	if whole == nil || whole.Network == nil {
-		return nil
+		return nil, nil
 	}
 	pubs := make([]string, len(whole.Network.PublishTCP))
 	for i, p := range whole.Network.PublishTCP {
-		pubs[i] = p.Listen + "=" + p.Guest
+		var err error
+		pubs[i], err = FormatTCPPublication(p)
+		if err != nil {
+			return nil, fmt.Errorf("network capture publication metadata: %w", err)
+		}
 	}
 	return &trace.NetworkCapture{
 		Format: trace.NetworkCaptureFormat, Stream: trace.NetworkCaptureStream,
 		GVisorVersion: netwrap.GVisorVersion, PublishTCP: pubs,
 		ByteLimit: tracepolicy.MaxNetworkCaptureBytes,
-	}
+	}, nil
 }
 
 // attachNetworkCaptureLocked bridges completed runner lifecycle state into the
@@ -376,7 +380,10 @@ func (t *Term) attachNetworkCaptureLocked() error {
 	if !ok {
 		return errors.New("network capture: runner did not provide capture results")
 	}
-	capture := t.networkManifest()
+	capture, err := t.networkManifest()
+	if err != nil {
+		return err
+	}
 	capture.ByteLimit = result.MaxBytes
 	capture.CapturedBytes = result.BytesWritten
 	capture.PacketCount = int64(result.PacketCount)

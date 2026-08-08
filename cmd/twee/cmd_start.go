@@ -26,8 +26,8 @@ Flags:
                   trace bundle; finalized automatically at child exit
   --network-capture
                   capture the managed program's IPv4 traffic (Linux; requires --trace)
-  --publish-tcp <listen=guest>
-                  publish LISTEN_IPV4:PORT=10.0.2.100:GUEST_PORT (repeatable)
+  --publish-tcp <listen=guest-port>
+                  publish LISTEN_IPV4:PORT=GUEST_PORT (repeatable)
   --force          if a live session of this name already exists, stop
                   it first (default grace) instead of failing with
                   ALREADY_RUNNING; adds "replaced":true to the response

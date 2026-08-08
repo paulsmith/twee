@@ -258,7 +258,7 @@ func TestTraceIncludesNetworkCapture(t *testing.T) {
 	}
 	if err := tr.AttachNetworkCapture(source, NetworkCapture{
 		Format: NetworkCaptureFormat, Stream: NetworkCaptureStream,
-		GVisorVersion: "test", PublishTCP: []string{"127.0.0.1:8080=10.0.2.100:80"},
+		GVisorVersion: "test", PublishTCP: []string{"127.0.0.1:8080=80"},
 		ByteLimit: 1024, CapturedBytes: int64(len(want)), Status: NetworkCaptureStatusComplete,
 	}); err != nil {
 		t.Fatal(err)

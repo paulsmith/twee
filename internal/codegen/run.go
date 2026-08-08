@@ -22,15 +22,17 @@ import (
 
 // Options configures an interactive wrap run.
 type Options struct {
-	Command   []string
-	Env       map[string]string
-	Dir       string
-	Cols      int
-	Rows      int
-	OutPath   string
-	TracePath string
-	NoWaits   bool
-	NoStatus  bool
+	Command        []string
+	Env            map[string]string
+	Dir            string
+	Cols           int
+	Rows           int
+	OutPath        string
+	TracePath      string
+	NetworkCapture bool
+	PublishTCP     []engine.TCPPublication
+	NoWaits        bool
+	NoStatus       bool
 
 	Stdin  *os.File
 	Stdout *os.File
@@ -86,9 +88,15 @@ func (w warningSummary) Report(dst io.Writer) {
 
 // Run starts the child under a PTY, proxies the user's terminal to it, and
 // writes a replayable twee run script when the child exits or the user quits.
-func Run(ctx context.Context, opts Options) error {
+func Run(ctx context.Context, opts Options) (returnErr error) {
 	if len(opts.Command) == 0 {
 		return errors.New("wrap: missing command")
+	}
+	if opts.NetworkCapture && opts.TracePath == "" {
+		return errors.New("wrap: network capture requires an immediate trace path")
+	}
+	if len(opts.PublishTCP) > 0 && !opts.NetworkCapture {
+		return errors.New("wrap: TCP publication requires network capture")
 	}
 	if opts.Stdin == nil {
 		opts.Stdin = os.Stdin
@@ -129,12 +137,20 @@ func Run(ctx context.Context, opts Options) error {
 	defer restore()
 
 	env := (&engine.Config{Env: opts.Env}).BuildEnv()
+	network, networkCfg, err := stageNetworkCapture(opts)
+	if err != nil {
+		return err
+	}
+	if network != nil {
+		defer func() { returnErr = network.joinCleanupError(returnErr) }()
+	}
 	runner, err := ptyrunner.Start(ctx, ptyrunner.Config{
 		Command: opts.Command,
 		Env:     env,
 		Dir:     opts.Dir,
 		Cols:    cols,
 		Rows:    rows,
+		Network: networkCfg,
 	})
 	if err != nil {
 		return fmt.Errorf("spawn: %w", err)
@@ -288,6 +304,11 @@ func Run(ctx context.Context, opts Options) error {
 				redraw()
 				stopChild()
 			case 't':
+				if traces.wholeSession {
+					setToast("network trace runs until exit")
+					redraw()
+					break
+				}
 				if traces.state == recorderIdle {
 					if err := traces.start("", model.Snapshot()); err != nil && runErr == nil {
 						runErr = err
@@ -482,6 +503,10 @@ func Run(ctx context.Context, opts Options) error {
 	flushPendingWait()
 	traces.recordExit(runner.ExitCode())
 	scriptErr := script.close()
+	var networkErr error
+	if network != nil {
+		networkErr = network.finalize(traces, runner)
+	}
 	traceErr := traces.close()
 	closeErr := runner.Close()
 	host.close()
@@ -491,8 +516,8 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	warnings.Report(opts.Stderr)
 
-	if runErr != nil || traceErr != nil || scriptErr != nil || closeErr != nil {
-		return errors.Join(runErr, traceErr, scriptErr, closeErr)
+	if runErr != nil || networkErr != nil || traceErr != nil || scriptErr != nil || closeErr != nil {
+		return errors.Join(runErr, networkErr, traceErr, scriptErr, closeErr)
 	}
 	if !stopRequested && runner.ExitCode() != 0 {
 		return &ExitError{Code: runner.ExitCode()}

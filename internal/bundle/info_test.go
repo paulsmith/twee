@@ -116,7 +116,7 @@ func TestInspectReportsNetworkCaptureMetadata(t *testing.T) {
 	}
 	if err := tr.AttachNetworkCapture(pcapPath, trace.NetworkCapture{
 		Format: trace.NetworkCaptureFormat, Stream: trace.NetworkCaptureStream,
-		GVisorVersion: "test-version", PublishTCP: []string{"127.0.0.1:8080=10.0.2.100:80"},
+		GVisorVersion: "test-version", PublishTCP: []string{"127.0.0.1:8080=80"},
 		ByteLimit: 4096, CapturedBytes: int64(len(pcap)),
 		Truncated: true, Status: trace.NetworkCaptureStatusTruncated,
 	}); err != nil {
@@ -137,7 +137,7 @@ func TestInspectReportsNetworkCaptureMetadata(t *testing.T) {
 	if !network.Truncated || network.Status != trace.NetworkCaptureStatusTruncated || network.ByteLimit != 4096 {
 		t.Fatalf("network truncation metadata = %+v", network)
 	}
-	if len(network.PublishTCP) != 1 || network.PublishTCP[0] != "127.0.0.1:8080=10.0.2.100:80" {
+	if len(network.PublishTCP) != 1 || network.PublishTCP[0] != "127.0.0.1:8080=80" {
 		t.Fatalf("publications = %#v", network.PublishTCP)
 	}
 }

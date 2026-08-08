@@ -155,6 +155,7 @@ func TestParseWrapArgsErrors(t *testing.T) {
 		{"env value", []string{"--env", "--", "vim"}, "missing value"},
 		{"env bad", []string{"--script-out", "ops.json", "--env", "NOPE", "--", "vim"}, "bad --env"},
 		{"env empty key", []string{"--script-out", "ops.json", "--env", "=value", "--", "vim"}, "bad --env"},
+		{"publish value", []string{"--publish-tcp", "--", "vim"}, "missing value"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

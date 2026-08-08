@@ -539,6 +539,19 @@ size, falling back to 80x24), `--dir`, repeatable `--env KEY=VALUE`,
 and `--no-waits` to skip the automatically inserted `wait_stable` sync
 ops.
 
+On Linux, `wrap` accepts the same managed-network options as `start` and
+`run`. `--network-capture` requires an immediate `--trace-out`; repeatable
+`--publish-tcp LISTEN=GUEST_PORT` options expose guest servers to host clients.
+Because that trace covers the complete child lifetime, `Ctrl+] t` cannot stop
+it early. Exit the child normally or press `Ctrl+] q` to finalize the terminal
+trace and PCAP together.
+
+```sh
+twee wrap --trace-out web-session.twee --network-capture \
+  --publish-tcp 127.0.0.1:8080=3000 -- \
+  ./dev-server --host 0.0.0.0 --port 3000
+```
+
 Hotkey artifacts use the invocation directory: `twee-script-YYYYMMDD-HHMMSS.json`
 and `twee-trace-YYYYMMDD-HHMMSS.twee`, with a numeric suffix on collision.
 A script started after prior session activity is marked partial in the status bar.
@@ -640,16 +653,16 @@ and responses from the packets when the application protocol permits it.
 
 Network capture is Linux-only. The host must permit unprivileged user
 namespaces and let the current user open `/dev/net/tun`. Setup fails closed; it
-does not silently run the program on the host network. The managed program has
-the fixed private address `10.0.2.100`.
+does not silently run the program on the host network.
 
-Use repeatable `--publish-tcp LISTEN=GUEST` options when a host client must
-reach a managed server. Both sides require literal IPv4 addresses and numeric
-ports from 1 through 65535. `GUEST` must use `10.0.2.100`; for example,
-`127.0.0.1:8080=10.0.2.100:3000`. Bind the server to `0.0.0.0` or
-`10.0.2.100`, not guest loopback. A host listener on `127.0.0.1` accepts only
-local clients. A listener on `0.0.0.0` can expose the development server to
-other machines, subject to host routing and firewall rules.
+Use repeatable `--publish-tcp LISTEN=GUEST_PORT` options when a host client
+must reach a managed server. `LISTEN` requires a literal IPv4 address and a
+numeric port from 1 through 65535; `GUEST_PORT` is the managed server's numeric
+port in the same range. For example, `127.0.0.1:8080=3000` publishes guest port
+3000 on host port 8080. Bind the managed server to `0.0.0.0`, not loopback. A
+host listener on `127.0.0.1` accepts only local clients. A listener on
+`0.0.0.0` can expose the development server to other machines, subject to host
+routing and firewall rules.
 
 This example starts a named development server, sends a client request, stops
 the session, waits for durable artifacts, and extracts and inspects the PCAP:
@@ -658,7 +671,7 @@ the session, waits for durable artifacts, and extracts and inspects the PCAP:
 trace_path="$PWD/web-session.twee"
 
 twee start --name web --trace "$trace_path" --network-capture \
-  --publish-tcp 127.0.0.1:8080=10.0.2.100:3000 -- \
+  --publish-tcp 127.0.0.1:8080=3000 -- \
   ./dev-server --host 0.0.0.0 --port 3000
 
 twee wait text --name web --pattern "listening" --timeout 2m
@@ -672,14 +685,27 @@ unzip -p "$trace_path" streams/network.pcap >network.pcap
 tcpdump -nn -r network.pcap
 ```
 
-For one-shot automation, use the same options with `twee run --trace-out
-web-session.twee --script ops.json -- ...`.
+For one-shot automation, use the same options with `run`:
+
+```sh
+twee run --trace-out web-session.twee --network-capture \
+  --publish-tcp 127.0.0.1:8080=3000 --script ops.json -- ./dev-server
+```
+
+For an interactive foreground session, use them with `wrap`; send host
+requests from another terminal through the published port:
+
+```sh
+twee wrap --trace-out web-session.twee --network-capture \
+  --publish-tcp 127.0.0.1:8080=3000 -- ./dev-server
+```
 
 Capture begins before the managed command starts and ends only when the
 session exits or is stopped. Because network capture and its trace cover the
-whole session, `twee trace stop` cannot stop such a trace early, and `twee
-trace start` cannot add network capture to an existing session. Wait for exit
-or stop the session to finalize the bundle.
+whole session, `twee trace stop` cannot stop such a trace early, `twee trace
+start` cannot add network capture to an existing session, and `Ctrl+] t`
+cannot stop a network-enabled `wrap` trace. Wait for exit, stop the named
+session, or use `Ctrl+] q` in `wrap` to finalize the bundle.
 
 The PCAP limit is 64 MiB, including its header. When the next complete packet
 would exceed that limit, packet recording stops, netwrap prints one warning to

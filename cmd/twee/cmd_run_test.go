@@ -77,7 +77,7 @@ func TestParseRunArgsRunFlagsAndCommandFlags(t *testing.T) {
 }
 
 func TestParseRunNetworkCapture(t *testing.T) {
-	opts, err := parseRunArgs([]string{"--trace-out", "session.twee", "--network-capture", "--publish-tcp", "127.0.0.1:8080=10.0.2.100:3000", "--", "server"})
+	opts, err := parseRunArgs([]string{"--trace-out", "session.twee", "--network-capture", "--publish-tcp", "127.0.0.1:8080=3000", "--", "server"})
 	if err != nil {
 		t.Fatal(err)
 	}

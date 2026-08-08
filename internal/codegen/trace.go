@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -35,10 +36,13 @@ type traceController struct {
 	startedAt    time.Time
 	reservation  *pathReservation
 	exitRecorded bool
+	wholeSession bool
 }
 
 type traceWriter interface {
 	Close() error
+	Abort(error) error
+	AttachNetworkCapture(string, trace.NetworkCapture) error
 	WriteOutput([]byte, time.Time)
 	WriteInput(string, string, []byte)
 	WriteExit(int)
@@ -47,12 +51,13 @@ type traceWriter interface {
 
 func newTraceController(opts Options, cols, rows, pid int) *traceController {
 	return &traceController{
-		command: append([]string(nil), opts.Command...),
-		env:     opts.Env,
-		cols:    cols,
-		rows:    rows,
-		pid:     pid,
-		stderr:  opts.Stderr,
+		command:      append([]string(nil), opts.Command...),
+		env:          opts.Env,
+		cols:         cols,
+		rows:         rows,
+		pid:          pid,
+		stderr:       opts.Stderr,
+		wholeSession: opts.NetworkCapture,
 	}
 }
 
@@ -115,6 +120,24 @@ func (c *traceController) close() error {
 		releaseReservation(c.reservation)
 		c.state = recorderFinalized
 	}
+	return err
+}
+
+func (c *traceController) attachNetworkCapture(path string, capture trace.NetworkCapture) error {
+	if c.tr == nil || c.state != recorderRecording {
+		return errors.New("network capture: whole-session trace is not active")
+	}
+	return c.tr.AttachNetworkCapture(path, capture)
+}
+
+func (c *traceController) abort(cause error) error {
+	if c.tr == nil {
+		return cause
+	}
+	err := c.tr.Abort(cause)
+	c.tr = nil
+	cleanupReservedPath(c.path, c.reservation)
+	c.state = recorderFailed
 	return err
 }
 

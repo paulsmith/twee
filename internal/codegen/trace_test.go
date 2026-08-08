@@ -8,12 +8,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/vt"
 )
 
 type closeFailingTrace struct{}
 
-func (closeFailingTrace) Close() error                      { return errors.New("close failed") }
+func (closeFailingTrace) Close() error          { return errors.New("close failed") }
+func (closeFailingTrace) Abort(err error) error { return err }
+func (closeFailingTrace) AttachNetworkCapture(string, trace.NetworkCapture) error {
+	return nil
+}
 func (closeFailingTrace) WriteOutput([]byte, time.Time)     {}
 func (closeFailingTrace) WriteInput(string, string, []byte) {}
 func (closeFailingTrace) WriteExit(int)                     {}
@@ -92,6 +97,13 @@ func TestTraceControllerOneShot(t *testing.T) {
 	}
 	if err := c.start(p, vt.New(80, 24).Snapshot()); err == nil {
 		t.Fatal("restart succeeded")
+	}
+}
+
+func TestNetworkTraceControllerIsWholeSession(t *testing.T) {
+	c := newTraceController(Options{NetworkCapture: true}, 80, 24, 1)
+	if !c.wholeSession {
+		t.Fatal("network trace controller is stoppable")
 	}
 }
 

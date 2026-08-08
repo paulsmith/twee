@@ -21,7 +21,7 @@ func TestSummarizeUsesManifestDurationAndCountsEvents(t *testing.T) {
 			StoppedAt: stop,
 			Network: &trace.NetworkCapture{
 				Format: trace.NetworkCaptureFormat, Stream: trace.NetworkCaptureStream,
-				GVisorVersion: "test-version", PublishTCP: []string{"127.0.0.1:8080=10.0.2.100:80"},
+				GVisorVersion: "test-version", PublishTCP: []string{"127.0.0.1:8080=80"},
 				ByteLimit: 4096, CapturedBytes: 512, PacketCount: 17, Truncated: true,
 				Status: trace.NetworkCaptureStatusTruncated,
 			},
@@ -78,7 +78,7 @@ func TestSummarizeUsesManifestDurationAndCountsEvents(t *testing.T) {
 	if !s.Network.Present || s.Network.Format != "pcap" || s.Network.SizeBytes != 512 || s.Network.PacketCount != 17 || !s.Network.Truncated || s.Network.Status != "truncated" {
 		t.Fatalf("network = %+v", s.Network)
 	}
-	if len(s.Network.PublishTCP) != 1 || s.Network.PublishTCP[0] != "127.0.0.1:8080=10.0.2.100:80" {
+	if len(s.Network.PublishTCP) != 1 || s.Network.PublishTCP[0] != "127.0.0.1:8080=80" {
 		t.Fatalf("network publications = %#v", s.Network.PublishTCP)
 	}
 }

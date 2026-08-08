@@ -8,6 +8,26 @@ import (
 	"testing"
 )
 
+func TestFormatTCPPublicationHidesGuestAddress(t *testing.T) {
+	got, err := FormatTCPPublication(TCPPublication{
+		Listen: "127.0.0.1:8080", Guest: "10.0.2.100:3000",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "127.0.0.1:8080=3000" {
+		t.Fatalf("publication = %q, want simplified form", got)
+	}
+}
+
+func TestFormatTCPPublicationRejectsInvalidGuestAddress(t *testing.T) {
+	for _, guest := range []string{"", "10.0.2.100", "10.0.2.100:http", "10.0.2.100:0", "10.0.2.100:65536"} {
+		if _, err := FormatTCPPublication(TCPPublication{Listen: "127.0.0.1:8080", Guest: guest}); err == nil {
+			t.Errorf("guest %q unexpectedly succeeded", guest)
+		}
+	}
+}
+
 func TestBuildEnvInheritsParentAndAppliesOverrides(t *testing.T) {
 	t.Setenv("CODEX_HOME", "/tmp/codex-home")
 	t.Setenv("TWEE_PARENT_ENV_TEST", "parent")
