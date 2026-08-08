@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -198,13 +197,7 @@ func parseRunArgs(args []string) (runOptions, error) {
 	}
 	opts.tracePath = tracePath
 	opts.networkCapture = parsed.NetworkCapture
-	if opts.networkCapture && tracePath == "" {
-		return opts, fmt.Errorf("--network-capture requires --trace-out")
-	}
-	if len(parsed.PublishTCP) > 0 && !opts.networkCapture {
-		return opts, fmt.Errorf("--publish-tcp requires --network-capture")
-	}
-	opts.publishTCP, err = parseTCPPublications(parsed.PublishTCP)
+	opts.publishTCP, err = parseNetworkCaptureFlags(opts.networkCapture, parsed.PublishTCP, tracePath, "--trace-out")
 	if err != nil {
 		return opts, err
 	}

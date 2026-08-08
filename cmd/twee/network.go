@@ -11,6 +11,19 @@ import (
 
 const netwrapGuestIPv4 = "10.0.2.100"
 
+// parseNetworkCaptureFlags validates the relationship between the network
+// capture flags and parses the requested TCP publications. traceFlag is the
+// command-specific flag that enables trace output.
+func parseNetworkCaptureFlags(networkCapture bool, rawPublications []string, tracePath, traceFlag string) ([]engine.TCPPublication, error) {
+	if networkCapture && tracePath == "" {
+		return nil, fmt.Errorf("--network-capture requires %s", traceFlag)
+	}
+	if len(rawPublications) > 0 && !networkCapture {
+		return nil, fmt.Errorf("--publish-tcp requires --network-capture")
+	}
+	return parseTCPPublications(rawPublications)
+}
+
 func parseTCPPublications(raws []string) ([]engine.TCPPublication, error) {
 	publications := make([]engine.TCPPublication, 0, len(raws))
 	seen := make(map[string]struct{}, len(raws))

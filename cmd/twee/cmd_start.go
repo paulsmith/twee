@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/paulsmith/twee/internal/engine"
@@ -135,36 +134,17 @@ func parseStartArgs(args []string) (startOptions, error) {
 	if err != nil {
 		return startOptions{}, err
 	}
-	envOverrides := map[string]string{}
-	for _, kv := range parsed.Env {
-		k, v, ok := splitKV(kv)
-		if !ok || k == "" {
-			return startOptions{}, fmt.Errorf("bad --env value %q (want KEY=VALUE)", kv)
-		}
-		envOverrides[k] = v
+	envOverrides, err := parseEnvOverrides(parsed.Env)
+	if err != nil {
+		return startOptions{}, err
 	}
 	trace, err := absOutPath(parsed.Trace)
 	if err != nil {
 		return startOptions{}, err
 	}
-	if parsed.NetworkCapture && trace == "" {
-		return startOptions{}, fmt.Errorf("--network-capture requires --trace")
-	}
-	if len(parsed.PublishTCP) > 0 && !parsed.NetworkCapture {
-		return startOptions{}, fmt.Errorf("--publish-tcp requires --network-capture")
-	}
-	pubs, err := parseTCPPublications(parsed.PublishTCP)
+	pubs, err := parseNetworkCaptureFlags(parsed.NetworkCapture, parsed.PublishTCP, trace, "--trace")
 	if err != nil {
 		return startOptions{}, err
 	}
 	return startOptions{name: name, cmd: cmd, cols: cols, rows: rows, dir: parsed.Dir, env: envOverrides, trace: trace, force: parsed.Force, networkCapture: parsed.NetworkCapture, publishTCP: pubs}, nil
-}
-
-func splitKV(s string) (string, string, bool) {
-	for i := 0; i < len(s); i++ {
-		if s[i] == '=' {
-			return s[:i], s[i+1:], true
-		}
-	}
-	return "", "", false
 }

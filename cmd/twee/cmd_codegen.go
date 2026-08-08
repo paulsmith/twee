@@ -55,7 +55,6 @@ func runWrap(args []string) {
 
 func parseWrapArgs(args []string) (codegen.Options, error) {
 	var opts codegen.Options
-	opts.Env = map[string]string{}
 	before, cmd, err := splitExplicitBoundary("wrap", args)
 	if err != nil {
 		return opts, err
@@ -91,23 +90,14 @@ func parseWrapArgs(args []string) (codegen.Options, error) {
 	} else if ok {
 		opts.Rows = n
 	}
-	for _, kv := range parsed.Env {
-		k, v, ok := splitKV(kv)
-		if !ok || k == "" {
-			return opts, fmt.Errorf("bad --env value %q (want KEY=VALUE)", kv)
-		}
-		opts.Env[k] = v
+	opts.Env, err = parseEnvOverrides(parsed.Env)
+	if err != nil {
+		return opts, err
 	}
 	opts.OutPath = parsed.OutPath
 	opts.TracePath = parsed.TracePath
 	opts.NetworkCapture = parsed.NetworkCapture
-	if opts.NetworkCapture && opts.TracePath == "" {
-		return opts, fmt.Errorf("--network-capture requires --trace-out")
-	}
-	if len(parsed.PublishTCP) > 0 && !opts.NetworkCapture {
-		return opts, fmt.Errorf("--publish-tcp requires --network-capture")
-	}
-	opts.PublishTCP, err = parseTCPPublications(parsed.PublishTCP)
+	opts.PublishTCP, err = parseNetworkCaptureFlags(opts.NetworkCapture, parsed.PublishTCP, opts.TracePath, "--trace-out")
 	if err != nil {
 		return opts, err
 	}

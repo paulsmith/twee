@@ -138,3 +138,12 @@ func TestParsePublishTCPRejectsDuplicateListenAddress(t *testing.T) {
 		t.Fatalf("error = %v, want duplicate listen address", err)
 	}
 }
+
+func TestParseNetworkCaptureFlagsPreservesTraceFlagName(t *testing.T) {
+	for _, traceFlag := range []string{"--trace", "--trace-out"} {
+		_, err := parseNetworkCaptureFlags(true, nil, "", traceFlag)
+		if err == nil || err.Error() != "--network-capture requires "+traceFlag {
+			t.Errorf("trace flag %q: error = %v", traceFlag, err)
+		}
+	}
+}

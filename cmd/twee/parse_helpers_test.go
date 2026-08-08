@@ -207,6 +207,21 @@ func TestSplitKV(t *testing.T) {
 	}
 }
 
+func TestParseEnvOverrides(t *testing.T) {
+	overrides, err := parseEnvOverrides([]string{"A=first", "EMPTY=", "A=last"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(overrides) != 2 || overrides["A"] != "last" || overrides["EMPTY"] != "" {
+		t.Fatalf("overrides = %#v, want A=last and EMPTY set", overrides)
+	}
+	for _, value := range []string{"NOEQUALS", "=value"} {
+		if _, err := parseEnvOverrides([]string{value}); err == nil || !strings.Contains(err.Error(), "bad --env") {
+			t.Errorf("parseEnvOverrides(%q) error = %v, want bad --env", value, err)
+		}
+	}
+}
+
 func mustJSONMain(t *testing.T, v any) json.RawMessage {
 	t.Helper()
 	b, err := json.Marshal(v)
