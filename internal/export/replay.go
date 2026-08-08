@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/paulsmith/twee/internal/play"
+	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/vt"
 )
 
@@ -200,9 +201,9 @@ func adjustedTimeline(events []play.Event, opts Options) []time.Duration {
 
 func apply(model vt.Model, ev play.Event) error {
 	switch ev.Type {
-	case "output":
+	case trace.EventTypeOutput:
 		return model.Feed(ev.Bytes)
-	case "resize":
+	case trace.EventTypeResize:
 		if ev.Cols > 0 && ev.Rows > 0 {
 			return model.Resize(ev.Cols, ev.Rows)
 		}
@@ -213,9 +214,9 @@ func apply(model vt.Model, ev play.Event) error {
 
 func screenEvent(ev play.Event) bool {
 	switch ev.Type {
-	case "output":
+	case trace.EventTypeOutput:
 		return true
-	case "resize":
+	case trace.EventTypeResize:
 		return ev.Cols > 0 && ev.Rows > 0
 	default:
 		return false

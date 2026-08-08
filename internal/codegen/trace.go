@@ -44,7 +44,7 @@ type traceWriter interface {
 	Abort(error) error
 	AttachNetworkCapture(string, trace.NetworkCapture) error
 	WriteOutput([]byte, time.Time)
-	WriteInput(string, string, []byte)
+	WriteInput(trace.InputKind, string, []byte)
 	WriteExit(int)
 	WriteResize(int, int)
 }
@@ -153,19 +153,19 @@ func (c *traceController) recordInput(in inputEvent) {
 	}
 	switch in.kind {
 	case inputType:
-		c.tr.WriteInput("type", "", in.bytes)
+		c.tr.WriteInput(trace.InputKindType, "", in.bytes)
 	case inputKey:
-		c.tr.WriteInput("key", in.key, in.bytes)
+		c.tr.WriteInput(trace.InputKindKey, in.key, in.bytes)
 	case inputPaste:
-		c.tr.WriteInput("paste", "", in.bytes)
+		c.tr.WriteInput(trace.InputKindPaste, "", in.bytes)
 	case inputUnknown:
-		c.tr.WriteInput("unknown", "", in.bytes)
+		c.tr.WriteInput(trace.InputKindUnknown, "", in.bytes)
 	}
 }
 
 func (c *traceController) recordTerminalReply(b []byte) {
 	if c.tr != nil && len(b) > 0 {
-		c.tr.WriteInput("terminal_reply", "", b)
+		c.tr.WriteInput(trace.InputKindTerminalReply, "", b)
 	}
 }
 

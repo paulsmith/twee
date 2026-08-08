@@ -206,17 +206,17 @@ func TestTraceRoundTrip(t *testing.T) {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
-		var ev event
+		var ev EventRecord
 		if err := json.Unmarshal(line, &ev); err != nil {
 			t.Fatalf("event line %d: %v\nraw: %s", nEvents, err, line)
 		}
-		if ev.Type == "exit" {
+		if ev.Type == EventTypeExit {
 			sawExit = true
 			if ev.Code != 7 {
 				t.Errorf("exit code = %d, want 7", ev.Code)
 			}
 		}
-		if ev.Kind == "mouse" {
+		if ev.Kind == InputKindMouse {
 			sawMouse = true
 			if ev.Mouse == nil || ev.Mouse.Gesture != "click" || ev.Mouse.X == nil || *ev.Mouse.X != 0 {
 				t.Errorf("mouse event = %+v, want click at x=0", ev.Mouse)

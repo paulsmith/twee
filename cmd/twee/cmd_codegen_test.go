@@ -378,10 +378,10 @@ func waitCodegenPTY(cmd *exec.Cmd, ptmx *os.File, timeout time.Duration) ([]byte
 
 func eventsContain(events []play.Event, typ, kind, key string, bytes []byte) bool {
 	for _, ev := range events {
-		if ev.Type != typ {
+		if string(ev.Type) != typ {
 			continue
 		}
-		if kind != "" && ev.Kind != kind {
+		if kind != "" && string(ev.Kind) != kind {
 			continue
 		}
 		if key != "" && ev.Key != key {

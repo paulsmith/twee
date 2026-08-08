@@ -4,6 +4,7 @@ package inspect
 import (
 	"time"
 
+	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/tracebundle"
 )
 
@@ -86,11 +87,11 @@ func Summarize(path string, bundle tracebundle.Bundle) Summary {
 	}
 
 	for _, ev := range bundle.Events {
-		s.Events.ByType[ev.Type]++
-		if ev.Type == "input" && ev.Kind != "" {
-			s.Events.InputByKind[ev.Kind]++
+		s.Events.ByType[string(ev.Type)]++
+		if ev.Type == trace.EventTypeInput && ev.Kind != "" {
+			s.Events.InputByKind[string(ev.Kind)]++
 		}
-		if ev.Type == "exit" {
+		if ev.Type == trace.EventTypeExit {
 			code := ev.Code
 			s.Exit.Recorded = true
 			s.Exit.Code = &code

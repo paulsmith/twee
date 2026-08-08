@@ -232,11 +232,11 @@ func (l *loop) dispatchReady(now time.Time) {
 
 func (l *loop) dispatch(ev Event, now time.Time) {
 	switch ev.Type {
-	case "output":
+	case trace.EventTypeOutput:
 		if err := l.model.Feed(ev.Bytes); err != nil && l.err == nil {
 			l.err = err
 		}
-	case "resize":
+	case trace.EventTypeResize:
 		if ev.Cols > 0 && ev.Rows > 0 {
 			if err := l.model.Resize(ev.Cols, ev.Rows); err != nil && l.err == nil {
 				l.err = err
@@ -247,13 +247,13 @@ func (l *loop) dispatch(ev Event, now time.Time) {
 			l.mouse = nil
 		}
 		l.setToast(ev)
-	case "input":
+	case trace.EventTypeInput:
 		l.setToast(ev)
-		if ev.Kind == "mouse" && !l.disableMouseAnnotations && validMouseAnnotation(ev.Mouse, l.cols, l.rows) {
+		if ev.Kind == trace.InputKindMouse && !l.disableMouseAnnotations && validMouseAnnotation(ev.Mouse, l.cols, l.rows) {
 			l.mouse = &activeMouseAnnotation{mouse: cloneMouseInput(ev.Mouse), started: now}
 			l.mouseGeneration++
 		}
-	case "exit":
+	case trace.EventTypeExit:
 		// Exit records are metadata in playback v0.
 	}
 }

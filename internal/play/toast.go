@@ -21,27 +21,27 @@ type toast struct {
 func FormatEventToast(ev Event) string {
 	prefix := fmt.Sprintf("[%06.3fs] \u2192 ", float64(ev.TMS)/1000)
 	switch ev.Type {
-	case "input":
+	case trace.EventTypeInput:
 		switch ev.Kind {
-		case "key":
+		case trace.InputKindKey:
 			key := ev.Key
 			if key == "" {
 				key = printableBytes(ev.Bytes)
 			}
 			return prefix + key
-		case "type":
+		case trace.InputKindType:
 			return prefix + "type " + strconv.Quote(string(ev.Bytes))
-		case "paste":
+		case trace.InputKindPaste:
 			return prefix + "paste " + strconv.Quote(displayPaste(ev.Bytes))
-		case "mouse":
+		case trace.InputKindMouse:
 			return prefix + formatMouseToast(ev.Mouse)
 		default:
 			if ev.Kind != "" {
-				return prefix + ev.Kind
+				return prefix + string(ev.Kind)
 			}
 			return prefix + "input"
 		}
-	case "resize":
+	case trace.EventTypeResize:
 		return fmt.Sprintf("%sresize %dx%d", prefix, ev.Cols, ev.Rows)
 	default:
 		return ""

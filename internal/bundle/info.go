@@ -60,7 +60,7 @@ func Inspect(path string) (Info, error) {
 
 	counts := make(map[string]int)
 	for _, ev := range b.Events {
-		counts[ev.Type]++
+		counts[string(ev.Type)]++
 	}
 
 	dur := b.Manifest.StoppedAt.Sub(b.Manifest.StartedAt)

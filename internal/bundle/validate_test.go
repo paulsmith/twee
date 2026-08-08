@@ -421,6 +421,20 @@ func TestValidateCorruptEventsLine(t *testing.T) {
 	}
 }
 
+func TestValidateIgnoresUnrelatedEventFields(t *testing.T) {
+	path := writeRawZip(t, map[string]string{
+		"manifest.json": `{"version":1,"cols":10,"rows":3}`,
+		"events.jsonl":  `{"t_ms":0,"type":"output","cols":"not-a-number"}`,
+	})
+	result, err := Validate(path)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if !result.Valid || result.Events != 1 || len(result.Issues) != 0 {
+		t.Fatalf("result = %+v, want one valid event with no issues", result)
+	}
+}
+
 func TestValidateUnknownEventType(t *testing.T) {
 	path := writeRawZip(t, map[string]string{
 		"manifest.json": `{"version":1,"cols":10,"rows":3}`,

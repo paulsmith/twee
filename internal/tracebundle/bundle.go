@@ -28,9 +28,9 @@ type Bundle struct {
 // Event is one decoded events.jsonl record.
 type Event struct {
 	TMS   int64
-	Type  string
+	Type  trace.EventType
 	Bytes []byte
-	Kind  string
+	Kind  trace.InputKind
 	Key   string
 	Cols  int
 	Rows  int
@@ -89,7 +89,7 @@ func Open(path string) (Bundle, error) {
 
 	maxCols, maxRows := man.Cols, man.Rows
 	for _, ev := range events {
-		if ev.Type == "resize" {
+		if ev.Type == trace.EventTypeResize {
 			if ev.Cols > maxCols {
 				maxCols = ev.Cols
 			}
@@ -112,18 +112,6 @@ func networkMetadata(capture *trace.NetworkCapture) *tracearchive.NetworkMetadat
 	}
 }
 
-type eventJSON struct {
-	TMS   int64             `json:"t_ms"`
-	Type  string            `json:"type"`
-	Bytes string            `json:"bytes_b64,omitempty"`
-	Kind  string            `json:"kind,omitempty"`
-	Key   string            `json:"key,omitempty"`
-	Cols  int               `json:"cols,omitempty"`
-	Rows  int               `json:"rows,omitempty"`
-	Code  int               `json:"code,omitempty"`
-	Mouse *trace.MouseInput `json:"mouse,omitempty"`
-}
-
 func decodeEvents(r io.Reader) ([]Event, error) {
 	return decodeEventsWithLimits(r, tracepolicy.MaxEventCount, tracepolicy.MaxDecodedPayloadBytes)
 }
@@ -144,7 +132,7 @@ func decodeEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int) ([]Ev
 		if len(events) >= maxEvents {
 			return nil, fmt.Errorf("events.jsonl: event count exceeds %d", maxEvents)
 		}
-		var raw eventJSON
+		var raw trace.EventRecord
 		if err := json.Unmarshal(line, &raw); err != nil {
 			return nil, fmt.Errorf("events.jsonl line %d: %w", lineNo, err)
 		}
@@ -161,7 +149,7 @@ func decodeEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int) ([]Ev
 			decodedBytes += len(decoded)
 		}
 		events = append(events, Event{
-			TMS: raw.TMS, Type: strings.TrimSpace(raw.Type), Bytes: decoded,
+			TMS: raw.TMS, Type: trace.EventType(strings.TrimSpace(string(raw.Type))), Bytes: decoded,
 			Kind: raw.Kind, Key: raw.Key, Cols: raw.Cols, Rows: raw.Rows, Code: raw.Code,
 			Mouse: raw.Mouse,
 		})

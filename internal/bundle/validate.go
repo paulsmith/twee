@@ -107,18 +107,6 @@ func networkMetadata(capture *trace.NetworkCapture) *tracearchive.NetworkMetadat
 	}
 }
 
-// knownEventTypes are the event "type" values twee itself ever writes
-// (see internal/trace.Trace's WriteOutput/WriteInput/WriteResize/
-// WriteExit); anything else in events.jsonl is an unknown-type issue.
-func knownEventType(t string) bool {
-	switch t {
-	case "output", "input", "resize", "exit":
-		return true
-	default:
-		return false
-	}
-}
-
 // validateEventLines parses body as newline-delimited JSON event
 // records, returning the count of lines that at least parsed as JSON
 // and a list of every issue found (malformed lines, unknown event
@@ -144,8 +132,8 @@ func validateEventLinesWithLimit(body io.Reader, maxEvents int) (int, []string) 
 			continue
 		}
 		var raw struct {
-			TMS  int64  `json:"t_ms"`
-			Type string `json:"type"`
+			TMS  int64           `json:"t_ms"`
+			Type trace.EventType `json:"type"`
 		}
 		if err := json.Unmarshal(line, &raw); err != nil {
 			issues = append(issues, fmt.Sprintf("events.jsonl line %d: %v", lineNo, err))
@@ -156,7 +144,7 @@ func validateEventLinesWithLimit(body io.Reader, maxEvents int) (int, []string) 
 			break
 		}
 		count++
-		if !knownEventType(raw.Type) {
+		if !raw.Type.IsKnown() {
 			issues = append(issues, fmt.Sprintf("events.jsonl line %d: unknown event type %q", lineNo, raw.Type))
 		}
 		if haveLast && raw.TMS < lastTMS {

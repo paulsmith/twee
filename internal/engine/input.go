@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/paulsmith/twee/internal/input"
+	"github.com/paulsmith/twee/internal/trace"
 )
 
 // Type writes literal text to the PTY.
@@ -21,7 +22,7 @@ func (t *Term) Type(s string) error {
 	tr := t.tr
 	t.cfgMu.Unlock()
 	if tr != nil {
-		tr.WriteInput("type", "", []byte(s))
+		tr.WriteInput(trace.InputKindType, "", []byte(s))
 	}
 	return nil
 }
@@ -43,7 +44,7 @@ func (t *Term) Key(k input.Key) error {
 	tr := t.tr
 	t.cfgMu.Unlock()
 	if tr != nil {
-		tr.WriteInput("key", input.Name(k), b)
+		tr.WriteInput(trace.InputKindKey, input.Name(k), b)
 	}
 	return nil
 }
@@ -62,7 +63,7 @@ func (t *Term) Paste(text string) error {
 	tr := t.tr
 	t.cfgMu.Unlock()
 	if tr != nil {
-		tr.WriteInput("paste", "", b)
+		tr.WriteInput(trace.InputKindPaste, "", b)
 	}
 	return nil
 }

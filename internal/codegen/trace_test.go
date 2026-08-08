@@ -19,10 +19,10 @@ func (closeFailingTrace) Abort(err error) error { return err }
 func (closeFailingTrace) AttachNetworkCapture(string, trace.NetworkCapture) error {
 	return nil
 }
-func (closeFailingTrace) WriteOutput([]byte, time.Time)     {}
-func (closeFailingTrace) WriteInput(string, string, []byte) {}
-func (closeFailingTrace) WriteExit(int)                     {}
-func (closeFailingTrace) WriteResize(int, int)              {}
+func (closeFailingTrace) WriteOutput([]byte, time.Time)              {}
+func (closeFailingTrace) WriteInput(trace.InputKind, string, []byte) {}
+func (closeFailingTrace) WriteExit(int)                              {}
+func (closeFailingTrace) WriteResize(int, int)                       {}
 
 func TestNextRecorderPathReservesCollisions(t *testing.T) {
 	dir := t.TempDir()

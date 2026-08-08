@@ -91,19 +91,6 @@ func DefaultHostInfo() HostInfo {
 	}
 }
 
-// event is the JSONL shape stored in events.jsonl inside a .twee bundle.
-type event struct {
-	TMS   int64       `json:"t_ms"`
-	Type  string      `json:"type"`
-	Bytes string      `json:"bytes_b64,omitempty"`
-	Kind  string      `json:"kind,omitempty"`
-	Key   string      `json:"key,omitempty"`
-	Cols  int         `json:"cols,omitempty"`
-	Rows  int         `json:"rows,omitempty"`
-	Code  int         `json:"code,omitempty"`
-	Mouse *MouseInput `json:"mouse,omitempty"`
-}
-
 // Trace streams session artifacts into a temporary work directory and
 // writes a .twee zip bundle when Close is called.
 type Trace struct {
@@ -331,25 +318,25 @@ func (tr *Trace) WriteOutput(b []byte, ts time.Time) {
 	if tr.closed {
 		return
 	}
-	if err := tr.evEnc.Encode(event{
+	if err := tr.evEnc.Encode(EventRecord{
 		TMS:   tr.ms(ts),
-		Type:  "output",
+		Type:  EventTypeOutput,
 		Bytes: base64.StdEncoding.EncodeToString(b),
 	}); err != nil && tr.err == nil {
 		tr.err = err
 	}
 }
 
-// WriteInput records an input event (type, key, paste).
-func (tr *Trace) WriteInput(kind, key string, b []byte) {
+// WriteInput records an input event.
+func (tr *Trace) WriteInput(kind InputKind, key string, b []byte) {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
 	if tr.closed {
 		return
 	}
-	if err := tr.evEnc.Encode(event{
+	if err := tr.evEnc.Encode(EventRecord{
 		TMS:   tr.ms(time.Now()),
-		Type:  "input",
+		Type:  EventTypeInput,
 		Kind:  kind,
 		Key:   key,
 		Bytes: base64.StdEncoding.EncodeToString(b),
@@ -368,10 +355,10 @@ func (tr *Trace) WriteMouseInput(mouse MouseInput, b []byte) {
 		return
 	}
 	mouse.Modifiers = append([]string{}, mouse.Modifiers...)
-	if err := tr.evEnc.Encode(event{
+	if err := tr.evEnc.Encode(EventRecord{
 		TMS:   tr.ms(time.Now()),
-		Type:  "input",
-		Kind:  "mouse",
+		Type:  EventTypeInput,
+		Kind:  InputKindMouse,
 		Bytes: base64.StdEncoding.EncodeToString(b),
 		Mouse: &mouse,
 	}); err != nil && tr.err == nil {
@@ -386,9 +373,9 @@ func (tr *Trace) WriteResize(cols, rows int) {
 	if tr.closed {
 		return
 	}
-	if err := tr.evEnc.Encode(event{
+	if err := tr.evEnc.Encode(EventRecord{
 		TMS:  tr.ms(time.Now()),
-		Type: "resize",
+		Type: EventTypeResize,
 		Cols: cols,
 		Rows: rows,
 	}); err != nil && tr.err == nil {
@@ -403,9 +390,9 @@ func (tr *Trace) WriteExit(code int) {
 	if tr.closed {
 		return
 	}
-	if err := tr.evEnc.Encode(event{
+	if err := tr.evEnc.Encode(EventRecord{
 		TMS:  tr.ms(time.Now()),
-		Type: "exit",
+		Type: EventTypeExit,
 		Code: code,
 	}); err != nil && tr.err == nil {
 		tr.err = err
