@@ -5,18 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/paulsmith/twee/internal/networkcapture"
 	"github.com/paulsmith/twee/internal/ptyrunner"
 	"github.com/paulsmith/twee/internal/pump"
 	"github.com/paulsmith/twee/internal/trace"
-	"github.com/paulsmith/twee/internal/tracepolicy"
 	"github.com/paulsmith/twee/internal/vt"
-	"github.com/paulsmith/twee/third_party/netwrap"
 )
 
 // DefaultCloseGrace is the SIGTERM-to-SIGKILL escalation window Close
@@ -73,12 +70,7 @@ type Term struct {
 
 	inputsMu sync.Mutex
 	inputs   []InputEvent
-	network  *networkArtifacts
-}
-
-type networkArtifacts struct {
-	dir      string
-	pcapPath string
+	network  *networkcapture.Staging
 }
 
 // InputEvent is a single recorded input action for diagnostics.
@@ -98,22 +90,14 @@ func Start(ctx context.Context, cfg Config) (*Term, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	var network *networkArtifacts
+	var network *networkcapture.Staging
 	var networkCfg *ptyrunner.NetworkConfig
 	if whole := cfg.WholeSessionTrace; whole != nil && whole.Network != nil {
 		var err error
-		networkDir, err := os.MkdirTemp("", "twee-network-*")
+		network, networkCfg, err = networkcapture.Stage(whole.Network.PublishTCP)
 		if err != nil {
-			return nil, fmt.Errorf("network capture staging: %w", err)
+			return nil, err
 		}
-		network = &networkArtifacts{
-			dir: networkDir, pcapPath: filepath.Join(networkDir, "network.pcap"),
-		}
-		pubs := make([]netwrap.TCPPublication, len(whole.Network.PublishTCP))
-		for i, p := range whole.Network.PublishTCP {
-			pubs[i] = netwrap.TCPPublication{Listen: p.Listen, Guest: p.Guest}
-		}
-		networkCfg = &ptyrunner.NetworkConfig{PCAPPath: network.pcapPath, PublishTCP: pubs}
 	}
 
 	runner, err := ptyrunner.Start(ctx, ptyrunner.Config{
@@ -126,7 +110,7 @@ func Start(ctx context.Context, cfg Config) (*Term, error) {
 	})
 	if err != nil {
 		if network != nil {
-			_ = os.RemoveAll(network.dir)
+			_ = network.Cleanup()
 		}
 		return nil, fmt.Errorf("spawn: %w", err)
 	}
@@ -148,7 +132,7 @@ func Start(ctx context.Context, cfg Config) (*Term, error) {
 		if err := t.startTrace(cfg.WholeSessionTrace.Path); err != nil {
 			cleanupErr := runner.Close()
 			if network != nil {
-				cleanupErr = errors.Join(cleanupErr, os.RemoveAll(network.dir))
+				cleanupErr = errors.Join(cleanupErr, network.Cleanup())
 			}
 			if cleanupErr != nil {
 				cleanupErr = fmt.Errorf("close PTY after trace setup failure: %w", cleanupErr)
@@ -236,7 +220,7 @@ func (t *Term) FinalizeArtifactsWithGrace(grace time.Duration) error {
 		t.inputMu.Unlock()
 		t.finalizeErr = err
 		if t.network != nil {
-			t.finalizeErr = errors.Join(t.finalizeErr, os.RemoveAll(t.network.dir))
+			t.finalizeErr = errors.Join(t.finalizeErr, t.network.Cleanup())
 		}
 		close(t.artifactsDone)
 	})
@@ -349,50 +333,15 @@ func (t *Term) startTraceLocked(path string) error {
 	return nil
 }
 
-func (t *Term) networkManifest() (*trace.NetworkCapture, error) {
-	whole := t.cfg.WholeSessionTrace
-	if whole == nil || whole.Network == nil {
-		return nil, nil
-	}
-	pubs := make([]string, len(whole.Network.PublishTCP))
-	for i, p := range whole.Network.PublishTCP {
-		var err error
-		pubs[i], err = FormatTCPPublication(p)
-		if err != nil {
-			return nil, fmt.Errorf("network capture publication metadata: %w", err)
-		}
-	}
-	return &trace.NetworkCapture{
-		Format: trace.NetworkCaptureFormat, Stream: trace.NetworkCaptureStream,
-		GVisorVersion: netwrap.GVisorVersion, PublishTCP: pubs,
-		ByteLimit: tracepolicy.MaxNetworkCaptureBytes,
-	}, nil
-}
-
 // attachNetworkCaptureLocked bridges completed runner lifecycle state into the
 // trace manifest. FinalizeArtifacts drains the runner before calling it, so the
 // returned statistics and PCAP are stable.
 func (t *Term) attachNetworkCaptureLocked() error {
-	if err := t.runner.Err(); err != nil {
-		return fmt.Errorf("network capture runtime: %w", err)
-	}
-	result, ok := t.runner.NetworkCapture()
-	if !ok {
-		return errors.New("network capture: runner did not provide capture results")
-	}
-	capture, err := t.networkManifest()
+	capture, err := t.network.TraceCapture(t.runner)
 	if err != nil {
 		return err
 	}
-	capture.ByteLimit = result.MaxBytes
-	capture.CapturedBytes = result.BytesWritten
-	capture.PacketCount = int64(result.PacketCount)
-	capture.Truncated = result.Truncated
-	capture.Status = trace.NetworkCaptureStatusComplete
-	if result.Truncated {
-		capture.Status = trace.NetworkCaptureStatusTruncated
-	}
-	return t.tr.AttachNetworkCapture(t.network.pcapPath, *capture)
+	return t.tr.AttachNetworkCapture(t.network.PCAPPath(), capture)
 }
 
 // DisableTrace stops tracing and writes the zip bundle.

@@ -142,7 +142,9 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 		return err
 	}
 	if network != nil {
-		defer func() { returnErr = network.joinCleanupError(returnErr) }()
+		defer func() {
+			returnErr = joinNetworkCaptureCleanupError(returnErr, network.Cleanup)
+		}()
 	}
 	runner, err := ptyrunner.Start(ctx, ptyrunner.Config{
 		Command: opts.Command,
@@ -505,7 +507,7 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 	scriptErr := script.close()
 	var networkErr error
 	if network != nil {
-		networkErr = network.finalize(traces, runner)
+		networkErr = finalizeNetworkCapture(network, traces, runner)
 	}
 	traceErr := traces.close()
 	closeErr := runner.Close()
