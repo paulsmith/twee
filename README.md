@@ -1,4 +1,6 @@
-# twee — drive TUIs from the shell
+# Twee - the multitool for terminal automation.
+
+> Drive, inspect, test, record, and replay terminal applications from the shell.
 
 `twee` is a command-line tool for spawning a terminal UI under a PTY
 and driving it from outside: type, press keys, query the screen, wait
