@@ -132,7 +132,8 @@ func parseScrollArgs(args []string) (*string, rpc.ScrollArgs, error) {
 	if err := parseArg("scroll", &opts, args); err != nil {
 		return nil, rpc.ScrollArgs{}, err
 	}
-	if opts.Direction != "up" && opts.Direction != "down" {
+	direction, err := input.ParseScrollDirection(opts.Direction)
+	if err != nil || direction.String() != opts.Direction {
 		return nil, rpc.ScrollArgs{}, fmt.Errorf("--direction must be up or down")
 	}
 	if opts.Ticks != nil && (*opts.Ticks <= 0 || *opts.Ticks > input.MaxScrollTicks) {
@@ -144,7 +145,7 @@ func parseScrollArgs(args []string) (*string, rpc.ScrollArgs, error) {
 	}
 	return opts.Name, rpc.ScrollArgs{
 		X: intPointer(opts.X), Y: intPointer(opts.Y),
-		Direction: opts.Direction, Ticks: opts.Ticks, Modifiers: modifiers,
+		Direction: direction.String(), Ticks: opts.Ticks, Modifiers: modifiers,
 	}, nil
 }
 
@@ -185,28 +186,26 @@ func parseMouseButton(value *string) (string, error) {
 	if value == nil {
 		return "", nil // Omitted on the wire; the daemon defaults to left.
 	}
-	switch *value {
-	case "left", "middle", "right":
-		return *value, nil
-	default:
+	button, err := input.ParseMouseButton(*value)
+	if err != nil || button.String() != *value {
 		return "", fmt.Errorf("--button must be left, middle, or right")
 	}
+	return button.String(), nil
 }
 
 func parseMouseModifiers(values []string) ([]string, error) {
-	seen := make(map[string]bool, len(values))
+	parsed := make([]input.MouseModifier, 0, len(values))
 	modifiers := make([]string, 0, len(values))
 	for _, value := range values {
-		switch value {
-		case "shift", "alt", "ctrl":
-		default:
+		modifier, err := input.ParseMouseModifier(value)
+		if err != nil || modifier.String() != value {
 			return nil, fmt.Errorf("unknown --modifier %q (want shift, alt, or ctrl)", value)
 		}
-		if seen[value] {
+		parsed = append(parsed, modifier)
+		if _, err := input.NormalizeMouseModifiers(parsed); err != nil {
 			return nil, fmt.Errorf("duplicate --modifier %q", value)
 		}
-		seen[value] = true
-		modifiers = append(modifiers, value)
+		modifiers = append(modifiers, modifier.String())
 	}
 	return modifiers, nil
 }

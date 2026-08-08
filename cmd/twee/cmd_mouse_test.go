@@ -109,8 +109,11 @@ func TestParseMouseArgsRejectInvalidEnumsAndModifiers(t *testing.T) {
 		want string
 	}{
 		{"button", clickParseError, []string{"--x", "1", "--y", "2", "--button", "primary"}, "--button"},
+		{"uppercase button", clickParseError, []string{"--x", "1", "--y", "2", "--button", "LEFT"}, "--button"},
 		{"direction", scrollParseError, []string{"--x", "1", "--y", "2", "--direction", "left"}, "--direction"},
+		{"uppercase direction", scrollParseError, []string{"--x", "1", "--y", "2", "--direction", "UP"}, "--direction"},
 		{"unknown modifier", hoverParseError, []string{"--x", "1", "--y", "2", "--modifier", "meta"}, "unknown --modifier"},
+		{"uppercase modifier", hoverParseError, []string{"--x", "1", "--y", "2", "--modifier", "SHIFT"}, "unknown --modifier"},
 		{"duplicate modifier", hoverParseError, []string{"--x", "1", "--y", "2", "--modifier", "alt", "--modifier", "alt"}, "duplicate --modifier"},
 		{"zero ticks", scrollParseError, []string{"--x", "1", "--y", "2", "--direction", "up", "--ticks", "0"}, "--ticks"},
 		{"too many ticks", scrollParseError, []string{"--x", "1", "--y", "2", "--direction", "up", "--ticks", "101"}, "--ticks"},
