@@ -479,6 +479,19 @@ func TestLoopResizeClearsMouseAnnotationAndDisableOptionSkipsIt(t *testing.T) {
 			t.Fatal("resize frame retained a mouse annotation")
 		}
 	})
+	t.Run("invalid resize", func(t *testing.T) {
+		l := testLoop(loopConfig{
+			Events: []Event{
+				{TMS: 0, Type: trace.EventTypeInput, Kind: trace.InputKindMouse, Mouse: testMouseClick(1, 1, "left")},
+				{TMS: 0, Type: trace.EventTypeResize, Cols: 0, Rows: 4},
+			},
+			Sink: &fakeSink{},
+		})
+		l.tick(time.Unix(0, 0))
+		if l.mouse == nil {
+			t.Fatal("invalid resize cleared a valid annotation")
+		}
+	})
 	t.Run("disabled", func(t *testing.T) {
 		sink := &fakeSink{}
 		l := testLoop(loopConfig{

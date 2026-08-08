@@ -231,16 +231,14 @@ func (l *loop) dispatchReady(now time.Time) {
 }
 
 func (l *loop) dispatch(ev Event, now time.Time) {
+	screenEvent, err := ApplyScreenEvent(l.model, ev)
+	if err != nil && l.err == nil {
+		l.err = err
+	}
+
 	switch ev.Type {
-	case trace.EventTypeOutput:
-		if err := l.model.Feed(ev.Bytes); err != nil && l.err == nil {
-			l.err = err
-		}
 	case trace.EventTypeResize:
-		if ev.Cols > 0 && ev.Rows > 0 {
-			if err := l.model.Resize(ev.Cols, ev.Rows); err != nil && l.err == nil {
-				l.err = err
-			}
+		if screenEvent {
 			l.cols, l.rows = ev.Cols, ev.Rows
 			// A coordinate belongs to the viewport that existed when it
 			// was recorded. Do not carry it across a later resize.

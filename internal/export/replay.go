@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/paulsmith/twee/internal/play"
-	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/vt"
 )
 
@@ -124,7 +123,8 @@ func replay(events []play.Event, cols, rows int, opts Options,
 				return err
 			}
 		}
-		if err := apply(model, ev); err != nil {
+		screenEvent, err := play.ApplyScreenEvent(model, ev)
+		if err != nil {
 			return err
 		}
 		// A new input/resize event must produce a frame of its own even
@@ -139,7 +139,7 @@ func replay(events []play.Event, cols, rows int, opts Options,
 				forceFrame = true
 			}
 		}
-		if !screenEvent(ev) && !forceFrame {
+		if !screenEvent && !forceFrame {
 			continue
 		}
 		if !checkpointSet || t >= nextCheckpoint {
@@ -197,30 +197,6 @@ func adjustedTimeline(events []play.Event, opts Options) []time.Duration {
 		adjusted[i] = adj
 	}
 	return adjusted
-}
-
-func apply(model vt.Model, ev play.Event) error {
-	switch ev.Type {
-	case trace.EventTypeOutput:
-		return model.Feed(ev.Bytes)
-	case trace.EventTypeResize:
-		if ev.Cols > 0 && ev.Rows > 0 {
-			return model.Resize(ev.Cols, ev.Rows)
-		}
-	}
-	// input and exit events do not affect the screen.
-	return nil
-}
-
-func screenEvent(ev play.Event) bool {
-	switch ev.Type {
-	case trace.EventTypeOutput:
-		return true
-	case trace.EventTypeResize:
-		return ev.Cols > 0 && ev.Rows > 0
-	default:
-		return false
-	}
 }
 
 // hashNoCursor hashes the snapshot with the cursor zeroed: the renderer does
