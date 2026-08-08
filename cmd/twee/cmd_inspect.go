@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -15,7 +16,10 @@ import (
 func init() {
 	register("inspect", runInspect)
 	registerUsage("inspect", `twee inspect [--format json|text] <bundle.twee>
-Inspect a .twee trace bundle and print summary metadata.
+Validate a .twee trace bundle and print summary metadata. Validation checks
+zip integrity, the manifest and version, every event record, timestamp order,
+and any declared network capture. Invalid bundles report every validation
+problem in error.details.issues.
 
 Flags:
   --format json|text    output format (default json)`)
@@ -39,16 +43,27 @@ func runInspect(args []string) {
 		fatalUsage("inspect: invalid --format %q (want json or text)", format)
 	}
 
-	bundle, err := tracebundle.Open(parsed.Path)
+	decoded, validation, err := tracebundle.OpenValidated(parsed.Path)
 	if err != nil {
 		emitError(rpc.CodeIO, err.Error(), nil, 1)
 	}
-	summary := inspect.Summarize(parsed.Path, bundle)
+	if !validation.Valid {
+		emitInvalidBundle(validation.Issues)
+	}
+
+	summary := inspect.Summarize(parsed.Path, decoded)
 	if format == "json" {
 		emitOK(summary)
 		return
 	}
 	printInspectText(os.Stdout, summary)
+}
+
+func emitInvalidBundle(issues []string) {
+	details, _ := json.Marshal(map[string]any{"issues": issues})
+	emitError(rpc.CodeInvalidArgument,
+		fmt.Sprintf("inspect: %d issue(s) found", len(issues)),
+		details, 1)
 }
 
 func printInspectText(w io.Writer, s inspect.Summary) {

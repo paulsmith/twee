@@ -211,7 +211,6 @@ command list is:
 
 | Command | Purpose |
 |---|---|
-| `bundle` | Inspect or verify a `.twee` trace bundle. |
 | `cell` | Show one cell at x,y. |
 | `click` | Click a viewport cell. |
 | `wrap` | Wrap a terminal command with optional recording. |
@@ -224,7 +223,7 @@ command list is:
 | `find` | Find text in the viewport. |
 | `help` | Print top-level or per-command help. |
 | `hover` | Move the mouse to a viewport cell. |
-| `inspect` | Summarize a `.twee` bundle, including network capture metadata. |
+| `inspect` | Validate and summarize a `.twee` bundle, including network capture metadata. |
 | `key` | Send one named key. |
 | `keys` | Send multiple named keys. |
 | `lines` | Show visible viewport lines. |
@@ -679,7 +678,6 @@ curl --fail http://127.0.0.1:8080/health
 twee stop --name web --grace 2s
 
 # stop returns only after the known trace path is durable.
-twee bundle validate "$trace_path"
 twee inspect --format text "$trace_path"
 unzip -p "$trace_path" streams/network.pcap >network.pcap
 tcpdump -nn -r network.pcap
@@ -732,41 +730,30 @@ settings and theme controls, opens a pane's right-click menu, chooses
 `Split right`, focuses both panes, validates the resulting bundle, and leaves
 the trace at the path passed as its first argument.
 
-### Bundle tools
+### Inspect bundles
 
-`twee bundle info` and `twee bundle validate` inspect a `.twee` file
-directly — no daemon, no terminal — for debugging and CI.
-
-```
-$ twee bundle info /tmp/run.twee
-{"ok":true,"data":{"version":1,"command":["./myapp"],"cols":80,"rows":24,"started_at":"2026-01-01T12:00:00Z","stopped_at":"2026-01-01T12:00:05Z","duration_ms":5000,"size_bytes":4096,"events":{"exit":1,"input":2,"output":9,"resize":1},"network_capture":{"present":false,"truncated":false}}}
-
-$ twee bundle validate /tmp/run.twee
-{"ok":true,"data":{"valid":true,"events":13}}
-```
-
-`bundle info`'s `data` carries a subset of the manifest (`version`,
-`command`, `cols`, `rows`, `started_at`, `stopped_at`) plus `duration_ms`
-and `size_bytes` (both derived) and `events`, a count per event type
-present in the bundle. `network_capture` reports whether the optional PCAP is
-present and, when it is, its format, stream path, packet and byte counts,
-capture limit, gVisor version, published ports, truncation, and status.
-
-`bundle validate` checks zip integrity, that the manifest parses with a
-supported version, that every `events.jsonl` line parses as a known
-event type, and that timestamps are non-decreasing. For network traces it also
-fully reads the PCAP, verifies its CRC and framing, and checks its declared
-size, packet count, format, link type, limit, and status. An invalid bundle
-reports `ok:false` with code `INVALID_ARGUMENT` and every problem found
-(not just the first) in `error.details.issues`:
+`twee inspect` validates and summarizes a `.twee` file directly — no daemon
+or terminal — for debugging and CI. JSON is the default; use `--format text`
+for a human-readable report.
 
 ```
-$ twee bundle validate /tmp/broken.twee
-{"ok":false,"error":{"code":"INVALID_ARGUMENT","message":"bundle validate: 2 issue(s) found","details":{"issues":["events.jsonl line 4: unknown event type \"teleport\"","events.jsonl line 7: timestamp 120 before previous 500"]}}}
+$ twee inspect /tmp/run.twee
+{"ok":true,"data":{"path":"/tmp/run.twee","version":1,"command":["./myapp"],"duration":"5s","duration_ms":5000,"event_span_ms":5000,"started_at":"2026-01-01T12:00:00Z","stopped_at":"2026-01-01T12:00:05Z","terminal":{"cols":80,"rows":24,"max_cols":100,"max_rows":30},"events":{"total":13,"by_type":{"exit":1,"input":2,"output":9,"resize":1},"input_by_kind":{"key":2}},"exit":{"recorded":true,"code":0},"network_capture":{"present":false,"truncated":false}}}
 ```
 
-A missing or unreadable file fails both subcommands with code `IO`
-instead.
+Before returning the summary, `inspect` checks zip integrity, the manifest and
+supported version, every `events.jsonl` record, and timestamp ordering. For
+network traces it also fully reads the PCAP, verifies its CRC and framing, and
+checks its declared size, packet count, format, link type, limit, and status.
+An invalid bundle reports `ok:false` with code `INVALID_ARGUMENT` and every
+problem found (not just the first) in `error.details.issues`:
+
+```
+$ twee inspect /tmp/broken.twee
+{"ok":false,"error":{"code":"INVALID_ARGUMENT","message":"inspect: 2 issue(s) found","details":{"issues":["events.jsonl line 4: unknown event type \"teleport\"","events.jsonl line 7: timestamp 120 before previous 500"]}}}
+```
+
+A missing or unreadable file fails with code `IO` instead.
 
 ## Playback
 

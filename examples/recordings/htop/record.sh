@@ -51,5 +51,4 @@ type_slow 'M'
 sleep 5
 type_slow 'q'
 "$TWEE_BIN" wait exit --name "$SESSION" --timeout 15s >/dev/null
-"$TWEE_BIN" bundle validate "$TRACE"
-"$TWEE_BIN" bundle info "$TRACE"
+"$TWEE_BIN" inspect "$TRACE"

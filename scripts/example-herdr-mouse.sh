@@ -91,5 +91,5 @@ click_label "Split right"
 trap - EXIT
 rm -rf "$demo_root"
 
-"$TWEE_BIN" bundle validate "$trace" >/dev/null
+"$TWEE_BIN" inspect "$trace" >/dev/null
 echo "Recording is $trace"

@@ -36,8 +36,7 @@ bin/twee play examples/recordings/vim/vim.twee
 Check a trace without playing it:
 
 ```bash
-bin/twee bundle validate examples/recordings/vim/vim.twee
-bin/twee bundle info examples/recordings/vim/vim.twee
+bin/twee inspect examples/recordings/vim/vim.twee
 ```
 
 Regenerate one bundle from the repository root. A driver replaces only its

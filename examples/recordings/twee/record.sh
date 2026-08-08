@@ -48,11 +48,7 @@ rm -f "$trace"
   bash --noprofile --rcfile "$work_dir/init.sh" -i >/dev/null
 "$TWEE_BIN" --name "$session" wait stable --quiet 300ms >/dev/null
 
-type_slow "twee bundle validate deploy-check.twee"
-key Enter
-"$TWEE_BIN" --name "$session" wait stable --quiet 300ms >/dev/null
-sleep 0.8
-type_slow "twee bundle info deploy-check.twee | jq '.data | {command,duration_ms,events}'"
+type_slow "twee inspect deploy-check.twee | jq '.data | {command,duration_ms,events}'"
 key Enter
 "$TWEE_BIN" --name "$session" wait stable --quiet 300ms >/dev/null
 sleep 0.8
@@ -67,5 +63,4 @@ sleep 1
 type_slow "exit"
 key Enter
 "$TWEE_BIN" --name "$session" wait exit >/dev/null
-"$TWEE_BIN" bundle validate "$trace"
-"$TWEE_BIN" bundle info "$trace"
+"$TWEE_BIN" inspect "$trace"

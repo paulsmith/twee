@@ -148,7 +148,6 @@ type commandSummary struct {
 }
 
 var commandSummaries = []commandSummary{
-	{"bundle", "Inspect or verify a .twee trace bundle"},
 	{"cell", "Show one cell at x,y"},
 	{"click", "Click a viewport cell"},
 	{"completion", "Print shell completion setup"},
@@ -160,7 +159,7 @@ var commandSummaries = []commandSummary{
 	{"find", "Find text in the viewport"},
 	{"help", "Print top-level or per-command help"},
 	{"hover", "Move the mouse to a viewport cell"},
-	{"inspect", "Inspect a .twee trace bundle"},
+	{"inspect", "Validate and inspect a .twee trace bundle"},
 	{"key", "Send one named key"},
 	{"keys", "Send multiple named keys"},
 	{"lines", "Show visible viewport lines"},

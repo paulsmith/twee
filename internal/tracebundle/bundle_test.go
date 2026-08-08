@@ -118,6 +118,80 @@ func TestOpenFailure(t *testing.T) {
 	}
 }
 
+func TestOpenValidatedOpensPathOnce(t *testing.T) {
+	path := writeTestBundle(t, map[string]string{
+		"manifest.json": `{"version":1,"cols":10,"rows":3}`,
+		"events.jsonl":  `{"t_ms":0,"type":"output"}`,
+	})
+	opens := 0
+	bundle, validation, err := openValidated(path, func(name string) (*os.File, error) {
+		opens++
+		return os.Open(name)
+	})
+	if err != nil || !validation.Valid || len(bundle.Events) != 1 {
+		t.Fatalf("OpenValidated = bundle %+v, validation %+v, error %v", bundle, validation, err)
+	}
+	if opens != 1 {
+		t.Fatalf("open calls = %d, want 1", opens)
+	}
+}
+
+func TestOpenValidatedAccumulatesTypedAndPayloadIssues(t *testing.T) {
+	path := writeTestBundle(t, map[string]string{
+		"manifest.json": `{"version":1,"cols":10,"rows":3}`,
+		"events.jsonl": strings.Join([]string{
+			`{"t_ms":5,"type":"output","bytes_b64":"%%%"}`,
+			`{"t_ms":4,"type":"input","bytes_b64":"!!!"}`,
+			`{"t_ms":6,"type":"resize","cols":"wide","rows":3}`,
+			`{"t_ms":7,"type":"teleport"}`,
+		}, "\n"),
+	})
+	bundle, validation, err := OpenValidated(path)
+	if err != nil {
+		t.Fatalf("OpenValidated: %v", err)
+	}
+	if validation.Valid || bundle.Manifest.Version != 0 || len(bundle.Events) != 0 {
+		t.Fatalf("bundle = %+v, validation = %+v; want invalid and no decoded bundle", bundle, validation)
+	}
+	for _, want := range []string{
+		"line 1: decode bytes_b64",
+		"line 2: decode bytes_b64",
+		"timestamp 4 before previous 5",
+		"line 3: json: cannot unmarshal string",
+		`unknown event type "teleport"`,
+	} {
+		if !issuesContain(validation.Issues, want) {
+			t.Errorf("issues = %v, want one containing %q", validation.Issues, want)
+		}
+	}
+	if validation.Events != 4 {
+		t.Errorf("events = %d, want 4", validation.Events)
+	}
+}
+
+func TestOpenValidatedContinuesAcrossIndependentArchiveParts(t *testing.T) {
+	path := writeTestBundle(t, map[string]string{
+		"manifest.json":                    `{not json`,
+		"events.jsonl":                     `{"t_ms":0,"type":"output","bytes_b64":"%%%"}`,
+		tracepolicy.NetworkCaptureStream:   "not a pcap",
+		"extra/../non-canonical-entry.txt": "unsafe",
+	})
+	_, validation, err := OpenValidated(path)
+	if err != nil {
+		t.Fatalf("OpenValidated: %v", err)
+	}
+	for _, want := range []string{
+		"unsafe non-canonical zip entry path",
+		"manifest.json:",
+		"decode bytes_b64",
+		tracepolicy.NetworkCaptureStream + ":",
+	} {
+		if !issuesContain(validation.Issues, want) {
+			t.Errorf("issues = %v, want one containing %q", validation.Issues, want)
+		}
+	}
+}
+
 func TestOpenRejectsDuplicateRequiredEntriesWithoutChoosingOne(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "duplicate.twee")
 	f, err := os.Create(path)
@@ -234,4 +308,13 @@ func writeTestBundle(t *testing.T, files map[string]string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func issuesContain(issues []string, want string) bool {
+	for _, issue := range issues {
+		if strings.Contains(issue, want) {
+			return true
+		}
+	}
+	return false
 }

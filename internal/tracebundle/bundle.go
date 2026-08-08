@@ -7,8 +7,10 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -23,6 +25,15 @@ type Bundle struct {
 	Events   []Event
 	MaxCols  int
 	MaxRows  int
+}
+
+// Validation reports every independently detectable content issue found while
+// opening and decoding a bundle. Events counts records whose common event
+// header parsed, including records with another typed-field or payload issue.
+type Validation struct {
+	Valid  bool
+	Events int
+	Issues []string
 }
 
 // Event is one decoded events.jsonl record.
@@ -43,48 +54,101 @@ func (e Event) TraceTime() time.Duration {
 	return time.Duration(e.TMS) * time.Millisecond
 }
 
-// Open opens and decodes a .twee zip bundle.
+// Open opens and fully validates a .twee zip bundle, returning a decoded
+// bundle only when no content issues were found.
 func Open(path string) (Bundle, error) {
-	zr, err := zip.OpenReader(path)
-	if err != nil {
-		return Bundle{}, fmt.Errorf("open %s: %w", path, err)
-	}
-	defer zr.Close()
-
-	entries, issues := tracearchive.Check(&zr.Reader)
-	if len(issues) != 0 {
-		return Bundle{}, fmt.Errorf("invalid bundle structure: %s", strings.Join(issues, "; "))
-	}
-	manifestBody, err := tracearchive.Read(entries["manifest.json"])
-	if err != nil {
-		return Bundle{}, fmt.Errorf("read manifest.json: %w", err)
-	}
-	var man trace.Manifest
-	if err := json.NewDecoder(bytes.NewReader(manifestBody)).Decode(&man); err != nil {
-		return Bundle{}, fmt.Errorf("decode manifest.json: %w", err)
-	}
-	if man.Version != 1 {
-		return Bundle{}, fmt.Errorf("unsupported bundle version %d", man.Version)
-	}
-	if issues := tracearchive.CheckNetworkCapture(networkMetadata(man.Network), entries[tracepolicy.NetworkCaptureStream]); len(issues) != 0 {
-		return Bundle{}, fmt.Errorf("invalid network capture: %s", strings.Join(issues, "; "))
-	}
-
-	eventsReader, err := entries["events.jsonl"].Open()
-	if err != nil {
-		return Bundle{}, fmt.Errorf("read events.jsonl: %w", err)
-	}
-	limitedEvents := &io.LimitedReader{R: eventsReader, N: tracepolicy.MaxEventsBytes + 1}
-	events, err := decodeEvents(limitedEvents)
-	closeErr := eventsReader.Close()
+	bundle, validation, err := OpenValidated(path)
 	if err != nil {
 		return Bundle{}, err
 	}
-	if closeErr != nil {
-		return Bundle{}, fmt.Errorf("read events.jsonl: %w", closeErr)
+	if !validation.Valid {
+		return Bundle{}, fmt.Errorf("invalid bundle: %s", strings.Join(validation.Issues, "; "))
 	}
-	if limitedEvents.N == 0 {
-		return Bundle{}, fmt.Errorf("read events.jsonl: decompressed content exceeds %d bytes", tracepolicy.MaxEventsBytes)
+	return bundle, nil
+}
+
+// OpenValidated opens path once, exhaustively validates the archive and fully
+// decodes every event through the same read path. Filesystem failures are
+// returned as errors. Malformed readable content is returned in Validation;
+// Bundle is non-zero only when Validation.Valid is true.
+func OpenValidated(path string) (Bundle, Validation, error) {
+	return openValidated(path, os.Open)
+}
+
+func openValidated(path string, openFile func(string) (*os.File, error)) (Bundle, Validation, error) {
+	f, err := openFile(path)
+	if err != nil {
+		return Bundle{}, Validation{}, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return Bundle{}, Validation{}, fmt.Errorf("stat %s: %w", path, err)
+	}
+	if fi.IsDir() {
+		return Bundle{}, Validation{}, fmt.Errorf("open %s: is a directory", path)
+	}
+
+	zr, err := zip.NewReader(f, fi.Size())
+	if err != nil {
+		if errors.Is(err, zip.ErrFormat) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return invalid([]string{"invalid zip: " + err.Error()}, 0)
+		}
+		return Bundle{}, Validation{}, fmt.Errorf("read %s: %w", path, err)
+	}
+
+	entries, issues := tracearchive.Check(zr)
+	var man trace.Manifest
+	manifestValid := false
+	if manifestFile := entries["manifest.json"]; manifestFile != nil {
+		manifestBody, readErr := tracearchive.Read(manifestFile)
+		if readErr != nil {
+			issues = append(issues, "manifest.json: "+readErr.Error())
+		} else if decodeErr := json.Unmarshal(manifestBody, &man); decodeErr != nil {
+			issues = append(issues, "manifest.json: "+decodeErr.Error())
+		} else if man.Version != 1 {
+			issues = append(issues, fmt.Sprintf("unsupported bundle version %d", man.Version))
+		} else {
+			manifestValid = true
+		}
+	}
+
+	var network *tracearchive.NetworkMetadata
+	if manifestValid {
+		network = networkMetadata(man.Network)
+		issues = append(issues, tracearchive.CheckNetworkCapture(network, entries[tracepolicy.NetworkCaptureStream])...)
+	} else if stream := entries[tracepolicy.NetworkCaptureStream]; stream != nil {
+		// Manifest defects prevent consistency checks, but PCAP integrity is
+		// still independent and can be checked without interpreting metadata.
+		if _, pcapErr := tracearchive.ValidatePCAP(stream); pcapErr != nil {
+			issues = append(issues, tracepolicy.NetworkCaptureStream+": "+pcapErr.Error())
+		}
+	}
+
+	var events []Event
+	eventCount := 0
+	if eventsFile := entries["events.jsonl"]; eventsFile != nil {
+		r, openErr := eventsFile.Open()
+		if openErr != nil {
+			issues = append(issues, "events.jsonl: "+openErr.Error())
+		} else {
+			limited := &io.LimitedReader{R: r, N: tracepolicy.MaxEventsBytes + 1}
+			decodedEvents, count, eventIssues := inspectEvents(limited)
+			events = decodedEvents
+			eventCount = count
+			issues = append(issues, eventIssues...)
+			if limited.N == 0 {
+				issues = append(issues, fmt.Sprintf("events.jsonl: decompressed content exceeds %d bytes", tracepolicy.MaxEventsBytes))
+			}
+			if closeErr := r.Close(); closeErr != nil {
+				issues = append(issues, "events.jsonl: "+closeErr.Error())
+			}
+		}
+	}
+
+	if len(issues) != 0 {
+		return invalid(issues, eventCount)
 	}
 
 	maxCols, maxRows := man.Cols, man.Rows
@@ -98,7 +162,11 @@ func Open(path string) (Bundle, error) {
 			}
 		}
 	}
-	return Bundle{Manifest: man, Events: events, MaxCols: maxCols, MaxRows: maxRows}, nil
+	return Bundle{Manifest: man, Events: events, MaxCols: maxCols, MaxRows: maxRows}, Validation{Valid: true, Events: eventCount}, nil
+}
+
+func invalid(issues []string, events int) (Bundle, Validation, error) {
+	return Bundle{}, Validation{Events: events, Issues: issues}, nil
 }
 
 func networkMetadata(capture *trace.NetworkCapture) *tracearchive.NetworkMetadata {
@@ -117,34 +185,76 @@ func decodeEvents(r io.Reader) ([]Event, error) {
 }
 
 func decodeEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int) ([]Event, error) {
+	events, _, issues := inspectEventsWithLimits(r, maxEvents, maxDecodedPayload)
+	if len(issues) != 0 {
+		return nil, fmt.Errorf("%s", strings.Join(issues, "; "))
+	}
+	return events, nil
+}
+
+func inspectEvents(r io.Reader) ([]Event, int, []string) {
+	return inspectEventsWithLimits(r, tracepolicy.MaxEventCount, tracepolicy.MaxDecodedPayloadBytes)
+}
+
+func inspectEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int) ([]Event, int, []string) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), tracepolicy.MaxEventLineBytes)
 
 	var events []Event
+	var issues []string
 	lineNo := 0
+	count := 0
+	haveLast := false
+	var lastTMS int64
 	decodedBytes := 0
+	payloadLimitReported := false
 	for sc.Scan() {
 		lineNo++
 		line := bytes.TrimSpace(sc.Bytes())
 		if len(line) == 0 {
 			continue
 		}
-		if len(events) >= maxEvents {
-			return nil, fmt.Errorf("events.jsonl: event count exceeds %d", maxEvents)
+		var header struct {
+			TMS  int64           `json:"t_ms"`
+			Type trace.EventType `json:"type"`
 		}
+		if err := json.Unmarshal(line, &header); err != nil {
+			issues = append(issues, fmt.Sprintf("events.jsonl line %d: %v", lineNo, err))
+			continue
+		}
+		if count >= maxEvents {
+			issues = append(issues, fmt.Sprintf("events.jsonl: event count exceeds %d", maxEvents))
+			break
+		}
+		count++
+		if !header.Type.IsKnown() {
+			issues = append(issues, fmt.Sprintf("events.jsonl line %d: unknown event type %q", lineNo, header.Type))
+		}
+		if haveLast && header.TMS < lastTMS {
+			issues = append(issues, fmt.Sprintf("events.jsonl line %d: timestamp %d before previous %d", lineNo, header.TMS, lastTMS))
+		}
+		lastTMS = header.TMS
+		haveLast = true
+
 		var raw trace.EventRecord
 		if err := json.Unmarshal(line, &raw); err != nil {
-			return nil, fmt.Errorf("events.jsonl line %d: %w", lineNo, err)
+			issues = append(issues, fmt.Sprintf("events.jsonl line %d: %v", lineNo, err))
+			continue
 		}
 		var decoded []byte
 		if raw.Bytes != "" {
 			b, err := base64.StdEncoding.DecodeString(raw.Bytes)
 			if err != nil {
-				return nil, fmt.Errorf("events.jsonl line %d: decode bytes_b64: %w", lineNo, err)
+				issues = append(issues, fmt.Sprintf("events.jsonl line %d: decode bytes_b64: %v", lineNo, err))
+				continue
 			}
 			decoded = b
 			if len(decoded) > maxDecodedPayload-decodedBytes {
-				return nil, fmt.Errorf("events.jsonl: decoded payload exceeds %d bytes", maxDecodedPayload)
+				if !payloadLimitReported {
+					issues = append(issues, fmt.Sprintf("events.jsonl: decoded payload exceeds %d bytes", maxDecodedPayload))
+					payloadLimitReported = true
+				}
+				continue
 			}
 			decodedBytes += len(decoded)
 		}
@@ -155,7 +265,7 @@ func decodeEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int) ([]Ev
 		})
 	}
 	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("read events.jsonl: %w", err)
+		issues = append(issues, "events.jsonl: "+err.Error())
 	}
-	return events, nil
+	return events, count, issues
 }

@@ -54,5 +54,4 @@ type_human exit
 "$TWEE_BIN" wait exit >/dev/null
 trap - EXIT
 cleanup
-"$TWEE_BIN" bundle validate "$trace" >/dev/null
-"$TWEE_BIN" bundle info "$trace"
+"$TWEE_BIN" inspect "$trace"

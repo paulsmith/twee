@@ -11,7 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/tracearchive"
 	"github.com/paulsmith/twee/internal/tracepolicy"
 )
@@ -239,21 +241,57 @@ func TestValidateRejectsCompressedEventsBomb(t *testing.T) {
 	}
 }
 
-func TestValidateEventLinesEnforcesCountAndLineSize(t *testing.T) {
-	event := `{"type":"output"}` + "\n"
-	count, issues := validateEventLinesWithLimit(strings.NewReader(strings.Repeat(event, 4)), 3)
-	if count != 3 || !hasIssueContaining(issues, "event count exceeds 3") {
-		t.Fatalf("count=%d issues=%v", count, issues)
-	}
-	_, issues = validateEventLines(strings.NewReader(strings.Repeat("x", tracepolicy.MaxEventLineBytes+1)))
-	if !hasIssueContaining(issues, "token too long") {
-		t.Fatalf("line issues=%v", issues)
-	}
-}
-
 type bundleZeroReader struct{}
 
 func (bundleZeroReader) Read(p []byte) (int, error) { clear(p); return len(p), nil }
+
+func writeSyntheticTrace(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "session.twee")
+	tr, err := trace.New(path, trace.Manifest{
+		Command: []string{"/bin/sh", "-c", "echo hi"},
+		Cols:    80,
+		Rows:    24,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr.WriteOutput([]byte("hi\r\n"), time.Now())
+	tr.WriteInput("key", "Enter", []byte("\r"))
+	tr.WriteResize(100, 30)
+	tr.WriteOutput([]byte("more"), time.Now())
+	tr.WriteExit(0)
+	if err := tr.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writeRawZip(t *testing.T, files map[string]string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "session.twee")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	for name, body := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
 
 type zipTestEntry struct {
 	name string
@@ -310,12 +348,15 @@ func TestValidateValidBundle(t *testing.T) {
 
 func TestValidateMissingFileIsIO(t *testing.T) {
 	_, err := Validate(filepath.Join(t.TempDir(), "missing.twee"))
-	if err == nil {
-		t.Fatal("want error for missing file")
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("error = %v, want missing-file error", err)
 	}
-	var le *LoadError
-	if !errors.As(err, &le) || le.Kind != ErrIO {
-		t.Fatalf("error = %v, want *LoadError{Kind: ErrIO}", err)
+}
+
+func TestValidateDirectoryReturnsReadError(t *testing.T) {
+	_, err := Validate(t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "is a directory") {
+		t.Fatalf("error = %v, want directory read error", err)
 	}
 }
 
@@ -421,7 +462,7 @@ func TestValidateCorruptEventsLine(t *testing.T) {
 	}
 }
 
-func TestValidateIgnoresUnrelatedEventFields(t *testing.T) {
+func TestValidateRejectsWrongTypedFieldsBeforeDownstreamUse(t *testing.T) {
 	path := writeRawZip(t, map[string]string{
 		"manifest.json": `{"version":1,"cols":10,"rows":3}`,
 		"events.jsonl":  `{"t_ms":0,"type":"output","cols":"not-a-number"}`,
@@ -430,8 +471,11 @@ func TestValidateIgnoresUnrelatedEventFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	if !result.Valid || result.Events != 1 || len(result.Issues) != 0 {
-		t.Fatalf("result = %+v, want one valid event with no issues", result)
+	// The former narrow validator ignored fields unrelated to an event's
+	// type. Validation now shares the full decoder used by inspect/play, so a
+	// bundle cannot pass validation and then fail downstream decoding.
+	if result.Valid || result.Events != 1 || !hasIssueContaining(result.Issues, "cannot unmarshal string") {
+		t.Fatalf("result = %+v, want one counted event with a typed-field issue", result)
 	}
 }
 

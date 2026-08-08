@@ -68,5 +68,4 @@ sleep 2
 type_slow 'exit'
 key Enter 0.3
 "$TWEE_BIN" wait exit --name "$SESSION" --timeout 15s >/dev/null
-"$TWEE_BIN" bundle validate "$TRACE"
-"$TWEE_BIN" bundle info "$TRACE"
+"$TWEE_BIN" inspect "$TRACE"

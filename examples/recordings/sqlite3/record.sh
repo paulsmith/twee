@@ -61,5 +61,4 @@ key Ctrl+D
 type_slow "exit"
 key Enter
 "$TWEE_BIN" --name "$session" wait exit >/dev/null
-"$TWEE_BIN" bundle validate "$trace"
-"$TWEE_BIN" bundle info "$trace"
+"$TWEE_BIN" inspect "$trace"

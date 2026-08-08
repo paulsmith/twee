@@ -14,8 +14,10 @@ import (
 )
 
 // Check validates the structure and declared sizes of a trace bundle. It
-// returns the required entries only when the archive is unambiguous and safe
-// to read. Callers must still validate entry contents and CRCs.
+// returns each format-owned entry that is individually unambiguous and safe
+// to read, even when independent structure issues exist elsewhere in the
+// archive. Callers must still validate entry contents and CRCs and must not
+// treat the returned entries as proof that the archive is valid.
 func Check(zr *zip.Reader) (map[string]*zip.File, []string) {
 	var issues []string
 	entries := make(map[string]*zip.File, 2)
@@ -45,19 +47,25 @@ func Check(zr *zip.Reader) (map[string]*zip.File, []string) {
 		switch f.Name {
 		case "manifest.json":
 			counts[f.Name]++
-			entries[f.Name] = f
+			if f.Mode().IsRegular() {
+				entries[f.Name] = f
+			}
 			if f.UncompressedSize64 > tracepolicy.MaxManifestBytes {
 				issues = append(issues, fmt.Sprintf("manifest.json declares unreasonable uncompressed size %d", f.UncompressedSize64))
 			}
 		case "events.jsonl":
 			counts[f.Name]++
-			entries[f.Name] = f
+			if f.Mode().IsRegular() {
+				entries[f.Name] = f
+			}
 			if f.UncompressedSize64 > tracepolicy.MaxEventsBytes {
 				issues = append(issues, fmt.Sprintf("events.jsonl declares unreasonable uncompressed size %d", f.UncompressedSize64))
 			}
 		case tracepolicy.NetworkCaptureStream:
 			counts[f.Name]++
-			entries[f.Name] = f
+			if f.Mode().IsRegular() {
+				entries[f.Name] = f
+			}
 			if f.UncompressedSize64 > tracepolicy.MaxNetworkCaptureBytes {
 				issues = append(issues, fmt.Sprintf("streams/network.pcap declares unreasonable uncompressed size %d", f.UncompressedSize64))
 			}
@@ -79,15 +87,14 @@ func Check(zr *zip.Reader) (map[string]*zip.File, []string) {
 		case 1:
 		default:
 			issues = append(issues, fmt.Sprintf("duplicate required zip entry %s (%d copies)", name, counts[name]))
+			delete(entries, name)
 		}
 	}
 	if counts[tracepolicy.NetworkCaptureStream] > 1 {
 		issues = append(issues, fmt.Sprintf("duplicate optional zip entry %s (%d copies)", tracepolicy.NetworkCaptureStream, counts[tracepolicy.NetworkCaptureStream]))
+		delete(entries, tracepolicy.NetworkCaptureStream)
 	}
-	if len(issues) != 0 {
-		return nil, issues
-	}
-	return entries, nil
+	return entries, issues
 }
 
 func saturatingAdd(a, b uint64) uint64 {

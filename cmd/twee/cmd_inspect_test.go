@@ -160,6 +160,78 @@ func TestInspectReadErrorJSON(t *testing.T) {
 	}
 }
 
+func TestInspectDirectoryIsIO(t *testing.T) {
+	bin := buildBinary(t)
+	out, err := exec.Command(bin, "inspect", t.TempDir()).Output()
+	if err == nil {
+		t.Fatalf("want non-zero exit, got success: %s", out)
+	}
+	if code := inspectErrorCode(t, out); code != "IO" {
+		t.Fatalf("code = %q, want IO", code)
+	}
+}
+
+func TestInspectReportsAllValidationIssues(t *testing.T) {
+	bin := buildBinary(t)
+	path := writeInspectRawBundle(t, map[string]string{
+		"manifest.json": `{"version":2,"cols":10,"rows":3}`,
+		"events.jsonl": strings.Join([]string{
+			`{"t_ms":500,"type":"teleport"}`,
+			`{not json`,
+			`{"t_ms":120,"type":"output"}`,
+		}, "\n"),
+	})
+
+	out, err := exec.Command(bin, "inspect", path).Output()
+	if err == nil {
+		t.Fatalf("want non-zero exit, got success: %s", out)
+	}
+	if code := inspectErrorCode(t, out); code != "INVALID_ARGUMENT" {
+		t.Fatalf("code = %q, want INVALID_ARGUMENT", code)
+	}
+	issues := inspectErrorIssues(t, out)
+	for _, want := range []string{
+		"unsupported bundle version 2",
+		`unknown event type "teleport"`,
+		"events.jsonl line 2",
+		"timestamp 120 before previous 500",
+	} {
+		if !containsInspectIssue(issues, want) {
+			t.Errorf("issues = %v, want one containing %q", issues, want)
+		}
+	}
+	if len(issues) != 4 {
+		t.Errorf("issues = %v, want exactly four exhaustive issues", issues)
+	}
+}
+
+func TestInspectReportsMultipleDecoderOnlyIssues(t *testing.T) {
+	bin := buildBinary(t)
+	path := writeInspectRawBundle(t, map[string]string{
+		"manifest.json": `{"version":1,"cols":10,"rows":3}`,
+		"events.jsonl": strings.Join([]string{
+			`{"t_ms":0,"type":"output","bytes_b64":"%%%"}`,
+			`{"t_ms":1,"type":"input","bytes_b64":"!!!"}`,
+			`{"t_ms":2,"type":"resize","cols":"wide","rows":3}`,
+		}, "\n"),
+	})
+
+	out, err := exec.Command(bin, "inspect", path).Output()
+	if err == nil {
+		t.Fatalf("want non-zero exit, got success: %s", out)
+	}
+	if code := inspectErrorCode(t, out); code != "INVALID_ARGUMENT" {
+		t.Fatalf("code = %q, want INVALID_ARGUMENT", code)
+	}
+	issues := inspectErrorIssues(t, out)
+	if len(issues) != 3 ||
+		!containsInspectIssue(issues, "line 1: decode bytes_b64") ||
+		!containsInspectIssue(issues, "line 2: decode bytes_b64") ||
+		!containsInspectIssue(issues, "line 3: json: cannot unmarshal string") {
+		t.Fatalf("issues = %v, want both payload failures and typed-field failure", issues)
+	}
+}
+
 func TestInspectHelp(t *testing.T) {
 	bin := buildBinary(t)
 	out, err := exec.Command(bin, "help", "inspect").Output()
@@ -181,13 +253,7 @@ func TestInspectHelp(t *testing.T) {
 
 func writeInspectBundle(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "session.twee")
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	zw := zip.NewWriter(f)
-	files := map[string]string{
+	return writeInspectRawBundle(t, map[string]string{
 		"manifest.json": `{
 			"version": 1,
 			"command": ["vim", "file.txt"],
@@ -203,7 +269,17 @@ func writeInspectBundle(t *testing.T) string {
 			`{"t_ms":30,"type":"resize","cols":100,"rows":40}`,
 			`{"t_ms":1210,"type":"exit","code":7}`,
 		}, "\n"),
+	})
+}
+
+func writeInspectRawBundle(t *testing.T, files map[string]string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "session.twee")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
 	}
+	zw := zip.NewWriter(f)
 	for name, body := range files {
 		w, err := zw.Create(name)
 		if err != nil {
@@ -220,4 +296,41 @@ func writeInspectBundle(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func inspectErrorCode(t *testing.T, out []byte) string {
+	t.Helper()
+	var resp struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		t.Fatalf("decode error envelope %s: %v", out, err)
+	}
+	return resp.Error.Code
+}
+
+func inspectErrorIssues(t *testing.T, out []byte) []string {
+	t.Helper()
+	var resp struct {
+		Error struct {
+			Details struct {
+				Issues []string `json:"issues"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		t.Fatalf("decode error envelope %s: %v", out, err)
+	}
+	return resp.Error.Details.Issues
+}
+
+func containsInspectIssue(issues []string, want string) bool {
+	for _, issue := range issues {
+		if strings.Contains(issue, want) {
+			return true
+		}
+	}
+	return false
 }

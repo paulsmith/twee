@@ -48,6 +48,9 @@ func TestHelp(t *testing.T) {
 	if bytes.Contains(out, []byte(".md")) {
 		t.Errorf("help output should not link to markdown docs:\n%s", out)
 	}
+	if bytes.Contains(out, []byte("  bundle  ")) {
+		t.Errorf("help output still advertises removed bundle command:\n%s", out)
+	}
 	last := -1
 	for _, verb := range []string{"cell", "click", "completion", "cursor", "diff", "drag", "export", "find", "help", "hover", "inspect", "key", "keys", "lines", "ls", "mode", "paste", "play", "region", "resize", "run", "screenshot", "scroll", "scrollback", "signal", "size", "sleep", "snapshot", "start", "status", "stop", "text", "title", "trace", "type", "version", "wait", "wrap"} {
 		needle := []byte("  " + verb + "  ")
@@ -63,6 +66,24 @@ func TestHelp(t *testing.T) {
 	}
 	if bytes.Contains(out, []byte("screenshots")) {
 		t.Errorf("top-level help should not mention screenshots:\n%s", out)
+	}
+}
+
+func TestBundleCommandRemoved(t *testing.T) {
+	bin := buildBinary(t)
+	cmd := exec.Command(bin, "bundle", "info", "recording.twee")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	exit, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected ExitError, got %v", err)
+	}
+	if exit.ExitCode() != 2 {
+		t.Fatalf("exit code = %d, want 2", exit.ExitCode())
+	}
+	if !strings.Contains(stderr.String(), `unknown subcommand "bundle"`) {
+		t.Fatalf("stderr missing removed-command error:\n%s", stderr.String())
 	}
 }
 

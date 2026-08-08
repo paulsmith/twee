@@ -102,5 +102,4 @@ type_human q
 "$TWEE_BIN" wait exit >/dev/null
 trap - EXIT
 rm -rf "$demo_root"
-"$TWEE_BIN" bundle validate "$trace" >/dev/null
-"$TWEE_BIN" bundle info "$trace"
+"$TWEE_BIN" inspect "$trace"
