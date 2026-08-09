@@ -37,7 +37,7 @@ func TestFormatEventToast(t *testing.T) {
 			ev: Event{
 				TMS: 1250, Type: "input", Kind: "mouse",
 				Mouse: &trace.MouseInput{
-					Gesture: "click", X: intPtr(0), Y: intPtr(4), Button: "left",
+					Gesture: "click", X: new(0), Y: new(4), Button: "left",
 					Modifiers: []string{},
 				},
 			},
@@ -48,7 +48,7 @@ func TestFormatEventToast(t *testing.T) {
 			ev: Event{
 				TMS: 2100, Type: "input", Kind: "mouse",
 				Mouse: &trace.MouseInput{
-					Gesture: "hover", X: intPtr(20), Y: intPtr(8),
+					Gesture: "hover", X: new(20), Y: new(8),
 					Modifiers: []string{"ctrl"},
 				},
 			},
@@ -59,7 +59,7 @@ func TestFormatEventToast(t *testing.T) {
 			ev: Event{
 				TMS: 2100, Type: "input", Kind: "mouse",
 				Mouse: &trace.MouseInput{
-					Gesture: "scroll", X: intPtr(20), Y: intPtr(8),
+					Gesture: "scroll", X: new(20), Y: new(8),
 					Direction: "down", Ticks: 3, Modifiers: []string{},
 				},
 			},
@@ -70,8 +70,8 @@ func TestFormatEventToast(t *testing.T) {
 			ev: Event{
 				TMS: 3000, Type: "input", Kind: "mouse",
 				Mouse: &trace.MouseInput{
-					Gesture: "drag", FromX: intPtr(4), FromY: intPtr(2),
-					ToX: intPtr(30), ToY: intPtr(12), Button: "left",
+					Gesture: "drag", FromX: new(4), FromY: new(2),
+					ToX: new(30), ToY: new(12), Button: "left",
 					Modifiers: []string{},
 				},
 			},
@@ -87,4 +87,5 @@ func TestFormatEventToast(t *testing.T) {
 	}
 }
 
-func intPtr(v int) *int { return &v }
+//go:fix inline
+func intPtr(v int) *int { return new(v) }

@@ -1,5 +1,4 @@
 //go:build flake
-// +build flake
 
 package main
 

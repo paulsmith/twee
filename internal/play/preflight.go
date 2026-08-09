@@ -434,7 +434,7 @@ func primaryDAHasSixel(reply []byte) bool {
 		}
 		params := rest[:end]
 		valid := params != ""
-		for _, field := range strings.Split(params, ";") {
+		for field := range strings.SplitSeq(params, ";") {
 			if field == "4" {
 				return true
 			}

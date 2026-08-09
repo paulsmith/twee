@@ -80,8 +80,8 @@ func TestOverlayEndScreenDimsSurroundingCells(t *testing.T) {
 	snap := contentSnapshot(40, 10)
 	overlayEndScreen(&snap)
 
-	for y := 0; y < 10; y++ {
-		for x := 0; x < 40; x++ {
+	for y := range 10 {
+		for x := range 40 {
 			inBox := y >= 3 && y <= 6 && x >= 9 && x <= 30
 			c := snap.Lines[y].Cells[x]
 			if inBox {

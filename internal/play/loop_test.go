@@ -449,9 +449,9 @@ func TestLoopMouseAnnotationReplacementAndInvalidMetadata(t *testing.T) {
 
 func TestValidMouseAnnotationRejectsInvalidScrollTicksAndButtons(t *testing.T) {
 	for _, mouse := range []*trace.MouseInput{
-		{Gesture: "scroll", X: intPtr(1), Y: intPtr(1), Direction: "up"},
-		{Gesture: "click", X: intPtr(1), Y: intPtr(1), Button: "fourth"},
-		{Gesture: "drag", FromX: intPtr(1), FromY: intPtr(1), ToX: intPtr(2), ToY: intPtr(1), Button: "fourth"},
+		{Gesture: "scroll", X: new(1), Y: new(1), Direction: "up"},
+		{Gesture: "click", X: new(1), Y: new(1), Button: "fourth"},
+		{Gesture: "drag", FromX: new(1), FromY: new(1), ToX: new(2), ToY: new(1), Button: "fourth"},
 	} {
 		if validMouseAnnotation(mouse, 10, 3) {
 			t.Fatalf("validMouseAnnotation(%+v) = true, want false", mouse)
@@ -553,7 +553,7 @@ func pixelsEqual(a, b *image.RGBA, region image.Rectangle) bool {
 }
 
 func testMouseClick(x, y int, button string) *trace.MouseInput {
-	return &trace.MouseInput{Gesture: "click", X: intPtr(x), Y: intPtr(y), Button: button}
+	return &trace.MouseInput{Gesture: "click", X: new(x), Y: new(y), Button: button}
 }
 
 // renderedFrame renders the loop's current model the way emitFrame does,

@@ -107,7 +107,7 @@ func TestReplayFPSCapMergesBursts(t *testing.T) {
 	// 10 changes within 100ms at 30fps cap -> at most ceil(100ms/33.3ms)+1
 	// emitted frames, and total duration preserved.
 	var evs []play.Event
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		evs = append(evs, out(int64(1000+i*10), "x"))
 	}
 	frames := collect(t, evs, Options{FPSCap: 30})

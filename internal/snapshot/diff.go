@@ -17,10 +17,7 @@ func UnifiedDiff(expected, actual string) string {
 	gl := strings.Split(actual, "\n")
 	var sb strings.Builder
 	sb.WriteString("--- expected\n+++ actual\n@@ @@\n")
-	maxLen := len(wl)
-	if len(gl) > maxLen {
-		maxLen = len(gl)
-	}
+	maxLen := max(len(gl), len(wl))
 	for i := 0; i < maxLen; i++ {
 		var w, g string
 		if i < len(wl) {

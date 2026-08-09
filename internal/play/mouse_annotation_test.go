@@ -169,8 +169,8 @@ func annotationCanvas() *image.RGBA {
 
 func annotationCanvasWithBackground(background color.RGBA) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, 100, 60))
-	for y := 0; y < 60; y++ {
-		for x := 0; x < 100; x++ {
+	for y := range 60 {
+		for x := range 100 {
 			img.SetRGBA(x, y, background)
 		}
 	}

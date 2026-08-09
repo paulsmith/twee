@@ -35,10 +35,9 @@ func newGIFSink(path string) (*gifSink, error) {
 func (s *gifSink) add(img *image.RGBA, d time.Duration) error {
 	s.g.Image = append(s.g.Image, palettize(img))
 	s.elapsed += d
-	cs := roundedCentiseconds(s.elapsed) - s.emittedCS
-	if cs < 2 {
-		cs = 2 // browsers treat 0-1cs as 100ms.
-	}
+	cs := max(roundedCentiseconds(s.elapsed)-s.emittedCS,
+		// browsers treat 0-1cs as 100ms.
+		2)
 	s.emittedCS += cs
 	s.g.Delay = append(s.g.Delay, cs)
 	s.g.Disposal = append(s.g.Disposal, gif.DisposalNone)

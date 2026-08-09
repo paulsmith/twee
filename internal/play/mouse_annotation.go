@@ -381,17 +381,3 @@ func blendMousePixel(img *image.RGBA, x, y int, color mouseColor, alpha uint8) {
 	img.Pix[i+2] = uint8((int(color.b)*a + int(img.Pix[i+2])*inv) / 255)
 	img.Pix[i+3] = uint8(a + int(img.Pix[i+3])*inv/255)
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}

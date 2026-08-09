@@ -210,7 +210,7 @@ func TestEncodeMouseGesturesAndStateReset(t *testing.T) {
 
 	// Hover must clear the reusable event's previous button. Resetting the
 	// encoder also makes identical high-level hover commands report again.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		hover, hoverErr := term.EncodeMouse(expandMouse(t,
 			input.NewHover(1, 1, nil),
 		))

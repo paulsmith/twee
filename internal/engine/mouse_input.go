@@ -229,25 +229,26 @@ func mouseTraceInput(gesture input.MouseGesture) trace.MouseInput {
 
 	switch gesture.Kind {
 	case input.MouseGestureClick:
-		mouse.X = mouseIntPointer(gesture.Point.X)
-		mouse.Y = mouseIntPointer(gesture.Point.Y)
+		mouse.X = new(gesture.Point.X)
+		mouse.Y = new(gesture.Point.Y)
 		mouse.Button = button.String()
 	case input.MouseGestureHover:
-		mouse.X = mouseIntPointer(gesture.Point.X)
-		mouse.Y = mouseIntPointer(gesture.Point.Y)
+		mouse.X = new(gesture.Point.X)
+		mouse.Y = new(gesture.Point.Y)
 	case input.MouseGestureScroll:
-		mouse.X = mouseIntPointer(gesture.Point.X)
-		mouse.Y = mouseIntPointer(gesture.Point.Y)
+		mouse.X = new(gesture.Point.X)
+		mouse.Y = new(gesture.Point.Y)
 		mouse.Direction = gesture.Direction.String()
 		mouse.Ticks = gesture.Ticks
 	case input.MouseGestureDrag:
-		mouse.FromX = mouseIntPointer(gesture.From.X)
-		mouse.FromY = mouseIntPointer(gesture.From.Y)
-		mouse.ToX = mouseIntPointer(gesture.To.X)
-		mouse.ToY = mouseIntPointer(gesture.To.Y)
+		mouse.FromX = new(gesture.From.X)
+		mouse.FromY = new(gesture.From.Y)
+		mouse.ToX = new(gesture.To.X)
+		mouse.ToY = new(gesture.To.Y)
 		mouse.Button = button.String()
 	}
 	return mouse
 }
 
-func mouseIntPointer(value int) *int { return &value }
+//go:fix inline
+func mouseIntPointer(value int) *int { return new(value) }

@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -85,10 +86,8 @@ func parseDelimitedMouse(b []byte, start int, sgr bool) (end, row int, incomplet
 			if len(parts) != 3 {
 				return 0, 0, false, false
 			}
-			for _, part := range parts {
-				if part == "" {
-					return 0, 0, false, false
-				}
+			if slices.Contains(parts, "") {
+				return 0, 0, false, false
 			}
 			y, err := strconv.Atoi(parts[2])
 			if err != nil || y < 1 {

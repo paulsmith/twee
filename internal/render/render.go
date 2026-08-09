@@ -247,15 +247,9 @@ func cellRect(bounds image.Rectangle, cols, rows, cx, cy, width int) image.Recta
 		width = 1
 	}
 	x1 := bounds.Min.X + cx*bounds.Dx()/cols
-	x2 := bounds.Min.X + (cx+width)*bounds.Dx()/cols
-	if x2 > bounds.Max.X {
-		x2 = bounds.Max.X
-	}
+	x2 := min(bounds.Min.X+(cx+width)*bounds.Dx()/cols, bounds.Max.X)
 	y1 := bounds.Min.Y + cy*bounds.Dy()/rows
-	y2 := bounds.Min.Y + (cy+1)*bounds.Dy()/rows
-	if y2 > bounds.Max.Y {
-		y2 = bounds.Max.Y
-	}
+	y2 := min(bounds.Min.Y+(cy+1)*bounds.Dy()/rows, bounds.Max.Y)
 	return image.Rect(x1, y1, x2, y2)
 }
 

@@ -170,10 +170,7 @@ func replay(events []play.Event, cols, rows int, opts Options,
 			return err
 		}
 	}
-	tail := end - pendingT
-	if tail > trailingCap {
-		tail = trailingCap
-	}
+	tail := min(end-pendingT, trailingCap)
 	if tail < window {
 		tail = window
 	}
@@ -185,10 +182,7 @@ func adjustedTimeline(events []play.Event, opts Options) []time.Duration {
 	var prev, adj time.Duration
 	for i, ev := range events {
 		t := ev.TraceTime()
-		gap := t - prev
-		if gap < 0 {
-			gap = 0
-		}
+		gap := max(t-prev, 0)
 		if opts.MaxIdle > 0 && gap > opts.MaxIdle {
 			gap = opts.MaxIdle
 		}

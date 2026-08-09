@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"maps"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -54,16 +55,14 @@ func TestConcurrentInputsAndResize(t *testing.T) {
 	errs := make(chan error, 8*iterations)
 	var wg sync.WaitGroup
 	run := func(operation func(int) error) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < iterations; i++ {
+		wg.Go(func() {
+			for i := range iterations {
 				if err := operation(i); err != nil {
 					errs <- err
 					return
 				}
 			}
-		}()
+		})
 	}
 	run(func(int) error { return term.Type("x") })
 	run(func(int) error { return term.Key(input.KeyTab) })
@@ -149,7 +148,6 @@ func TestConcurrentLogicalInputsRemainContiguous(t *testing.T) {
 
 	launched := make(chan struct{}, len(operations))
 	for _, op := range operations {
-		op := op
 		go func() {
 			launched <- struct{}{}
 			results <- result{op.name, op.run()}
@@ -219,9 +217,7 @@ func TestConcurrentLogicalInputsRemainContiguous(t *testing.T) {
 func assertContiguousLogicalWrites(t *testing.T, got []byte, want map[string][]byte) {
 	t.Helper()
 	remaining := make(map[string][]byte, len(want))
-	for name, b := range want {
-		remaining[name] = b
-	}
+	maps.Copy(remaining, want)
 	for len(got) > 0 {
 		matched := ""
 		for name, b := range remaining {

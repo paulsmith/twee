@@ -4,6 +4,7 @@ package engine
 
 import (
 	"errors"
+	"maps"
 	"os"
 	"sort"
 	"strings"
@@ -93,9 +94,7 @@ func (c *Config) BuildEnv() []string {
 			env[k] = v
 		}
 	}
-	for k, v := range c.Env {
-		env[k] = v
-	}
+	maps.Copy(env, c.Env)
 
 	keys := make([]string, 0, len(env))
 	for k := range env {

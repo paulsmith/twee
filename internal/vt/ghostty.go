@@ -3,6 +3,7 @@ package vt
 import (
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 
@@ -602,12 +603,7 @@ func requiredTracking(gesture input.MouseGestureKind) []MouseTracking {
 }
 
 func containsTracking(modes []MouseTracking, mode MouseTracking) bool {
-	for _, candidate := range modes {
-		if candidate == mode {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(modes, mode)
 }
 
 func batchHasModifiers(events []input.MouseEvent) bool {

@@ -81,7 +81,7 @@ func snapshotCell(line vt.Line, col int) vt.Cell {
 
 func changedCellSpan(before, after vt.Line, cols int) (int, int, bool) {
 	first, last := -1, -1
-	for col := 0; col < cols; col++ {
+	for col := range cols {
 		if cellsVisuallyEqual(snapshotCell(before, col), snapshotCell(after, col)) {
 			continue
 		}

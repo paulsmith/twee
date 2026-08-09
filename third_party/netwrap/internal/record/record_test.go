@@ -228,7 +228,7 @@ func TestConcurrentRecordingWritesEachEventOnce(t *testing.T) {
 	start := make(chan struct{})
 	errorsByEvent := make(chan error, events*2)
 	var wg sync.WaitGroup
-	for i := 0; i < events; i++ {
+	for i := range events {
 		wg.Add(2)
 		go func(id int) {
 			defer wg.Done()

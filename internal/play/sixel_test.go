@@ -10,8 +10,8 @@ import (
 
 func TestEncodeSixelGoldenTwoColors(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 4, 6))
-	for y := 0; y < 6; y++ {
-		for x := 0; x < 4; x++ {
+	for y := range 6 {
+		for x := range 4 {
 			c := color.RGBA{R: 255, A: 255}
 			if x >= 2 {
 				c = color.RGBA{B: 255, A: 255}
@@ -33,7 +33,7 @@ func TestEncodeSixelGoldenTwoColors(t *testing.T) {
 
 func TestEncodeSixelRLEAndDeterminism(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 5, 1))
-	for x := 0; x < 5; x++ {
+	for x := range 5 {
 		img.SetRGBA(x, 0, color.RGBA{R: 255, A: 255})
 	}
 	var first, second bytes.Buffer
@@ -53,7 +53,7 @@ func TestEncodeSixelRLEAndDeterminism(t *testing.T) {
 
 func TestSixelPalettizeLimitsColors(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 257, 1))
-	for x := 0; x < 257; x++ {
+	for x := range 257 {
 		img.SetRGBA(x, 0, color.RGBA{R: uint8(x), G: uint8(x >> 8), B: uint8(255 - x), A: 255})
 	}
 	got := sixelPalettize(img)

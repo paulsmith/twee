@@ -187,8 +187,8 @@ func requireSeparateValues(args []string, names ...string) error {
 	}
 	for i, a := range args {
 		name := a
-		if idx := strings.IndexByte(a, '='); idx >= 0 {
-			name = a[:idx]
+		if before, _, ok := strings.Cut(a, "="); ok {
+			name = before
 		}
 		if !wanted[name] || strings.Contains(a, "=") {
 			continue
@@ -259,8 +259,8 @@ func rejectDuplicateFlags(args []string, flags ...string) error {
 	seen := make(map[string]bool, len(flags))
 	for _, a := range args {
 		name := a
-		if idx := strings.IndexByte(a, '='); idx >= 0 {
-			name = a[:idx]
+		if before, _, ok := strings.Cut(a, "="); ok {
+			name = before
 		}
 		if !want[name] {
 			continue

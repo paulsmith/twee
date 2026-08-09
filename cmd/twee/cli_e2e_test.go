@@ -376,8 +376,8 @@ func envValue(t *testing.T, env []string, key string) string {
 	t.Helper()
 	prefix := key + "="
 	for _, item := range env {
-		if strings.HasPrefix(item, prefix) {
-			return strings.TrimPrefix(item, prefix)
+		if after, ok := strings.CutPrefix(item, prefix); ok {
+			return after
 		}
 	}
 	t.Fatalf("env missing %s", key)

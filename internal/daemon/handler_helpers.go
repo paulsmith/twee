@@ -56,8 +56,8 @@ func acceptedArgKeys[T any]() []string {
 		return nil
 	}
 	keys := make([]string, 0, t.NumField())
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
+	for f := range t.Fields() {
+		f := f
 		tag, ok := f.Tag.Lookup("json")
 		if !ok {
 			keys = append(keys, f.Name)

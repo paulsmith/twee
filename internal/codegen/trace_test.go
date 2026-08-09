@@ -54,16 +54,14 @@ func TestNextRecorderPathConcurrentReservations(t *testing.T) {
 	errs := make(chan error, n)
 	var wg sync.WaitGroup
 	for range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			p, e := nextRecorderPathInDir(dir, "twee-script", ".json", now)
 			if e != nil {
 				errs <- e
 				return
 			}
 			paths <- p
-		}()
+		})
 	}
 	wg.Wait()
 	close(paths)

@@ -1,7 +1,6 @@
 package tuitest
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -21,8 +20,7 @@ func TestRunHelloWorld(t *testing.T) {
 }
 
 func TestCloseTerminatesProcess(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	term, err := Start(ctx, Command("/bin/sh", "-c", "sleep 30"), Size(40, 5))
 	if err != nil {
 		t.Fatal(err)

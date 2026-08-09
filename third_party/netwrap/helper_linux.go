@@ -276,7 +276,7 @@ func waitReady(fd int) error {
 func moveExtraFiles(count int) error {
 	// The helper control socket and status pipe consume fds 3 and 4, so os/exec
 	// places user files at fd 5 onward.
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if err := unix.Dup3(helperExtraFD+i, 3+i, 0); err != nil {
 			return fmt.Errorf("move permitted file descriptor %d: %w", i, err)
 		}
@@ -363,7 +363,7 @@ func verifyCapabilitySets() error {
 		return fmt.Errorf("verify capabilities: %w", err)
 	}
 	wanted := map[string]bool{"CapInh:": true, "CapPrm:": true, "CapEff:": true, "CapBnd:": true, "CapAmb:": true}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 2 && wanted[fields[0]] {
 			if strings.TrimLeft(fields[1], "0") != "" {
@@ -407,8 +407,8 @@ func lookPath(file string, env []string) (string, error) {
 	}
 	pathEnv := ""
 	for _, item := range env {
-		if strings.HasPrefix(item, "PATH=") {
-			pathEnv = strings.TrimPrefix(item, "PATH=")
+		if after, ok := strings.CutPrefix(item, "PATH="); ok {
+			pathEnv = after
 		}
 	}
 	if pathEnv == "" {

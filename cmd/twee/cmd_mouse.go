@@ -90,7 +90,7 @@ func parseClickArgs(args []string) (*string, rpc.ClickArgs, error) {
 		return nil, rpc.ClickArgs{}, err
 	}
 	return opts.Name, rpc.ClickArgs{
-		X: intPointer(opts.X), Y: intPointer(opts.Y),
+		X: new(opts.X), Y: new(opts.Y),
 		Button: button, Modifiers: modifiers,
 	}, nil
 }
@@ -113,7 +113,7 @@ func parseHoverArgs(args []string) (*string, rpc.HoverArgs, error) {
 		return nil, rpc.HoverArgs{}, err
 	}
 	return opts.Name, rpc.HoverArgs{
-		X: intPointer(opts.X), Y: intPointer(opts.Y), Modifiers: modifiers,
+		X: new(opts.X), Y: new(opts.Y), Modifiers: modifiers,
 	}, nil
 }
 
@@ -144,7 +144,7 @@ func parseScrollArgs(args []string) (*string, rpc.ScrollArgs, error) {
 		return nil, rpc.ScrollArgs{}, err
 	}
 	return opts.Name, rpc.ScrollArgs{
-		X: intPointer(opts.X), Y: intPointer(opts.Y),
+		X: new(opts.X), Y: new(opts.Y),
 		Direction: direction.String(), Ticks: opts.Ticks, Modifiers: modifiers,
 	}, nil
 }
@@ -176,8 +176,8 @@ func parseDragArgs(args []string) (*string, rpc.DragArgs, error) {
 		return nil, rpc.DragArgs{}, err
 	}
 	return opts.Name, rpc.DragArgs{
-		FromX: intPointer(opts.FromX), FromY: intPointer(opts.FromY),
-		ToX: intPointer(opts.ToX), ToY: intPointer(opts.ToY),
+		FromX: new(opts.FromX), FromY: new(opts.FromY),
+		ToX: new(opts.ToX), ToY: new(opts.ToY),
 		Button: button, Modifiers: modifiers,
 	}, nil
 }
@@ -210,4 +210,5 @@ func parseMouseModifiers(values []string) ([]string, error) {
 	return modifiers, nil
 }
 
-func intPointer(value int) *int { return &value }
+//go:fix inline
+func intPointer(value int) *int { return new(value) }

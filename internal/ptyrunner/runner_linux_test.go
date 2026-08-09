@@ -218,7 +218,7 @@ func TestCancellationRacingCloseAndRepeatedOperations(t *testing.T) {
 
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -263,7 +263,7 @@ func processGroupFromProc(t *testing.T, pid int) int {
 }
 
 func TestImmediateContextCancellationDoesNotMissProcessGroup(t *testing.T) {
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		r, err := Start(ctx, Config{Command: []string{"/bin/sh", "-c", "sleep 30"}})

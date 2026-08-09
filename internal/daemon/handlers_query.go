@@ -61,10 +61,7 @@ func handleRegion(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	out := make([][]rpc.CellData, 0, a.H)
 	for y := a.Y; y < a.Y+a.H && y < len(snap.Lines); y++ {
 		row := snap.Lines[y].Cells
-		end := a.X + a.W
-		if end > len(row) {
-			end = len(row)
-		}
+		end := min(a.X+a.W, len(row))
 		if a.X < 0 || a.X > end {
 			out = append(out, []rpc.CellData{})
 			continue

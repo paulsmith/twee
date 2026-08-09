@@ -596,11 +596,11 @@ func TestTraceConcurrentWrites(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			for j := 0; j < 50; j++ {
+			for range 50 {
 				tr.WriteOutput([]byte("data"), time.Now())
 				tr.WriteInput("type", "", []byte("x"))
 			}

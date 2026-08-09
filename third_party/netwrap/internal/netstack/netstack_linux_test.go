@@ -245,13 +245,11 @@ func TestTCPAdmissionConcurrentRejectedRetransmitsAreDeduplicated(t *testing.T) 
 	pkt := testSYNPacket(t)
 	var wg sync.WaitGroup
 	for range 64 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if !admission.handlePacket(id, pkt) {
 				t.Error("rejected SYN was not handled")
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if got := len(sink.snapshot()); got != 1 {
@@ -302,7 +300,7 @@ func TestUDPForwarderDeliversBackToBackDatagrams(t *testing.T) {
 	received := make(map[string]int)
 	buf := make([]byte, 2048)
 	deadline := time.Now().Add(5 * time.Second)
-	for count := 0; count < datagrams; count++ {
+	for count := range datagrams {
 		if err := listener.SetReadDeadline(deadline); err != nil {
 			t.Fatalf("set host read deadline: %v", err)
 		}

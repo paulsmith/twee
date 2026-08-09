@@ -535,10 +535,7 @@ func (p *linuxProcess) supervise() {
 			// remains in the managed process group after the leader exits.
 			close(p.exiting)
 			if stopping && !cleanupDeadline.IsZero() {
-				cleanupGrace = time.Until(cleanupDeadline)
-				if cleanupGrace < 0 {
-					cleanupGrace = 0
-				}
+				cleanupGrace = max(time.Until(cleanupDeadline), 0)
 			}
 			if cleanupDeadline.IsZero() {
 				cleanupDeadline = time.Now().Add(cleanupGrace)
@@ -554,10 +551,7 @@ func (p *linuxProcess) supervise() {
 			result = leader.result
 			namespaceGrace := cleanupGrace
 			if !cleanupDeadline.IsZero() {
-				namespaceGrace = time.Until(cleanupDeadline)
-				if namespaceGrace < 0 {
-					namespaceGrace = 0
-				}
+				namespaceGrace = max(time.Until(cleanupDeadline), 0)
 			}
 			namespaceErr := finishNetworkNamespaceProcesses(p.networkNS, p.pid(), namespaceGrace)
 			if leader.pinned {
@@ -942,7 +936,7 @@ func hostDNSAddress() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("netwrap: read host DNS config: %w", err)
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 || fields[0] != "nameserver" {
 			continue

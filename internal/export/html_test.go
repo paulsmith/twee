@@ -305,11 +305,11 @@ func TestHTMLViewerBehavior(t *testing.T) {
 		t.Skip("node is not installed")
 	}
 	const executableScript = "<script>\n"
-	start := strings.Index(htmlSuffix, executableScript)
-	if start < 0 {
+	_, after, ok := strings.Cut(htmlSuffix, executableScript)
+	if !ok {
 		t.Fatal("HTML suffix is missing executable script")
 	}
-	script := htmlSuffix[start+len(executableScript):]
+	script := after
 	end := strings.Index(script, "\n</script>")
 	if end < 0 {
 		t.Fatal("HTML suffix is missing executable script terminator")

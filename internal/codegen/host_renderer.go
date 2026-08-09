@@ -101,10 +101,7 @@ func (r *hostRenderer) close() {
 }
 
 func (r *hostRenderer) paintStatus(line string, cols int) {
-	padding := cols - statusWidth(line)
-	if padding < 0 {
-		padding = 0
-	}
+	padding := max(cols-statusWidth(line), 0)
 	fmt.Fprintf(r.w, "\x1b[%d;1H\x1b[0m\x1b[2K\x1b[7m%s%s\x1b[0m", r.hostRows, line, strings.Repeat(" ", padding))
 }
 

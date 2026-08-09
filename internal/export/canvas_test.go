@@ -2,6 +2,7 @@ package export
 
 import (
 	"image/color"
+	"strings"
 	"testing"
 
 	"github.com/paulsmith/twee/internal/vt"
@@ -148,15 +149,15 @@ func TestOverlayRowPadsAndTruncates(t *testing.T) {
 	if len(line.Cells) != 5 {
 		t.Fatalf("cells = %d, want 5", len(line.Cells))
 	}
-	got := ""
+	var got strings.Builder
 	for _, c := range line.Cells {
-		got += c.Text
+		got.WriteString(c.Text)
 		if !c.Inverse {
 			t.Errorf("cell %+v not reverse-video", c)
 		}
 	}
-	if got != "hi   " {
-		t.Errorf("row text = %q, want %q", got, "hi   ")
+	if got.String() != "hi   " {
+		t.Errorf("row text = %q, want %q", got.String(), "hi   ")
 	}
 
 	truncated := overlayRow("way too long for three cells", 3)
