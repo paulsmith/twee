@@ -189,24 +189,6 @@ func TestParseStartArgsRejectsEmptyEnvKey(t *testing.T) {
 	}
 }
 
-func TestSplitKV(t *testing.T) {
-	for _, tt := range []struct {
-		in        string
-		key, val  string
-		wantFound bool
-	}{
-		{"A=B", "A", "B", true},
-		{"A=", "A", "", true},
-		{"=B", "", "B", true},
-		{"NOPE", "", "", false},
-	} {
-		key, val, ok := splitKV(tt.in)
-		if key != tt.key || val != tt.val || ok != tt.wantFound {
-			t.Fatalf("splitKV(%q) = %q %q %v", tt.in, key, val, ok)
-		}
-	}
-}
-
 func TestParseEnvOverrides(t *testing.T) {
 	overrides, err := parseEnvOverrides([]string{"A=first", "EMPTY=", "A=last"})
 	if err != nil {

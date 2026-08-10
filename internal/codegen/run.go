@@ -567,7 +567,7 @@ func readPTY(r io.ReadWriter, events chan<- any) {
 			events <- outputEvent{bytes: append([]byte(nil), buf[:n]...), ts: time.Now()}
 		}
 		if err != nil {
-			if !errors.Is(err, os.ErrClosed) && !errors.Is(err, syscall.EIO) && err != io.EOF {
+			if !errors.Is(err, os.ErrClosed) && !errors.Is(err, syscall.EIO) && !errors.Is(err, io.EOF) {
 				events <- fatalEvent{err: err}
 			}
 			return

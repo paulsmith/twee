@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -99,6 +100,7 @@ func TestExpectedEOFDetection(t *testing.T) {
 		want bool
 	}{
 		{"eof", io.EOF, true},
+		{"wrapped eof", fmt.Errorf("read: %w", io.EOF), true},
 		{"unexpected eof", io.ErrUnexpectedEOF, true},
 		{"eio text", errors.New("read /dev/ptmx: input/output error"), true},
 		{"closed pty text", errors.New("i/o error on closed pty"), true},

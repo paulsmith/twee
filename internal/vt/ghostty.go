@@ -322,7 +322,7 @@ func (g *ghosttyTerm) EncodeMouse(events []input.MouseEvent) (MouseEncodingResul
 	}
 
 	required := requiredTracking(gesture)
-	if !containsTracking(required, observedTracking) {
+	if !slices.Contains(required, observedTracking) {
 		return MouseEncodingResult{}, &MouseEncodeError{
 			Reason: MouseErrorIncompatible, Gesture: gesture,
 			Tracking: observedTracking, Format: state.Format, Required: required,
@@ -600,10 +600,6 @@ func requiredTracking(gesture input.MouseGestureKind) []MouseTracking {
 	default:
 		return nil
 	}
-}
-
-func containsTracking(modes []MouseTracking, mode MouseTracking) bool {
-	return slices.Contains(modes, mode)
 }
 
 func batchHasModifiers(events []input.MouseEvent) bool {

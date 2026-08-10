@@ -205,22 +205,13 @@ func requireSeparateValues(args []string, names ...string) error {
 func parseEnvOverrides(values []string) (map[string]string, error) {
 	overrides := make(map[string]string, len(values))
 	for _, value := range values {
-		key, val, ok := splitKV(value)
+		key, val, ok := strings.Cut(value, "=")
 		if !ok || key == "" {
 			return nil, fmt.Errorf("bad --env value %q (want KEY=VALUE)", value)
 		}
 		overrides[key] = val
 	}
 	return overrides, nil
-}
-
-func splitKV(s string) (string, string, bool) {
-	for i := 0; i < len(s); i++ {
-		if s[i] == '=' {
-			return s[:i], s[i+1:], true
-		}
-	}
-	return "", "", false
 }
 
 // hintDashValue augments a missing-value error when the token after the

@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -105,7 +106,7 @@ func (p *Pump) Run() error {
 }
 
 func isExpectedEOF(err error) bool {
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		return true
 	}
 	// On Linux, reading from a PTY master after the slave closes
@@ -123,10 +124,8 @@ func isExpectedEOF(err error) bool {
 
 func containsAny(s string, subs ...string) bool {
 	for _, sub := range subs {
-		for i := 0; i+len(sub) <= len(s); i++ {
-			if s[i:i+len(sub)] == sub {
-				return true
-			}
+		if strings.Contains(s, sub) {
+			return true
 		}
 	}
 	return false
