@@ -45,8 +45,7 @@ func runWrap(args []string) {
 	}
 	if err := codegen.Run(context.Background(), opts); err != nil {
 		fmt.Fprintf(os.Stderr, "twee wrap: %v\n", err)
-		var exitErr *codegen.ExitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := errors.AsType[*codegen.ExitError](err); ok {
 			os.Exit(exitErr.Code)
 		}
 		os.Exit(1)

@@ -15,6 +15,16 @@ import (
 // scaffolding. libghostty's terminal is not safe for concurrent use; the
 // pump's mutex is the single serialization point.
 type ghosttyTerm struct {
+	*ghosttyResources
+
+	cleanup runtime.Cleanup
+	replies *ptyReplies
+}
+
+// ghosttyResources contains the C-side resources owned by ghosttyTerm. It is
+// deliberately separate from ghosttyTerm so it can be passed to AddCleanup
+// without keeping the term itself reachable.
+type ghosttyResources struct {
 	t  *libghostty.Terminal
 	rs *libghostty.RenderState
 	ri *libghostty.RenderStateRowIterator
@@ -22,7 +32,6 @@ type ghosttyTerm struct {
 
 	mouseEncoder *libghostty.MouseEncoder
 	mouseEvent   *libghostty.MouseEvent
-	replies      *ptyReplies
 }
 type ptyReplies struct {
 	mu   sync.Mutex
@@ -74,15 +83,15 @@ func newGhosttyTerm(cols, rows int) *ghosttyTerm {
 		t.Close()
 		panic(fmt.Errorf("vt: NewMouseEvent: %w", err))
 	}
-	g := &ghosttyTerm{
+	resources := &ghosttyResources{
 		t: t, rs: rs, ri: ri, rc: rc,
 		mouseEncoder: mouseEncoder, mouseEvent: mouseEvent,
-		replies: replies,
 	}
+	g := &ghosttyTerm{ghosttyResources: resources, replies: replies}
 	// libghostty owns C-side allocations; release them on GC. Tests create
-	// many short-lived models — without a finalizer the cgo footprint grows
+	// many short-lived models — without cleanup the cgo footprint grows
 	// for the duration of the process.
-	runtime.SetFinalizer(g, (*ghosttyTerm).finalize)
+	g.cleanup = runtime.AddCleanup(g, (*ghosttyResources).close, resources)
 	return g
 }
 
@@ -95,12 +104,17 @@ func (g *ghosttyTerm) DrainPTYReplies() [][]byte {
 }
 
 func (g *ghosttyTerm) finalize() {
-	g.mouseEvent.Close()
-	g.mouseEncoder.Close()
-	g.rc.Close()
-	g.ri.Close()
-	g.rs.Close()
-	g.t.Close()
+	g.cleanup.Stop()
+	g.ghosttyResources.close()
+}
+
+func (r *ghosttyResources) close() {
+	r.mouseEvent.Close()
+	r.mouseEncoder.Close()
+	r.rc.Close()
+	r.ri.Close()
+	r.rs.Close()
+	r.t.Close()
 }
 
 func (g *ghosttyTerm) Feed(p []byte) error {

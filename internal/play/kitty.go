@@ -117,10 +117,7 @@ func writeKittyData(w io.Writer, data []byte, p kittyPlacement) error {
 	encoded := make([]byte, base64.StdEncoding.EncodedLen(len(data)))
 	base64.StdEncoding.Encode(encoded, data)
 	for first := true; len(encoded) > 0 || first; first = false {
-		n := p.chunkSize
-		if n > len(encoded) {
-			n = len(encoded)
-		}
+		n := min(p.chunkSize, len(encoded))
 		chunk := encoded[:n]
 		encoded = encoded[n:]
 		more := 0

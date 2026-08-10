@@ -663,8 +663,8 @@ func commandResult(err error) Result {
 	if err == nil {
 		return Result{ExitCode: 0}
 	}
-	var exitError *exec.ExitError
-	if !errors.As(err, &exitError) {
+	exitError, ok := errors.AsType[*exec.ExitError](err)
+	if !ok {
 		return Result{ExitCode: 125}
 	}
 	status, ok := exitError.Sys().(syscall.WaitStatus)

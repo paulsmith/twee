@@ -217,8 +217,8 @@ func (e *MouseEncodeError) Unwrap() error {
 
 // Is allows errors.Is to match any MouseEncodeError with the target reason.
 func (e *MouseEncodeError) Is(target error) bool {
-	var other *MouseEncodeError
-	return errors.As(target, &other) && (other.Reason == "" || e.Reason == other.Reason)
+	other, ok := errors.AsType[*MouseEncodeError](target)
+	return ok && (other.Reason == "" || e.Reason == other.Reason)
 }
 
 var (

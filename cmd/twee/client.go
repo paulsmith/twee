@@ -34,8 +34,8 @@ func (e *dialError) Unwrap() error { return e.err }
 // so a script can branch on error.details.name the same way it can on
 // error.code.
 func dialErrorDetails(err error) json.RawMessage {
-	var de *dialError
-	if !errors.As(err, &de) {
+	de, ok := errors.AsType[*dialError](err)
+	if !ok {
 		return nil
 	}
 	details, _ := json.Marshal(map[string]string{"name": de.name})
@@ -93,8 +93,7 @@ func nextID() string {
 // transportErrorCode classifies a callDaemon error: unreachable socket
 // means the session is gone (NOT_FOUND); anything else is an I/O fault.
 func transportErrorCode(err error) string {
-	var de *dialError
-	if errors.As(err, &de) {
+	if _, ok := errors.AsType[*dialError](err); ok {
 		return rpc.CodeNotFound
 	}
 	return rpc.CodeIO

@@ -188,8 +188,7 @@ func isDaemonGone(err error) bool {
 	if errors.Is(err, fs.ErrNotExist) {
 		return true
 	}
-	var oe *net.OpError
-	if errors.As(err, &oe) {
+	if oe, ok := errors.AsType[*net.OpError](err); ok {
 		if oe.Op == "dial" {
 			return true
 		}

@@ -3,7 +3,6 @@ package vt
 import (
 	"errors"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -14,7 +13,6 @@ func newMouseTestTerm(t *testing.T, cols, rows int) *ghosttyTerm {
 	t.Helper()
 	term := newGhosttyTerm(cols, rows)
 	t.Cleanup(func() {
-		runtime.SetFinalizer(term, nil)
 		term.finalize()
 	})
 	return term

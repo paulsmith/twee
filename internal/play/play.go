@@ -110,16 +110,10 @@ func Run(path string, opts Options) error {
 	terminalCols := terminal.Cols
 	terminalRows := terminal.Rows
 	if terminalCols <= 0 {
-		terminalCols = bundle.MaxCols
-		if terminalCols < 1 {
-			terminalCols = 1
-		}
+		terminalCols = max(bundle.MaxCols, 1)
 	}
 	if terminalRows <= 0 {
-		terminalRows = bundle.MaxRows + 2
-		if terminalRows < 3 {
-			terminalRows = 3
-		}
+		terminalRows = max(bundle.MaxRows+2, 3)
 	}
 
 	sink := opts.sink

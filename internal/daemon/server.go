@@ -52,11 +52,7 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 			}
 			return err
 		}
-		s.wg.Add(1)
-		go func(c net.Conn) {
-			defer s.wg.Done()
-			s.handleConn(c)
-		}(conn)
+		s.wg.Go(func() { s.handleConn(conn) })
 	}
 }
 

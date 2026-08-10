@@ -52,9 +52,7 @@ func runLs(args []string) {
 			continue
 		}
 		name := strings.TrimSuffix(e.Name(), ".sock")
-		wg.Add(1)
-		go func(name string) {
-			defer wg.Done()
+		wg.Go(func() {
 			path := filepath.Join(dir, name+".sock")
 			c, err := dialUnixSocketTimeout(path, 500*time.Millisecond)
 			if err != nil {
@@ -81,7 +79,7 @@ func runLs(args []string) {
 			mu.Lock()
 			out = append(out, result{Name: name, StatusData: sd})
 			mu.Unlock()
-		}(name)
+		})
 	}
 	wg.Wait()
 	emitOK(out)

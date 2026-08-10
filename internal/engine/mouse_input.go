@@ -121,8 +121,8 @@ func prevalidateMouseCoordinates(gesture input.MouseGesture, size vt.Size) error
 }
 
 func classifyMouseEncodeError(err error, gesture input.MouseGestureKind) error {
-	var mouseErr *vt.MouseEncodeError
-	if !errors.As(err, &mouseErr) {
+	mouseErr, ok := errors.AsType[*vt.MouseEncodeError](err)
+	if !ok {
 		// The VT contract promises typed validation and capability errors.
 		// Preserve an unexpected backend failure as an internal error rather
 		// than falsely labelling it as either an argument or PTY I/O failure.

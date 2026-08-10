@@ -80,8 +80,7 @@ type exitInfo struct {
 }
 
 func exitInfoFromProcessState(err error, state *os.ProcessState) exitInfo {
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if _, ok := errors.AsType[*exec.ExitError](err); ok {
 		// A command exit is status, not a runner failure. Backends report
 		// setup, supervision, and I/O failures through Err instead.
 		err = nil

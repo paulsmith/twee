@@ -20,8 +20,7 @@ type recordingSink struct {
 
 func (s *recordingSink) RecordPacket(at time.Time, direction netstack.Direction, packet []byte) error {
 	err := s.recorder.RecordPacket(at, record.Direction(direction), packet)
-	var limit *record.ErrCaptureLimit
-	if errors.As(err, &limit) {
+	if limit, ok := errors.AsType[*record.ErrCaptureLimit](err); ok {
 		s.limit.Do(func() {
 			fmt.Fprintf(s.warnings, "netwrap: packet capture stopped at the %s byte limit; network forwarding continues\n", strconv.FormatInt(limit.Limit, 10))
 		})

@@ -170,10 +170,7 @@ func replay(events []play.Event, cols, rows int, opts Options,
 			return err
 		}
 	}
-	tail := min(end-pendingT, trailingCap)
-	if tail < window {
-		tail = window
-	}
+	tail := max(min(end-pendingT, trailingCap), window)
 	return emit(pendingSnap, pendingOverlay, tail)
 }
 

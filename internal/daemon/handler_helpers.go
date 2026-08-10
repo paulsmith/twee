@@ -57,7 +57,6 @@ func acceptedArgKeys[T any]() []string {
 	}
 	keys := make([]string, 0, t.NumField())
 	for f := range t.Fields() {
-		f := f
 		tag, ok := f.Tag.Lookup("json")
 		if !ok {
 			keys = append(keys, f.Name)
@@ -96,8 +95,8 @@ func ioFailure(err error) *rpc.Error {
 }
 
 func engineFailure(err error) *rpc.Error {
-	var requestErr *engine.RequestError
-	if !errors.As(err, &requestErr) {
+	requestErr, ok := errors.AsType[*engine.RequestError](err)
+	if !ok {
 		return internalFailure(err)
 	}
 

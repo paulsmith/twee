@@ -47,8 +47,7 @@ func runStart(args []string) {
 	msg, err := daemonize(opts.name, opts.dir, opts.cmd, opts.cols, opts.rows, opts.env, opts.trace, opts.networkCapture, opts.publishTCP)
 	if err != nil {
 		code := rpc.CodeIO
-		var collision *alreadyRunningError
-		if errors.As(err, &collision) {
+		if _, ok := errors.AsType[*alreadyRunningError](err); ok {
 			code = rpc.CodeAlreadyRunning
 		}
 		details := msg.ErrorDetails

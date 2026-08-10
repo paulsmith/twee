@@ -144,10 +144,7 @@ func (l *loop) tick(now time.Time) (done bool) {
 
 	dispatchReady := commandDispatch
 	if !skipAdvance && !l.paused && !l.atEnd {
-		dt := now.Sub(l.wallPrev)
-		if dt < 0 {
-			dt = 0
-		}
+		dt := max(now.Sub(l.wallPrev), 0)
 		l.wallPrev = now
 		if l.cursor < len(l.events) && l.maxIdle > 0 {
 			gap := l.events[l.cursor].TraceTime() - l.playT
@@ -337,10 +334,7 @@ func (l *loop) mouseFrame(now time.Time) (*trace.MouseInput, float64, int, uint6
 	if l.mouse == nil {
 		return nil, 0, -1, l.mouseGeneration
 	}
-	elapsed := now.Sub(l.mouse.started)
-	if elapsed < 0 {
-		elapsed = 0
-	}
+	elapsed := max(now.Sub(l.mouse.started), 0)
 	if elapsed >= mouseAnnotationDuration {
 		l.mouse = nil
 		return nil, 0, -1, l.mouseGeneration
