@@ -5,8 +5,9 @@
 # in `make twee`.
 
 VERSION := $(shell jj log -r @ -T 'change_id.short()' --no-graph 2>/dev/null || echo dev)
+LDFLAGS := -X main.Version=$(VERSION)
 
-.PHONY: all build test coverage smoke twee install clean check-env
+.PHONY: all build test coverage install clean check-env
 
 all: build
 
@@ -16,25 +17,23 @@ check-env:
 		echo "Enter the dev shell first: nix develop (or direnv allow)." >&2; \
 		exit 1; }
 
-twee: check-env
-	go build -o ./bin/twee -ldflags "-X main.Version=$(VERSION)" ./cmd/twee
-
-build: twee
-	go build ./...
+build: check-env
+	go build -o build/twee -ldflags "$(LDFLAGS)" ./cmd/twee
 
 test: check-env
 	go test ./...
+
+check: test
+	go fix -diff ./...
+	go vet ./...
+	golangci-lint run
 
 coverage: check-env
 	go test ./... -coverprofile=coverage.out -covermode=atomic
 	go tool cover -func=coverage.out
 
-smoke: check-env
-	go run ./cmd/libghostty-smoke
-
-install:
-	nix build
-	install -m 0755 ./result/bin/twee $(HOME)/.local/bin
+install: build
+	install -m 0755 build/twee $(HOME)/.local/bin
 
 clean:
-	rm -rf bin build coverage.out
+	-rm -f build/* coverage.out
