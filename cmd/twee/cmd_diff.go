@@ -8,7 +8,8 @@ func init() {
 	register("diff", runDiff)
 	registerUsage("diff", `twee diff --against <path> [--name <name>]
 Text diff between the current visible viewport and a saved text-snapshot
-file. Always exits 0; branch on data.equal. Returns:
+file. A completed comparison exits 0 whether equal or unequal; branch on
+data.equal. Usage, file, session, and transport failures exit nonzero. Returns:
   {equal: bool, unified: string, current: string, expected: string}
 where "unified" is a 3-line-context unified diff.`)
 }
