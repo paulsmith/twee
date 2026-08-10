@@ -50,6 +50,13 @@ type Pump struct {
 	onOutput func(bytes []byte, t time.Time)
 }
 
+// Rect is a rectangle of terminal cells to omit from a stable-screen
+// comparison. Coordinates are clipped to each snapshot's live viewport.
+type Rect struct {
+	X, Y int
+	W, H int
+}
+
 // New constructs a Pump. The caller must call Run in a goroutine.
 func New(model vt.Model, r io.Reader) *Pump {
 	p := &Pump{
@@ -368,6 +375,136 @@ func (p *Pump) WaitStable(ctx context.Context, quietFor, timeout time.Duration) 
 			return ErrTimeout
 		}
 	}
+}
+
+// WaitStableExcept waits for the portion of the screen outside excluded to
+// remain unchanged for quietFor. It intentionally compares snapshots rather
+// than using lastFeed: output that changes only an excluded region must not
+// delay success. A closed pump remains trivially stable, matching WaitStable.
+func (p *Pump) WaitStableExcept(ctx context.Context, quietFor, timeout time.Duration, excluded []Rect) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	deadline := time.Now().Add(timeout)
+	stop := make(chan struct{})
+	defer close(stop)
+
+	timer := time.NewTimer(time.Hour)
+	timer.Stop()
+	defer timer.Stop()
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			case <-timer.C:
+				p.mu.Lock()
+				p.cond.Broadcast()
+				p.mu.Unlock()
+			case <-ctx.Done():
+				p.mu.Lock()
+				p.cond.Broadcast()
+				p.mu.Unlock()
+				return
+			}
+		}
+	}()
+
+	var previous vt.Snapshot
+	haveSnapshot := false
+	var lastChange time.Time
+	for {
+		now := time.Now()
+		if p.gotAnyFeed && !haveSnapshot {
+			previous = p.model.Snapshot()
+			haveSnapshot = true
+			lastChange = p.lastFeed
+		} else if haveSnapshot {
+			current := p.model.Snapshot()
+			if !sameOutside(previous, current, excluded) {
+				lastChange = now
+			}
+			// Always advance the baseline, including when only excluded cells
+			// changed. This keeps comparisons correct across later updates.
+			previous = current
+		}
+
+		if (haveSnapshot && now.Sub(lastChange) >= quietFor) || p.closed {
+			return nil
+		}
+
+		var wakeIn time.Duration
+		if haveSnapshot {
+			wakeIn = quietFor - now.Sub(lastChange)
+		} else {
+			wakeIn = deadline.Sub(now)
+		}
+		if remaining := deadline.Sub(now); remaining < wakeIn {
+			wakeIn = remaining
+		}
+		if wakeIn <= 0 {
+			return ErrTimeout
+		}
+		timer.Reset(wakeIn)
+		p.cond.Wait()
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if time.Now().After(deadline) {
+			// A feed and the deadline can race. Compare one last snapshot so
+			// an unexcluded update just before the deadline cannot be mistaken
+			// for an already-stable screen.
+			if haveSnapshot {
+				if !sameOutside(previous, p.model.Snapshot(), excluded) {
+					return ErrTimeout
+				}
+				if time.Since(lastChange) >= quietFor {
+					return nil
+				}
+			}
+			return ErrTimeout
+		}
+	}
+}
+
+func sameOutside(a, b vt.Snapshot, excluded []Rect) bool {
+	if a.Size != b.Size || a.AltScreen != b.AltScreen || len(a.Lines) != len(b.Lines) {
+		return false
+	}
+	if !excludedCell(a.Cursor.Col, a.Cursor.Row, a.Size, excluded) ||
+		!excludedCell(b.Cursor.Col, b.Cursor.Row, b.Size, excluded) {
+		if a.Cursor != b.Cursor {
+			return false
+		}
+	}
+	for y := range a.Lines {
+		if len(a.Lines[y].Cells) != len(b.Lines[y].Cells) {
+			return false
+		}
+		for x := range a.Lines[y].Cells {
+			if !excludedCell(x, y, a.Size, excluded) && a.Lines[y].Cells[x] != b.Lines[y].Cells[x] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func excludedCell(x, y int, size vt.Size, excluded []Rect) bool {
+	if x < 0 || y < 0 || x >= size.Cols || y >= size.Rows {
+		return false
+	}
+	for _, rect := range excluded {
+		if rect.X < 0 || rect.Y < 0 || rect.W <= 0 || rect.H <= 0 {
+			continue
+		}
+		// Subtraction avoids overflow when a valid but very large width or
+		// height is clipped to the live viewport.
+		if x >= rect.X && y >= rect.Y && x-rect.X < rect.W && y-rect.Y < rect.H {
+			return true
+		}
+	}
+	return false
 }
 
 // Errors.

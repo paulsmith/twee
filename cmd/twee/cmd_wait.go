@@ -2,9 +2,12 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/paulsmith/twee/internal/rpc"
 )
@@ -16,7 +19,7 @@ func init() {
 Subverbs:
   wait text --pattern TEXT [--regex] [--timeout <dur>] [--name <name>]
   wait no-text --pattern TEXT [--timeout <dur>] [--name <name>]
-  wait stable [--quiet <dur>] [--timeout <dur>] [--name <name>]
+  wait stable [--quiet <dur>] [--exclude x,y,w,h]... [--timeout <dur>] [--name <name>]
   wait cursor --x <n> --y <n> [--timeout <dur>] [--name <name>]
   wait exit [--timeout <dur>] [--name <name>]
 
@@ -44,10 +47,15 @@ the pattern appears.`)
 	registerUsage("wait no-text", `twee wait no-text --pattern TEXT [--timeout <dur>] [--name <name>]
 Wait for substr to disappear from the viewport. Fails with code
 SESSION_ENDED, not TIMEOUT, if the session ends before it disappears.`)
-	registerUsage("wait stable", `twee wait stable [--quiet <dur>] [--timeout <dur>] [--name <name>]
+	registerUsage("wait stable", `twee wait stable [--quiet <dur>] [--exclude x,y,w,h]... [--timeout <dur>] [--name <name>]
 Wait for the screen to stop changing for --quiet (default 100ms).
-Will hang on apps with always-running spinners; use "wait text"
-instead for those.
+--exclude may be repeated to ignore busy cell rectangles, such as a
+spinner in a terminal tail. Each rectangle is x,y,w,h with x/y >= 0
+and w/h > 0. Rectangles are clipped to the live viewport, including
+after a resize. With --exclude, only changes outside those rectangles
+reset the quiet window.
+
+Without --exclude, wait stable uses its existing output-based behavior.
 
 If the session ends while waiting, this reports success rather than
 SESSION_ENDED: a screen that will never change again is trivially
@@ -114,6 +122,10 @@ func runWaitNoText(args []string) {
 }
 
 func runWaitStable(args []string) {
+	args, excludeValues, err := extractWaitExcludes(args)
+	if err != nil {
+		fatalUsage("wait stable: %v", err)
+	}
 	var opts struct {
 		Name    *string `arg:"--name"`
 		Quiet   string  `arg:"--quiet"`
@@ -122,7 +134,57 @@ func runWaitStable(args []string) {
 	if err := parseArg("wait stable", &opts, args); err != nil {
 		fatalUsage("wait stable: %v", err)
 	}
-	callSessionAndEmit("wait stable", opts.Name, rpc.OpWaitStable, rpc.WaitStableArgs{Quiet: opts.Quiet, Timeout: opts.Timeout})
+	exclude := make([]rpc.Rect, len(excludeValues))
+	for i, value := range excludeValues {
+		rect, err := parseWaitExclude(value)
+		if err != nil {
+			fatalUsage("wait stable: --exclude %v", err)
+		}
+		exclude[i] = rect
+	}
+	callSessionAndEmit("wait stable", opts.Name, rpc.OpWaitStable, rpc.WaitStableArgs{Quiet: opts.Quiet, Timeout: opts.Timeout, Exclude: exclude})
+}
+
+// extractWaitExcludes handles this command's repeatable option before
+// go-arg sees it. go-arg accepts repeated slice options but keeps only the
+// last value, which is unsuitable for independent exclusion rectangles.
+func extractWaitExcludes(args []string) ([]string, []string, error) {
+	remaining := make([]string, 0, len(args))
+	var values []string
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--exclude":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return nil, nil, fmt.Errorf("--exclude requires a value")
+			}
+			values = append(values, args[i+1])
+			i++
+		case strings.HasPrefix(args[i], "--exclude="):
+			values = append(values, strings.TrimPrefix(args[i], "--exclude="))
+		default:
+			remaining = append(remaining, args[i])
+		}
+	}
+	return remaining, values, nil
+}
+
+func parseWaitExclude(value string) (rpc.Rect, error) {
+	parts := strings.Split(value, ",")
+	if len(parts) != 4 {
+		return rpc.Rect{}, fmt.Errorf("must be x,y,w,h")
+	}
+	values := [4]int{}
+	for i, part := range parts {
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			return rpc.Rect{}, fmt.Errorf("%q: coordinates must be integers", value)
+		}
+		values[i] = n
+	}
+	if values[0] < 0 || values[1] < 0 || values[2] <= 0 || values[3] <= 0 {
+		return rpc.Rect{}, fmt.Errorf("%q: x/y must be >= 0 and w/h must be > 0", value)
+	}
+	return rpc.Rect{X: values[0], Y: values[1], W: values[2], H: values[3]}, nil
 }
 
 func runWaitCursor(args []string) {

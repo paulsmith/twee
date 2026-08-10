@@ -36,6 +36,26 @@ func TestWaitHandlers(t *testing.T) {
 	}
 }
 
+func TestWaitStableHandlerRejectsInvalidExclude(t *testing.T) {
+	te := startTestTerm(t)
+	for _, rect := range []rpc.Rect{
+		{X: -1, Y: 0, W: 1, H: 1},
+		{X: 0, Y: -1, W: 1, H: 1},
+		{X: 0, Y: 0, W: 0, H: 1},
+		{X: 0, Y: 0, W: 1, H: 0},
+	} {
+		_, errResp := handleWaitStable(te, mustJSON(t, rpc.WaitStableArgs{
+			Quiet: "1ms", Timeout: "1s", Exclude: []rpc.Rect{rect},
+		}))
+		if errResp == nil {
+			t.Fatalf("exclude %+v unexpectedly succeeded", rect)
+		}
+		if errResp.Code != rpc.CodeInvalidArgument {
+			t.Fatalf("exclude %+v error code = %q, want %q", rect, errResp.Code, rpc.CodeInvalidArgument)
+		}
+	}
+}
+
 // TestWaitTextRegexAnchorsPerLine pins down that --regex patterns are
 // compiled in multi-line mode: "^bravo" must match a "bravo" line even
 // though it isn't the first line of the viewport. Without (?m), Go's

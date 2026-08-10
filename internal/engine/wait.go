@@ -12,6 +12,13 @@ import (
 	"github.com/paulsmith/twee/internal/vt"
 )
 
+// Rect is a rectangle of terminal cells used to exclude an area from a stable
+// screen wait. Rectangles are clipped to each live snapshot's viewport.
+type Rect struct {
+	X, Y int
+	W, H int
+}
+
 // WaitOption configures a wait call.
 type WaitOption func(*WaitOpts)
 
@@ -96,6 +103,24 @@ func (t *Term) WaitForStableScreen(quietFor time.Duration, opts ...WaitOption) e
 	err := t.pump.WaitStable(o.Ctx, quietFor, o.Timeout)
 	if err != nil {
 		return fmt.Errorf("WaitForStableScreen: %w\n%s", err, t.Diagnostic())
+	}
+	return nil
+}
+
+// WaitForStableScreenExcept waits for the visible screen outside excluded to
+// stop changing for quietFor. Unlike WaitForStableScreen, it compares
+// snapshots because output inside an excluded region must not reset the quiet
+// window. Callers with no excluded regions should use WaitForStableScreen to
+// retain its lower-cost output-based behavior.
+func (t *Term) WaitForStableScreenExcept(quietFor time.Duration, excluded []Rect, opts ...WaitOption) error {
+	o := t.waitOpts(opts)
+	rects := make([]pump.Rect, len(excluded))
+	for i, rect := range excluded {
+		rects[i] = pump.Rect{X: rect.X, Y: rect.Y, W: rect.W, H: rect.H}
+	}
+	err := t.pump.WaitStableExcept(o.Ctx, quietFor, o.Timeout, rects)
+	if err != nil {
+		return fmt.Errorf("WaitForStableScreenExcept: %w\n%s", err, t.Diagnostic())
 	}
 	return nil
 }

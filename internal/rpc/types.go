@@ -165,6 +165,17 @@ type WaitNoTextArgs struct {
 type WaitStableArgs struct {
 	Quiet   string `json:"quiet,omitempty"`
 	Timeout string `json:"timeout,omitempty"`
+	Exclude []Rect `json:"exclude,omitempty"`
+}
+
+// Rect is a rectangle of terminal cells, with its origin at the top left of
+// the viewport. It is used by wait stable to omit busy regions from its
+// stability comparison.
+type Rect struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+	W int `json:"w"`
+	H int `json:"h"`
 }
 
 type WaitCursorArgs struct {

@@ -92,6 +92,19 @@ func handleWaitStable(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	if err != nil {
 		return nil, invalidArgument(err)
 	}
+	if len(a.Exclude) > 0 {
+		exclude := make([]engine.Rect, len(a.Exclude))
+		for i, rect := range a.Exclude {
+			if rect.X < 0 || rect.Y < 0 || rect.W <= 0 || rect.H <= 0 {
+				return nil, invalidArgumentMessage("exclude x/y must be >= 0 and w/h must be > 0")
+			}
+			exclude[i] = engine.Rect{X: rect.X, Y: rect.Y, W: rect.W, H: rect.H}
+		}
+		if err := t.WaitForStableScreenExcept(quiet, exclude, engine.WithTimeout(to)); err != nil {
+			return nil, waitErr(t, err)
+		}
+		return nil, nil
+	}
 	if err := t.WaitForStableScreen(quiet, engine.WithTimeout(to)); err != nil {
 		return nil, waitErr(t, err)
 	}

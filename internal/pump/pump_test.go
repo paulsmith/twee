@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +20,19 @@ type blockingReader struct {
 	once    sync.Once
 	chunk   []byte
 	release chan struct{}
+}
+
+type chunkReader struct {
+	chunks <-chan []byte
+}
+
+func (r chunkReader) Read(p []byte) (int, error) {
+	chunk, ok := <-r.chunks
+	if !ok {
+		return 0, io.EOF
+	}
+	copy(p, chunk)
+	return len(chunk), nil
 }
 
 func (r *blockingReader) Read(p []byte) (int, error) {
@@ -191,6 +205,163 @@ func TestWaitStableTimeoutContextAndClosed(t *testing.T) {
 	if err := closed.WaitStable(context.Background(), time.Second, time.Second); err != nil {
 		t.Fatalf("WaitStable closed: %v", err)
 	}
+}
+
+func TestWaitStableExceptIgnoresExcludedChanges(t *testing.T) {
+	p, chunks := startedChunkPump(t)
+	sendChunk(t, chunks, []byte("\x1b[1;1Hready\x1b[2;1H-"))
+	waitForText(t, p, "ready")
+
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() {
+		done <- p.WaitStableExcept(context.Background(), 50*time.Millisecond, 500*time.Millisecond, []Rect{{X: 0, Y: 1, W: 1, H: 1}})
+	}()
+	for _, spinner := range []byte("1234") {
+		time.Sleep(15 * time.Millisecond)
+		sendChunk(t, chunks, []byte("\x1b[2;1H"+string(spinner)))
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("WaitStableExcept: %v", err)
+		}
+		if elapsed := time.Since(start); elapsed >= 110*time.Millisecond {
+			t.Fatalf("WaitStableExcept returned after %v; excluded updates reset the quiet window", elapsed)
+		}
+	case <-time.After(110 * time.Millisecond):
+		t.Fatal("WaitStableExcept did not ignore excluded updates")
+	}
+}
+
+func TestWaitStableExceptWaitsForUnexcludedChanges(t *testing.T) {
+	p, chunks := startedChunkPump(t)
+	sendChunk(t, chunks, []byte("\x1b[1;1Hready\x1b[2;1H-"))
+	waitForText(t, p, "ready")
+
+	done := make(chan error, 1)
+	go func() {
+		done <- p.WaitStableExcept(context.Background(), 50*time.Millisecond, 500*time.Millisecond, []Rect{{X: 0, Y: 1, W: 1, H: 1}})
+	}()
+	time.Sleep(20 * time.Millisecond)
+	sendChunk(t, chunks, []byte("\x1b[1;1Hchanged"))
+	select {
+	case err := <-done:
+		t.Fatalf("WaitStableExcept returned early after unexcluded update: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("WaitStableExcept: %v", err)
+		}
+	case <-time.After(150 * time.Millisecond):
+		t.Fatal("WaitStableExcept did not become stable")
+	}
+}
+
+func TestWaitStableExceptContextAndClosed(t *testing.T) {
+	p := New(vt.New(5, 2), bytes.NewReader(nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := p.WaitStableExcept(ctx, time.Second, time.Second, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("WaitStableExcept canceled = %v, want context canceled", err)
+	}
+
+	closed := New(vt.New(5, 2), bytes.NewReader(nil))
+	if err := closed.Run(); err != nil {
+		t.Fatalf("Run closed: %v", err)
+	}
+	if err := closed.WaitStableExcept(context.Background(), time.Second, time.Second, nil); err != nil {
+		t.Fatalf("WaitStableExcept closed: %v", err)
+	}
+}
+
+func TestWaitStableExceptResizeResetsQuietWindow(t *testing.T) {
+	p, chunks := startedChunkPump(t)
+	sendChunk(t, chunks, []byte("ready"))
+	waitForText(t, p, "ready")
+
+	done := make(chan error, 1)
+	go func() {
+		done <- p.WaitStableExcept(context.Background(), 70*time.Millisecond, 500*time.Millisecond, nil)
+	}()
+	time.Sleep(20 * time.Millisecond)
+	if err := p.Resize(21, 3); err != nil {
+		t.Fatalf("Resize: %v", err)
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("WaitStableExcept returned early after resize: %v", err)
+	case <-time.After(40 * time.Millisecond):
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("WaitStableExcept: %v", err)
+		}
+	case <-time.After(150 * time.Millisecond):
+		t.Fatal("WaitStableExcept did not become stable after resize")
+	}
+}
+
+func TestSameOutsideClipsExcludedRectsToViewport(t *testing.T) {
+	base := vt.Snapshot{
+		Size:  vt.Size{Cols: 2, Rows: 1},
+		Lines: []vt.Line{{Cells: []vt.Cell{{Text: "a"}, {Text: "b"}}}},
+	}
+	changed := base
+	changed.Lines = []vt.Line{{Cells: []vt.Cell{{Text: "x"}, {Text: "b"}}}}
+	if !sameOutside(base, changed, []Rect{{X: 0, Y: 0, W: 999, H: 999}}) {
+		t.Fatal("a rectangle wider and taller than the viewport did not clip")
+	}
+	if sameOutside(base, changed, []Rect{{X: 2, Y: 0, W: 1, H: 1}}) {
+		t.Fatal("a rectangle outside the viewport excluded a visible change")
+	}
+}
+
+func TestSameOutsideCursorExclusionBoundaries(t *testing.T) {
+	base := vt.Snapshot{Size: vt.Size{Cols: 2, Rows: 1}, Cursor: vt.Cursor{Col: 0, Row: 0, Visible: true}}
+	inside := base
+	inside.Cursor.Visible = false
+	if !sameOutside(base, inside, []Rect{{X: 0, Y: 0, W: 1, H: 1}}) {
+		t.Fatal("cursor change inside excluded rectangle was visible")
+	}
+	outside := base
+	outside.Cursor.Col = 1
+	if sameOutside(base, outside, []Rect{{X: 0, Y: 0, W: 1, H: 1}}) {
+		t.Fatal("cursor change across excluded rectangle boundary was hidden")
+	}
+}
+
+func startedChunkPump(t *testing.T) (*Pump, chan<- []byte) {
+	t.Helper()
+	chunks := make(chan []byte)
+	p := New(vt.New(20, 3), chunkReader{chunks: chunks})
+	t.Cleanup(func() { close(chunks) })
+	go func() { _ = p.Run() }()
+	return p, chunks
+}
+
+func sendChunk(t *testing.T, chunks chan<- []byte, chunk []byte) {
+	t.Helper()
+	select {
+	case chunks <- chunk:
+	case <-time.After(time.Second):
+		t.Fatal("pump did not read chunk")
+	}
+}
+
+func waitForText(t *testing.T, p *Pump, text string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(vt.VisibleText(p.Snapshot()), text) {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("pump never rendered %q", text)
 }
 
 func TestRunUnexpectedError(t *testing.T) {
