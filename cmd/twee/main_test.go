@@ -2,24 +2,49 @@ package main
 
 import (
 	"bytes"
+	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// buildBinary compiles cmd/twee into a temp dir once per test process.
+var testBinary string
+
+// TestMain builds the CLI once for the package's end-to-end tests. Individual
+// tests still use their own temporary state directories through testEnv.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "twee-cli-test-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "create CLI test directory:", err)
+		os.Exit(1)
+	}
+	testBinary = filepath.Join(dir, "twee")
+	cmd := exec.Command("go", "build", "-o", testBinary, ".")
+	cmd.Dir = "."
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "build CLI test binary: %v\n%s", err, out)
+		os.Exit(1)
+	}
+
+	code := m.Run()
+	if err := os.RemoveAll(dir); err != nil {
+		fmt.Fprintln(os.Stderr, "remove CLI test directory:", err)
+		if code == 0 {
+			code = 1
+		}
+	}
+	os.Exit(code)
+}
+
+// buildBinary returns the CLI built by TestMain for this test process.
 func buildBinary(t *testing.T) string {
 	t.Helper()
-	tmp := t.TempDir()
-	bin := filepath.Join(tmp, "twee")
-	cmd := exec.Command("go", "build", "-o", bin, ".")
-	cmd.Dir = "."
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
+	if testBinary == "" {
+		t.Fatal("CLI test binary was not initialized")
 	}
-	return bin
+	return testBinary
 }
 
 func TestVersion(t *testing.T) {
