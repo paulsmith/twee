@@ -17,6 +17,8 @@ func init() {
 Export a .twee trace bundle to a replay artifact. The format is chosen by the
 output extension. GIF and self-contained HTML are encoded in pure Go; MP4 and
 WebM require ffmpeg. HTML replays work offline and include playback controls.
+New output files are created with owner-only permissions. Replacing an existing
+output preserves its permissions.
 
 Frames are emitted only when the screen visibly changes (the cursor is not
 rendered). Timing is faithful to the recording by default.

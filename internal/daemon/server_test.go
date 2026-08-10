@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
@@ -86,5 +87,43 @@ func TestUnknownOp(t *testing.T) {
 	}
 	if resp.Error.Code != rpc.CodeInvalidArgument {
 		t.Errorf("error code = %q, want %q", resp.Error.Code, rpc.CodeInvalidArgument)
+	}
+}
+
+func TestStopTokenMustMatchCurrentGeneration(t *testing.T) {
+	te := startTestTerm(t)
+	d := NewDispatcher(te, WithStopToken("current-generation"))
+	staleToken := "stale-generation"
+	raw, err := json.Marshal(rpc.StopArgs{Token: &staleToken})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := d.Dispatch(rpc.Request{ID: "1", Op: rpc.OpStop, Args: raw})
+	if resp.OK || resp.Error == nil || resp.Error.Code != rpc.CodeFailedPrecondition {
+		t.Fatalf("mismatched stop response = %+v, want FAILED_PRECONDITION", resp)
+	}
+	select {
+	case <-te.ExitedCh():
+		t.Fatal("mismatched token stopped the child")
+	default:
+	}
+}
+
+func TestExplicitEmptyStopTokenIsInvalid(t *testing.T) {
+	te := startTestTerm(t)
+	d := NewDispatcher(te, WithStopToken("current-generation"))
+	empty := ""
+	raw, err := json.Marshal(rpc.StopArgs{Token: &empty})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := d.Dispatch(rpc.Request{ID: "1", Op: rpc.OpStop, Args: raw})
+	if resp.OK || resp.Error == nil || resp.Error.Code != rpc.CodeInvalidArgument {
+		t.Fatalf("empty token response = %+v, want INVALID_ARGUMENT", resp)
+	}
+	select {
+	case <-te.ExitedCh():
+		t.Fatal("empty token stopped the child")
+	default:
 	}
 }

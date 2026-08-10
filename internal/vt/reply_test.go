@@ -46,6 +46,9 @@ func TestPresentationInputModesAndCursorStyle(t *testing.T) {
 		t.Fatal("no presentation source")
 	}
 	got := p.Presentation()
+	if !got.Input.KittyKeyboardKnown || got.Input.KittyKeyboardFlags != 0 {
+		t.Fatalf("default Kitty keyboard state=%+v, want known disabled", got.Input)
+	}
 	if !got.Input.ApplicationCursor || !got.Input.ApplicationKeypad || !got.Input.BracketedPaste || !got.Input.FocusEvents ||
 		!got.Input.MouseX10 || !got.Input.MouseNormal || !got.Input.MouseButton || !got.Input.MouseAny ||
 		!got.Input.MouseUTF8 || !got.Input.MouseSGR || !got.Input.MouseURxvt || !got.Input.MouseSGRPixels {
@@ -58,8 +61,25 @@ func TestPresentationInputModesAndCursorStyle(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = p.Presentation()
-	if got.Input != (InputModes{}) || got.Cursor != CursorStyleUnderline || m.Snapshot().Cursor.Style != CursorStyleUnderline {
+	if got.Input != (InputModes{KittyKeyboardKnown: true}) || got.Cursor != CursorStyleUnderline || m.Snapshot().Cursor.Style != CursorStyleUnderline {
 		t.Fatalf("presentation=%+v snapshot=%v", got, m.Snapshot().Cursor.Style)
+	}
+}
+
+func TestPresentationReportsKittyKeyboardFlags(t *testing.T) {
+	m := New(80, 24)
+	p := m.(PresentationSource)
+	if err := m.Feed([]byte("\x1b[>1u")); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Presentation().Input; !got.KittyKeyboardKnown || got.KittyKeyboardFlags != 1 {
+		t.Fatalf("active Kitty keyboard state=%+v, want known flags=1", got)
+	}
+	if err := m.Feed([]byte("\x1b[<u")); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Presentation().Input; !got.KittyKeyboardKnown || got.KittyKeyboardFlags != 0 {
+		t.Fatalf("reset Kitty keyboard state=%+v, want known disabled", got)
 	}
 }
 

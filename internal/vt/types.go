@@ -33,14 +33,18 @@ type InputModes struct {
 	ApplicationKeypad bool
 	BracketedPaste    bool
 	FocusEvents       bool
-	MouseX10          bool
-	MouseNormal       bool
-	MouseButton       bool
-	MouseAny          bool
-	MouseUTF8         bool
-	MouseSGR          bool
-	MouseURxvt        bool
-	MouseSGRPixels    bool
+	// KittyKeyboardKnown distinguishes disabled from unavailable state.
+	// KittyKeyboardFlags is the active Kitty keyboard protocol bitmask.
+	KittyKeyboardKnown bool
+	KittyKeyboardFlags uint8
+	MouseX10           bool
+	MouseNormal        bool
+	MouseButton        bool
+	MouseAny           bool
+	MouseUTF8          bool
+	MouseSGR           bool
+	MouseURxvt         bool
+	MouseSGRPixels     bool
 }
 
 // Presentation is the host-relevant subset of a terminal model's state.

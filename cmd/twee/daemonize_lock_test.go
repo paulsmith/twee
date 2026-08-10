@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"syscall"
 	"testing"
 )
@@ -16,6 +17,33 @@ func TestAcquireSessionLockFreePath(t *testing.T) {
 	lp, _ := lockPath("fresh")
 	if _, err := os.Stat(lp); err != nil {
 		t.Fatalf("lock file missing: %v", err)
+	}
+}
+
+func TestGenerationCleanupCannotRemoveReplacementState(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("TWEE_STATE_DIR", stateDir)
+	lf, err := acquireSessionLock("replacement")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lf.Close()
+	if err := writeLockMetadata(lf, sessionLockMetadata{PID: os.Getpid(), Token: "new-generation"}); err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(stateDir, "replacement.sock")
+	if err := os.WriteFile(sock, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if removeSessionFilesForGeneration("replacement", "old-generation") {
+		t.Fatal("old generation reported replacement cleanup")
+	}
+	if _, err := os.Stat(sock); err != nil {
+		t.Fatalf("old generation removed replacement socket: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "replacement.lock")); err != nil {
+		t.Fatalf("old generation removed replacement lock: %v", err)
 	}
 }
 

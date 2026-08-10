@@ -350,6 +350,15 @@ Responses return the resolved absolute path when applicable.
 
 Without `--out`, `screenshot` returns the PNG data in `data.png_base64`.
 
+### Artifact permissions
+
+Terminal artifacts can contain credentials, typed input, and unredacted screen
+content. On Unix, Twee creates new screenshots, trace bundles, wrap scripts,
+text snapshots, and replay exports with mode `0600` so only the owner can read
+or modify them. Atomic replay export replacement preserves the existing
+destination's permissions. Review an existing destination's permissions before
+overwriting it, and review every artifact before sharing it.
+
 ## Wait for terminal state
 
 Waits synchronize automation with the application. Prefer a state wait to a fixed delay.

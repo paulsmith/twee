@@ -35,7 +35,8 @@ Flags:
   --no-waits      do not insert wait_stable sync ops
   --no-status     do not reserve a parent-owned status row
 
-The explicit "--" boundary is required before child argv.`)
+The explicit "--" boundary is required before child argv. New script and trace
+files are created with owner-only permissions.`)
 }
 
 func runWrap(args []string) {

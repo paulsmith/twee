@@ -8,6 +8,7 @@ import (
 
 	"github.com/paulsmith/twee/internal/engine"
 	"github.com/paulsmith/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/vt"
 )
 
 func TestQueryHandlers(t *testing.T) {
@@ -86,6 +87,9 @@ func TestQueryHandlers(t *testing.T) {
 		got.MouseTracking != "none" || got.MouseFormat != "x10" {
 		t.Fatalf("default mouse mode = %+v, want disabled none/x10", got)
 	}
+	if got := modeData.(rpc.ModeData); !got.KittyKeyboardKnown || got.KittyKeyboardFlags != 0 {
+		t.Fatalf("default Kitty keyboard mode = %+v, want known disabled", got)
+	}
 	rawMode, err := json.Marshal(modeData)
 	if err != nil {
 		t.Fatalf("marshal mode: %v", err)
@@ -123,6 +127,14 @@ func TestQueryHandlers(t *testing.T) {
 	}
 }
 
+func TestCursorShapeDefaultAndUnknown(t *testing.T) {
+	for _, style := range []vt.CursorStyle{vt.CursorStyleDefault, vt.CursorStyle(255)} {
+		if got := cursorShape(style); got != "default" {
+			t.Errorf("cursorShape(%d) = %q, want default", style, got)
+		}
+	}
+}
+
 func TestModeHandlerReportsMouseState(t *testing.T) {
 	te, err := engine.Start(context.Background(), engine.Config{
 		Cmd: []string{
@@ -149,6 +161,65 @@ func TestModeHandlerReportsMouseState(t *testing.T) {
 	}
 	if !got.MouseTrackingAny || !got.MouseFormatSGR {
 		t.Fatalf("raw mouse modes = %+v, want any and SGR", got)
+	}
+}
+
+func TestModeAndCursorHandlersReportPresentationTransitions(t *testing.T) {
+	te, err := engine.Start(context.Background(), engine.Config{
+		Cmd: []string{
+			"/bin/bash", "-c",
+			"stty raw -echo; printf '\033[?1h\033[?2004h\033[>1u\033[6 qREADY'; IFS= read -r -N 1; printf '\033[?1l\033[?2004l\033[<u\033[4 qRESET'; sleep 30",
+		},
+		Cols: 40, Rows: 5,
+	})
+	if err != nil {
+		t.Fatalf("engine.Start: %v", err)
+	}
+	t.Cleanup(func() { _ = te.Close() })
+	if err := te.WaitForText("READY"); err != nil {
+		t.Fatalf("WaitForText READY: %v", err)
+	}
+
+	mode, rpcErr := handleMode(te, nil)
+	if rpcErr != nil {
+		t.Fatalf("enabled handleMode: %+v", rpcErr)
+	}
+	if got := mode.(rpc.ModeData); !got.DECCKM || !got.BracketedPaste {
+		t.Fatalf("enabled mode = %+v, want decckm and bracketed_paste", got)
+	}
+	if got := mode.(rpc.ModeData); !got.KittyKeyboardKnown || got.KittyKeyboardFlags != 1 {
+		t.Fatalf("enabled Kitty keyboard mode = %+v, want known flags=1", got)
+	}
+	cursor, rpcErr := handleCursor(te, nil)
+	if rpcErr != nil {
+		t.Fatalf("bar handleCursor: %+v", rpcErr)
+	}
+	if got := cursor.(rpc.CursorData).Shape; got != "bar" {
+		t.Fatalf("enabled cursor shape = %q, want bar", got)
+	}
+
+	if err := te.Type("x"); err != nil {
+		t.Fatalf("release child: %v", err)
+	}
+	if err := te.WaitForText("RESET"); err != nil {
+		t.Fatalf("WaitForText RESET: %v", err)
+	}
+	mode, rpcErr = handleMode(te, nil)
+	if rpcErr != nil {
+		t.Fatalf("disabled handleMode: %+v", rpcErr)
+	}
+	if got := mode.(rpc.ModeData); got.DECCKM || got.BracketedPaste {
+		t.Fatalf("disabled mode = %+v, want both false", got)
+	}
+	if got := mode.(rpc.ModeData); !got.KittyKeyboardKnown || got.KittyKeyboardFlags != 0 {
+		t.Fatalf("reset Kitty keyboard mode = %+v, want known disabled", got)
+	}
+	cursor, rpcErr = handleCursor(te, nil)
+	if rpcErr != nil {
+		t.Fatalf("underline handleCursor: %+v", rpcErr)
+	}
+	if got := cursor.(rpc.CursorData).Shape; got != "underline" {
+		t.Fatalf("reset cursor shape = %q, want underline", got)
 	}
 }
 

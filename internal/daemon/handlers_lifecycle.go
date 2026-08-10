@@ -10,7 +10,7 @@ import (
 
 func (d *Dispatcher) registerLifecycle() {
 	d.Register(rpc.OpStatus, handleStatus)
-	d.Register(rpc.OpStop, handleStop)
+	d.Register(rpc.OpStop, d.handleStop)
 }
 
 func handleStatus(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
@@ -32,10 +32,19 @@ func handleStatus(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
 	return data, nil
 }
 
-func handleStop(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
+func (d *Dispatcher) handleStop(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	a, errResp := decodeOptionalArgs[rpc.StopArgs](raw)
 	if errResp != nil {
 		return nil, errResp
+	}
+	if a.Token != nil && *a.Token == "" {
+		return nil, invalidArgumentMessage("stop token must not be empty")
+	}
+	if a.Token != nil && *a.Token != d.stopToken {
+		return nil, &rpc.Error{
+			Code:    rpc.CodeFailedPrecondition,
+			Message: "stop token does not own the current session generation",
+		}
 	}
 	grace := engine.DefaultCloseGrace
 	if a.Grace != "" {
@@ -59,4 +68,10 @@ func handleStop(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 		return nil, ioFailure(err)
 	}
 	return map[string]any{"trace_path": t.FinalizedTracePath()}, nil
+}
+
+// handleStop retains the tokenless handler used by focused package tests and
+// ephemeral run dispatch. Named daemons register Dispatcher.handleStop.
+func handleStop(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
+	return (&Dispatcher{}).handleStop(t, raw)
 }

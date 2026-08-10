@@ -7,6 +7,7 @@ import (
 
 	"github.com/paulsmith/twee/internal/engine"
 	"github.com/paulsmith/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/vt"
 )
 
 func init() {
@@ -107,7 +108,22 @@ func colorData(c engine.Color) rpc.ColorData {
 
 func handleCursor(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
 	c := t.CursorPos()
-	return rpc.CursorData{X: c.Col, Y: c.Row, Visible: c.Visible}, nil
+	return rpc.CursorData{X: c.Col, Y: c.Row, Visible: c.Visible, Shape: cursorShape(c.Style)}, nil
+}
+
+func cursorShape(style vt.CursorStyle) string {
+	switch style {
+	case vt.CursorStyleBlock:
+		return "block"
+	case vt.CursorStyleUnderline:
+		return "underline"
+	case vt.CursorStyleBar:
+		return "bar"
+	case vt.CursorStyleHollow:
+		return "hollow"
+	default:
+		return "default"
+	}
 }
 
 func handleFind(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
@@ -258,13 +274,21 @@ func handleTitle(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
 
 func handleMode(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
 	snap := t.Snapshot()
+	presentation, err := t.Presentation()
+	if err != nil {
+		return nil, engineFailure(err)
+	}
 	mouse, err := t.MouseState()
 	if err != nil {
 		return nil, internalFailure(err)
 	}
 	data := rpc.ModeData{
-		AltScreen: snap.AltScreen,
-		Mouse:     mouse.Enabled,
+		DECCKM:             presentation.Input.ApplicationCursor,
+		BracketedPaste:     presentation.Input.BracketedPaste,
+		KittyKeyboardKnown: presentation.Input.KittyKeyboardKnown,
+		KittyKeyboardFlags: presentation.Input.KittyKeyboardFlags,
+		AltScreen:          snap.AltScreen,
+		Mouse:              mouse.Enabled,
 
 		MouseTrackingX10:    mouse.Raw.TrackingX10,
 		MouseTrackingNormal: mouse.Raw.TrackingNormal,
@@ -275,7 +299,6 @@ func handleMode(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
 		MouseFormatSGR:       mouse.Raw.FormatSGR,
 		MouseFormatURxvt:     mouse.Raw.FormatURxvt,
 		MouseFormatSGRPixels: mouse.Raw.FormatSGRPixels,
-		// DECCKM and BracketedPaste are not exposed; default false.
 	}
 	if mouse.TrackingKnown {
 		data.MouseTracking = string(mouse.Tracking)

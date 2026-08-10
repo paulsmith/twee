@@ -77,7 +77,7 @@ func PNGBytes(img image.Image) ([]byte, error) {
 
 // EncodePNGFile writes the image as a PNG file at path.
 func EncodePNGFile(path string, img image.Image) error {
-	f, err := os.Create(path)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}

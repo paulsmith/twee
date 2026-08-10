@@ -26,8 +26,12 @@ func (t *Term) Lines() []string {
 // `Cursor` to avoid the embedding shadow when tuitest.Term embeds *Term.)
 func (t *Term) CursorPos() Cursor {
 	c := t.pump.Snapshot().Cursor
-	return Cursor{Col: c.Col, Row: c.Row, Visible: c.Visible}
+	return Cursor{Col: c.Col, Row: c.Row, Visible: c.Visible, Style: c.Style}
 }
+
+// Presentation returns the current VT input modes and cursor presentation.
+// The pump serializes this query with child output that changes those modes.
+func (t *Term) Presentation() (vt.Presentation, error) { return t.pump.Presentation() }
 
 // ExitCode is valid after the child has exited.
 func (t *Term) ExitCode() int { return t.runner.ExitCode() }

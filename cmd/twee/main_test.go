@@ -94,6 +94,28 @@ func TestHelp(t *testing.T) {
 	}
 }
 
+func TestInputHelpDocumentsModeDependentBehavior(t *testing.T) {
+	bin := buildBinary(t)
+	keyHelp, err := exec.Command(bin, "help", "key").Output()
+	if err != nil {
+		t.Fatalf("help key: %v", err)
+	}
+	for _, want := range []string{"DECCKM", "Kitty keyboard protocol is active", "FAILED_PRECONDITION"} {
+		if !bytes.Contains(keyHelp, []byte(want)) {
+			t.Errorf("key help missing %q:\n%s", want, keyHelp)
+		}
+	}
+	pasteHelp, err := exec.Command(bin, "help", "paste").Output()
+	if err != nil {
+		t.Fatalf("help paste: %v", err)
+	}
+	for _, want := range []string{"FAILED_PRECONDITION", "--force", "mode 2004"} {
+		if !bytes.Contains(pasteHelp, []byte(want)) {
+			t.Errorf("paste help missing %q:\n%s", want, pasteHelp)
+		}
+	}
+}
+
 func TestBundleCommandRemoved(t *testing.T) {
 	bin := buildBinary(t)
 	cmd := exec.Command(bin, "bundle", "info", "recording.twee")

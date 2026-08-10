@@ -303,6 +303,49 @@ func (*noMouseModel) Feed([]byte) error     { return nil }
 func (*noMouseModel) Resize(int, int) error { return nil }
 func (*noMouseModel) Snapshot() vt.Snapshot { return vt.Snapshot{} }
 
+func TestPresentationAndKeyEncodingShareModelState(t *testing.T) {
+	model := &fakePresentationModel{presentation: vt.Presentation{Input: vt.InputModes{KittyKeyboardKnown: true}}}
+	p := New(model, bytes.NewReader(nil))
+
+	got, err := p.EncodeKey(input.KeyUp)
+	if err != nil || !bytes.Equal(got, []byte("\x1b[A")) {
+		t.Fatalf("normal Up = %q, %v; want CSI", got, err)
+	}
+	model.presentation.Input.ApplicationCursor = true
+	got, err = p.EncodeKey(input.KeyUp)
+	if err != nil || !bytes.Equal(got, []byte("\x1bOA")) {
+		t.Fatalf("application Up = %q, %v; want SS3", got, err)
+	}
+	presentation, err := p.Presentation()
+	if err != nil || !presentation.Input.ApplicationCursor {
+		t.Fatalf("Presentation = %+v, %v; want DECCKM enabled", presentation, err)
+	}
+
+	unsupported := New(&noMouseModel{}, bytes.NewReader(nil))
+	if _, err := unsupported.Presentation(); !errors.Is(err, ErrPresentationUnavailable) {
+		t.Fatalf("unsupported Presentation error = %v, want %v", err, ErrPresentationUnavailable)
+	}
+	model.presentation.Input.KittyKeyboardFlags = 1
+	if _, err := p.EncodeKey(input.KeyUp); !errors.Is(err, ErrKittyKeyboardUnsupported) {
+		t.Fatalf("active Kitty EncodeKey error = %v, want %v", err, ErrKittyKeyboardUnsupported)
+	}
+	model.presentation.Input.KittyKeyboardKnown = false
+	if _, err := p.EncodeKey(input.KeyUp); !errors.Is(err, ErrKittyKeyboardStateUnknown) {
+		t.Fatalf("unknown Kitty EncodeKey error = %v, want %v", err, ErrKittyKeyboardStateUnknown)
+	}
+}
+
+type fakePresentationModel struct {
+	presentation vt.Presentation
+}
+
+func (*fakePresentationModel) Feed([]byte) error     { return nil }
+func (*fakePresentationModel) Resize(int, int) error { return nil }
+func (*fakePresentationModel) Snapshot() vt.Snapshot { return vt.Snapshot{} }
+func (m *fakePresentationModel) Presentation() vt.Presentation {
+	return m.presentation
+}
+
 type fakeMouseModel struct {
 	events  []input.MouseEvent
 	result  vt.MouseEncodingResult

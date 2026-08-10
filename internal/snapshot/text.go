@@ -28,7 +28,7 @@ func CompareText(path, actual string, update bool) (Result, error) {
 		return Result{}, err
 	}
 	if os.IsNotExist(err) || update {
-		if err := os.WriteFile(path, []byte(actual), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(actual), 0o600); err != nil {
 			return Result{}, err
 		}
 		return Result{Updated: true, Path: path}, nil

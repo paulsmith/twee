@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/paulsmith/twee/internal/rpc"
 )
@@ -21,6 +23,10 @@ omitted when the session had no trace.
 --grace overrides the SIGTERM-to-SIGKILL escalation window. "0"
 means SIGKILL immediately, skipping the wait. A negative grace is
 INVALID_ARGUMENT.
+
+  --token scopes a single-session stop to the generation that returned it
+from "twee start". A stale or mismatched token fails without stopping the
+current daemon. Omitting --token retains interactive name-only behavior.
 
 --all stops every live session and cleans up every stale one instead
 of targeting a single name; it is mutually exclusive with --name (or a
@@ -40,6 +46,7 @@ func runStop(args []string) {
 		Name  *string `arg:"--name"`
 		All   bool    `arg:"--all"`
 		Grace *string `arg:"--grace"`
+		Token *string `arg:"--token"`
 	}
 	if err := parseArg("stop", &opts, args); err != nil {
 		fatalUsage("stop: %v", err)
@@ -48,9 +55,13 @@ func runStop(args []string) {
 	if opts.Grace != nil {
 		graceArgs.Grace = *opts.Grace
 	}
+	if opts.Token != nil && *opts.Token == "" {
+		fatalUsage("stop: --token must not be empty")
+	}
+	graceArgs.Token = opts.Token
 	if opts.All {
-		if opts.Name != nil || rootGlobalName.Present {
-			fatalUsage("stop: --all is mutually exclusive with --name")
+		if opts.Name != nil || rootGlobalName.Present || opts.Token != nil {
+			fatalUsage("stop: --all is mutually exclusive with --name and --token")
 		}
 		emitOK(stopAll(graceArgs))
 		return
@@ -77,6 +88,7 @@ type stopOutcome struct {
 // --name X" always has, factored out so both the single-session path and
 // "stop --all" (which calls this once per discovered session) share it.
 func stopSession(name string, args rpc.StopArgs) stopOutcome {
+	pid, hadPID := readLockPID(name)
 	// Captured before cleanupStaleSession can remove the socket file, so
 	// it reflects whether one existed at all versus never having
 	// existed for this name.
@@ -95,11 +107,8 @@ func stopSession(name string, args rpc.StopArgs) stopOutcome {
 	if !resp.OK {
 		return stopOutcome{errCode: resp.Error.Code, errMessage: resp.Error.Message, errDetails: resp.Error.Details}
 	}
-	if sp, err := socketPath(name); err == nil {
-		_ = os.Remove(sp)
-	}
-	if lp, err := lockPath(name); err == nil {
-		_ = os.Remove(lp)
+	if hadPID && !waitForPIDExit(pid, 3*time.Second) {
+		return stopOutcome{errCode: rpc.CodeIO, errMessage: fmt.Sprintf("session %q stopped its child but daemon pid %d did not exit", name, pid)}
 	}
 	data := map[string]any{"name": name, "stopped": true}
 	var responseData struct {

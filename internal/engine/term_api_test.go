@@ -53,8 +53,11 @@ func TestTermInputQueryAndWaitAPIs(t *testing.T) {
 		t.Fatalf("WaitForCursorAt: %v", err)
 	}
 
-	if err := te.Paste("paste-text"); err != nil {
-		t.Fatalf("Paste: %v", err)
+	if err := te.Paste("paste-text"); err == nil {
+		t.Fatal("Paste succeeded while bracketed paste mode was disabled")
+	}
+	if err := te.ForcePaste("paste-text"); err != nil {
+		t.Fatalf("ForcePaste: %v", err)
 	}
 	if err := te.Resize(30, 6); err != nil {
 		t.Fatalf("Resize: %v", err)

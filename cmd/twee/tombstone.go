@@ -46,6 +46,14 @@ func writeTombstone(name string, ts tombstone) {
 	_ = os.Rename(tmp, path)
 }
 
+func writeTombstoneForGeneration(name, token string, ts tombstone) {
+	metadata, ok := readLockMetadata(name)
+	if !ok || metadata.Token != token {
+		return
+	}
+	writeTombstone(name, ts)
+}
+
 // readTombstone loads name's tombstone, if any. A missing file, or one
 // that fails to parse, is treated as "no tombstone" rather than an
 // error: two twee processes can race on tombstone read/remove (a

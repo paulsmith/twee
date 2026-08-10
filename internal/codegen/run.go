@@ -631,5 +631,5 @@ func writeScript(path string, ops []rpc.Request) error {
 		return err
 	}
 	b = append(b, '\n')
-	return os.WriteFile(path, b, 0o644)
+	return os.WriteFile(path, b, 0o600)
 }

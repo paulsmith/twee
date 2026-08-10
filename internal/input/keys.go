@@ -1,7 +1,8 @@
 // Package input encodes semantic key events as terminal byte sequences.
 //
-// v0 profile: xterm-256color, no DECCKM (cursor keys always emit the
-// CSI form), no Kitty keyboard protocol.
+// The profile is xterm-256color with legacy keyboard encoding. Cursor keys
+// honor DECCKM when the caller supplies the active input mode. The Kitty
+// keyboard protocol is intentionally not modeled.
 package input
 
 import (
@@ -40,6 +41,19 @@ func Ctrl(letter byte) Key {
 
 // Encode returns the bytes that represent k. Returns nil for KeyNone.
 func Encode(k Key) []byte {
+	return EncodeWithModes(k, KeyModes{})
+}
+
+// KeyModes are the modeled terminal modes that affect semantic key encoding.
+// Kitty keyboard protocol state is not included because the VT backend does
+// not currently expose it reliably.
+type KeyModes struct {
+	ApplicationCursor bool
+}
+
+// EncodeWithModes returns the bytes that represent k under modes. DECCKM
+// changes the four semantic cursor keys from CSI to SS3 sequences.
+func EncodeWithModes(k Key, modes KeyModes) []byte {
 	if k >= keyCtrlBase {
 		c := byte(int(k) - keyCtrlBase)
 		// Ctrl+letter -> letter & 0x1f
@@ -57,12 +71,24 @@ func Encode(k Key) []byte {
 	case KeyDelete:
 		return []byte("\x1b[3~")
 	case KeyUp:
+		if modes.ApplicationCursor {
+			return []byte("\x1bOA")
+		}
 		return []byte("\x1b[A")
 	case KeyDown:
+		if modes.ApplicationCursor {
+			return []byte("\x1bOB")
+		}
 		return []byte("\x1b[B")
 	case KeyRight:
+		if modes.ApplicationCursor {
+			return []byte("\x1bOC")
+		}
 		return []byte("\x1b[C")
 	case KeyLeft:
+		if modes.ApplicationCursor {
+			return []byte("\x1bOD")
+		}
 		return []byte("\x1b[D")
 	case KeyHome:
 		return []byte("\x1b[H")

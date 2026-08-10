@@ -143,6 +143,10 @@ func (g *ghosttyTerm) Presentation() Presentation {
 		MouseURxvt:        mode(libghostty.ModeURxvtMouse),
 		MouseSGRPixels:    mode(libghostty.ModeSGRPixelsMouse),
 	}}
+	if flags, err := g.t.KittyKeyboardFlags(); err == nil {
+		p.Input.KittyKeyboardKnown = true
+		p.Input.KittyKeyboardFlags = uint8(flags)
+	}
 	if err := g.rs.Update(g.t); err == nil {
 		style, styleErr := g.rs.CursorVisualStyle()
 		if styleErr == nil {

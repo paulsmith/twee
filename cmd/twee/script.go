@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 
 	"github.com/paulsmith/twee/internal/rpc"
 )
@@ -30,11 +32,103 @@ func loadScript(path string) []rpc.Request {
 	if err != nil {
 		emitError(rpc.CodeIO, err.Error(), nil, 1)
 	}
-	var ops []rpc.Request
-	if err := json.Unmarshal(scriptBytes, &ops); err != nil {
+	ops, err := decodeScript(scriptBytes)
+	if err != nil {
+		emitError(rpc.CodeInvalidArgument, "script: "+err.Error(), nil, 1)
+	}
+	clientDir, err := os.Getwd()
+	if err != nil {
+		emitError(rpc.CodeIO, "get client working directory: "+err.Error(), nil, 1)
+	}
+	if err := normalizeScriptPaths(ops, clientDir); err != nil {
 		emitError(rpc.CodeInvalidArgument, "script: "+err.Error(), nil, 1)
 	}
 	return ops
+}
+
+// decodeScript strictly decodes the script's request envelopes. Args remain
+// raw until the operation-specific layer decodes them, but misspelled request
+// fields must not disappear before then.
+func decodeScript(scriptBytes []byte) ([]rpc.Request, error) {
+	var ops []rpc.Request
+	dec := json.NewDecoder(bytes.NewReader(scriptBytes))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&ops); err != nil {
+		return nil, err
+	}
+	if err := requireJSONEOF(dec); err != nil {
+		return nil, err
+	}
+	return ops, nil
+}
+
+// normalizeScriptPaths gives op scripts the same path semantics as direct CLI
+// commands: known client-supplied paths are resolved against the invoking
+// client's working directory before the request crosses the RPC boundary.
+// Typed decoding is deliberately strict so normalization cannot silently drop
+// an unknown argument while re-marshaling the request.
+func normalizeScriptPaths(ops []rpc.Request, clientDir string) error {
+	for i := range ops {
+		var err error
+		switch ops[i].Op {
+		case rpc.OpScreenshot:
+			var args rpc.ScreenshotArgs
+			if len(ops[i].Args) != 0 {
+				if err := decodeScriptArgs(ops[i].Args, &args); err != nil {
+					return fmt.Errorf("op %d %s args: %w", i, ops[i].Op, err)
+				}
+			}
+			args.Out = resolveScriptPath(clientDir, args.Out)
+			ops[i].Args, err = json.Marshal(args)
+		case rpc.OpTraceStart:
+			var args rpc.TraceStartArgs
+			if len(ops[i].Args) != 0 {
+				if err := decodeScriptArgs(ops[i].Args, &args); err != nil {
+					return fmt.Errorf("op %d %s args: %w", i, ops[i].Op, err)
+				}
+			}
+			args.Out = resolveScriptPath(clientDir, args.Out)
+			ops[i].Args, err = json.Marshal(args)
+		case rpc.OpDiff:
+			var args rpc.DiffArgs
+			if err := decodeScriptArgs(ops[i].Args, &args); err != nil {
+				return fmt.Errorf("op %d %s args: %w", i, ops[i].Op, err)
+			}
+			args.Against = resolveScriptPath(clientDir, args.Against)
+			ops[i].Args, err = json.Marshal(args)
+		}
+		if err != nil {
+			return fmt.Errorf("op %d %s args: %w", i, ops[i].Op, err)
+		}
+	}
+	return nil
+}
+
+func decodeScriptArgs(raw json.RawMessage, dst any) error {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		return err
+	}
+	return requireJSONEOF(dec)
+}
+
+func requireJSONEOF(dec *json.Decoder) error {
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("unexpected JSON after document")
+		}
+		return err
+	}
+	return nil
+}
+
+func resolveScriptPath(clientDir, path string) string {
+	if path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(clientDir, path)
 }
 
 // runOpScript executes ops in order against a daemon reached via dial,

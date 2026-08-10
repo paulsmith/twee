@@ -21,7 +21,7 @@ func TestInputHandlers(t *testing.T) {
 	}{
 		{"type", handleType, rpc.TypeArgs{Text: "abc"}},
 		{"key", handleKey, rpc.KeyArgs{Key: "Enter"}},
-		{"paste", handlePaste, rpc.PasteArgs{Text: "pasted"}},
+		{"paste", handlePaste, rpc.PasteArgs{Text: "pasted", Force: true}},
 		{"signal", handleSignal, rpc.SignalArgs{Name: "WINCH"}},
 		{"resize", handleResize, rpc.ResizeArgs{Cols: 50, Rows: 7}},
 	}
@@ -64,6 +64,31 @@ func TestInputHandlersRejectInvalidArgs(t *testing.T) {
 				t.Fatalf("error code = %q, want %q", err.Code, rpc.CodeInvalidArgument)
 			}
 		})
+	}
+}
+
+func TestKeyWriteFailureIsIO(t *testing.T) {
+	te := startTestTerm(t)
+	if err := te.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, errResp := handleKey(te, mustJSON(t, rpc.KeyArgs{Key: "Tab"}))
+	if errResp == nil || errResp.Code != rpc.CodeIO {
+		t.Fatalf("key after PTY close error = %+v, want IO", errResp)
+	}
+}
+
+func TestPasteHandlerRequiresEnabledModeUnlessForced(t *testing.T) {
+	te := startTestTerm(t)
+	_, errResp := handlePaste(te, mustJSON(t, rpc.PasteArgs{Text: "pasted"}))
+	if errResp == nil {
+		t.Fatal("paste unexpectedly succeeded with mode 2004 disabled")
+	}
+	if errResp.Code != rpc.CodeFailedPrecondition {
+		t.Fatalf("error code = %q, want %q", errResp.Code, rpc.CodeFailedPrecondition)
+	}
+	if _, errResp := handlePaste(te, mustJSON(t, rpc.PasteArgs{Text: "pasted", Force: true})); errResp != nil {
+		t.Fatalf("forced paste: %+v", errResp)
 	}
 }
 

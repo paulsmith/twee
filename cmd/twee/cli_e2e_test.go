@@ -161,15 +161,16 @@ func TestStartStatusStopRoundTrip(t *testing.T) {
 		t.Fatalf("stop: %v", stopOut)
 	}
 
-	// Status after stop should fail.
+	// Stop waits for generation teardown, so the daemon's tombstone is durable
+	// by the time the command returns.
 	cmd := exec.Command(bin, "status", "--name", "rt")
 	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.CombinedOutput()
-	if err == nil {
-		t.Errorf("expected non-zero exit after stop")
+	if err != nil {
+		t.Fatalf("status after stop: %v\n%s", err, out)
 	}
-	if !strings.Contains(string(out), "NOT_FOUND") && !strings.Contains(string(out), "no such file") {
-		t.Errorf("expected NOT_FOUND after stop, got %s", out)
+	if !strings.Contains(string(out), `"running":false`) || !strings.Contains(string(out), `"stopped":true`) {
+		t.Errorf("expected stopped tombstone after stop, got %s", out)
 	}
 }
 

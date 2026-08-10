@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/paulsmith/twee/internal/engine"
 	"github.com/paulsmith/twee/internal/rpc"
@@ -24,10 +25,10 @@ type Server struct {
 }
 
 // NewServer constructs a Server wrapping the given Term.
-func NewServer(t *engine.Term) *Server {
+func NewServer(t *engine.Term, opts ...Option) *Server {
 	return &Server{
 		term:   t,
-		d:      NewDispatcher(t),
+		d:      NewDispatcher(t, opts...),
 		stopCh: make(chan struct{}),
 	}
 }
@@ -63,6 +64,9 @@ func (s *Server) Stop() {
 
 func (s *Server) handleConn(c net.Conn) {
 	defer c.Close()
+	// A partial same-account client must not keep an obsolete daemon alive
+	// indefinitely and block generation-safe teardown.
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
 	var req rpc.Request
 	if err := rpc.ReadMessage(c, &req); err != nil {
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
@@ -77,6 +81,7 @@ func (s *Server) handleConn(c net.Conn) {
 		})
 		return
 	}
+	_ = c.SetReadDeadline(time.Time{})
 	resp := s.d.Dispatch(req)
 	_ = rpc.WriteMessage(c, resp)
 }

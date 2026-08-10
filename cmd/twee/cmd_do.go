@@ -25,6 +25,9 @@ Flags:
 The script is a JSON array of RPC bodies (op + args), using wire op
 names (e.g. "wait_text", not "wait text") — identical to "twee run"'s
 script format; scripts written by "twee wrap --script-out" work unchanged.
+Relative paths in operation arguments (screenshot.out, trace_start.out,
+and diff.against) are resolved from the twee do client's working directory,
+not the daemon's or managed program's working directory.
 Ops like "stop" or "wait_exit" are not special-cased: they do whatever
 they normally do, including ending the session.`)
 }

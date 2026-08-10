@@ -10,8 +10,9 @@ import (
 
 // Dispatcher maps op names to handler functions.
 type Dispatcher struct {
-	term     *engine.Term
-	handlers map[string]Handler
+	term      *engine.Term
+	handlers  map[string]Handler
+	stopToken string
 }
 
 // Handler processes one request's args and returns either a data
@@ -21,13 +22,25 @@ type Handler func(t *engine.Term, args json.RawMessage) (any, *rpc.Error)
 // NewDispatcher returns a Dispatcher with all built-in handlers
 // registered. Later milestones (M3, M5, M6) add registerInput,
 // registerQueries, registerWaits, etc.
-func NewDispatcher(t *engine.Term) *Dispatcher {
+func NewDispatcher(t *engine.Term, opts ...Option) *Dispatcher {
 	d := &Dispatcher{term: t, handlers: map[string]Handler{}}
+	for _, opt := range opts {
+		opt(d)
+	}
 	d.registerLifecycle()
 	for _, reg := range optionalRegistrations {
 		reg(d)
 	}
 	return d
+}
+
+// Option configures daemon dispatch for a particular serving context.
+type Option func(*Dispatcher)
+
+// WithStopToken requires any non-empty stop token to match token. An empty
+// request token remains the explicit interactive name-only behavior.
+func WithStopToken(token string) Option {
+	return func(d *Dispatcher) { d.stopToken = token }
 }
 
 // optionalRegistrations is appended to from init() in handler files

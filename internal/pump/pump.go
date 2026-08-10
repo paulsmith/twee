@@ -22,6 +22,10 @@ import (
 	"github.com/paulsmith/twee/internal/vt"
 )
 
+var ErrPresentationUnavailable = errors.New("terminal backend does not expose input presentation state")
+var ErrKittyKeyboardStateUnknown = errors.New("terminal backend does not expose Kitty keyboard protocol state")
+var ErrKittyKeyboardUnsupported = errors.New("semantic keys are unsupported while the Kitty keyboard protocol is active")
+
 // Pump drives a vt.Model from an io.Reader.
 type Pump struct {
 	model  vt.Model
@@ -152,6 +156,43 @@ func (p *Pump) Snapshot() vt.Snapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.model.Snapshot()
+}
+
+// Presentation returns the current host-relevant terminal state under the
+// same mutex used by Feed. Callers therefore observe the VT model's source of
+// truth rather than a separately maintained mode approximation.
+func (p *Pump) Presentation() (vt.Presentation, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return presentationOf(p.model)
+}
+
+// EncodeKey encodes a semantic key from the current VT input modes while
+// holding the model mutex. It returns bytes but never writes to the PTY.
+func (p *Pump) EncodeKey(k input.Key) ([]byte, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	presentation, err := presentationOf(p.model)
+	if err != nil {
+		return nil, err
+	}
+	if !presentation.Input.KittyKeyboardKnown {
+		return nil, ErrKittyKeyboardStateUnknown
+	}
+	if presentation.Input.KittyKeyboardFlags != 0 {
+		return nil, ErrKittyKeyboardUnsupported
+	}
+	return input.EncodeWithModes(k, input.KeyModes{
+		ApplicationCursor: presentation.Input.ApplicationCursor,
+	}), nil
+}
+
+func presentationOf(model vt.Model) (vt.Presentation, error) {
+	source, ok := model.(vt.PresentationSource)
+	if !ok {
+		return vt.Presentation{}, ErrPresentationUnavailable
+	}
+	return source.Presentation(), nil
 }
 
 // RecentBytes returns a copy of the most recent output for diagnostics.

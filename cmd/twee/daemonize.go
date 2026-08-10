@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -37,10 +40,61 @@ type readyMessage struct {
 	Socket       string          `json:"socket"`
 	PID          int             `json:"pid"`
 	Trace        string          `json:"trace,omitempty"`
+	Token        string          `json:"token,omitempty"`
 	Replaced     bool            `json:"replaced,omitempty"`
 	Error        string          `json:"error,omitempty"`
 	ErrorCode    string          `json:"error_code,omitempty"`
 	ErrorDetails json.RawMessage `json:"error_details,omitempty"`
+}
+
+type sessionLockMetadata struct {
+	PID   int    `json:"pid"`
+	Token string `json:"token"`
+}
+
+func newSessionToken() (string, error) {
+	var raw [32]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate session token: %w", err)
+	}
+	// Hex never begins with '-', so the token is safe as a separate CLI flag
+	// value (`--token "$token"`) without requiring an equals form.
+	return hex.EncodeToString(raw[:]), nil
+}
+
+func writeLockMetadata(f *os.File, metadata sessionLockMetadata) error {
+	if _, err := f.Seek(0, 0); err != nil {
+		return err
+	}
+	if err := f.Truncate(0); err != nil {
+		return err
+	}
+	return json.NewEncoder(f).Encode(metadata)
+}
+
+func readLockMetadataFile(f *os.File) (sessionLockMetadata, error) {
+	if _, err := f.Seek(0, 0); err != nil {
+		return sessionLockMetadata{}, err
+	}
+	var metadata sessionLockMetadata
+	if err := json.NewDecoder(f).Decode(&metadata); err != nil {
+		return sessionLockMetadata{}, err
+	}
+	return metadata, nil
+}
+
+func readLockMetadata(name string) (sessionLockMetadata, bool) {
+	lp, err := lockPath(name)
+	if err != nil {
+		return sessionLockMetadata{}, false
+	}
+	f, err := os.Open(lp)
+	if err != nil {
+		return sessionLockMetadata{}, false
+	}
+	defer f.Close()
+	metadata, err := readLockMetadataFile(f)
+	return metadata, err == nil && metadata.PID > 0 && metadata.Token != ""
 }
 
 type quickExitDetails struct {
@@ -79,6 +133,18 @@ func runDaemonChildReal() {
 
 	readyW := os.NewFile(uintptr(readyFD), "ready-pipe")
 	lockFile := os.NewFile(uintptr(lockFD), "lock-file")
+	// The daemon retains these descriptors, but the managed TUI must never
+	// inherit the readiness channel or the generation-bearing lock file.
+	syscall.CloseOnExec(readyFD)
+	syscall.CloseOnExec(lockFD)
+	lockMetadata, err := readLockMetadataFile(lockFile)
+	if err != nil {
+		failDaemonStartup(readyW, lockFile, name, fmt.Errorf("read lock generation: %w", err))
+	}
+	if lockMetadata.Token == "" {
+		failDaemonStartup(readyW, lockFile, name, errors.New("read lock generation: empty token"))
+	}
+	token := lockMetadata.Token
 	// The lock file was written with the *launcher's* PID by
 	// daemonize (before this child even existed); overwrite it with our
 	// own now that we're the process actually holding the flock for the
@@ -87,9 +153,9 @@ func runDaemonChildReal() {
 	// --force"'s wait-for-old-daemon-to-exit step) — but a lock file
 	// naming the wrong PID is a footgun for any future reader, manual or
 	// automated.
-	_, _ = lockFile.Seek(0, 0)
-	_ = lockFile.Truncate(0)
-	_, _ = fmt.Fprintf(lockFile, "%d\n", os.Getpid())
+	if err := writeLockMetadata(lockFile, sessionLockMetadata{PID: os.Getpid(), Token: token}); err != nil {
+		failDaemonStartup(readyW, lockFile, name, fmt.Errorf("write lock generation: %w", err))
+	}
 
 	sock, err := socketPath(name)
 	if err != nil {
@@ -157,13 +223,13 @@ func runDaemonChildReal() {
 		})
 		_ = l.Close()
 		_ = te.Close()
-		_ = os.Remove(sock)
-		releaseDaemonLock(lockFile, name)
+		removeSessionFilesForGeneration(name, token)
+		_ = lockFile.Close()
 		writeReadyErrCode(readyW, name, rpc.CodeChildExited, "child exited during startup", details)
 		os.Exit(0)
 	case <-time.After(100 * time.Millisecond):
 		// Send ready handshake.
-		msg := readyMessage{Name: name, Socket: sock, PID: os.Getpid(), Trace: te.TracePath()}
+		msg := readyMessage{Name: name, Socket: sock, PID: os.Getpid(), Trace: te.TracePath(), Token: token}
 		_ = json.NewEncoder(readyW).Encode(msg)
 		_ = readyW.Close()
 	}
@@ -176,7 +242,7 @@ func runDaemonChildReal() {
 		_ = devNull.Close()
 	}
 
-	srv := daemon.NewServer(te)
+	srv := daemon.NewServer(te, daemon.WithStopToken(token))
 	go func() {
 		<-te.ExitedCh()
 		// Make artifacts durable while the socket still answers, so a
@@ -192,10 +258,10 @@ func runDaemonChildReal() {
 	_ = srv.Serve(context.Background(), l)
 	_ = te.Close()
 	if !te.TombstoneSuppressed() {
-		writeTombstone(name, buildTombstone(name, te))
+		writeTombstoneForGeneration(name, token, buildTombstone(name, te))
 	}
-	_ = os.Remove(sock)
-	releaseDaemonLock(lockFile, name)
+	removeSessionFilesForGeneration(name, token)
+	_ = lockFile.Close()
 	os.Exit(0)
 }
 
@@ -233,29 +299,32 @@ func errorString(err error) string {
 // failDaemonStartup reports a startup error to the parent, removes the
 // session lock (still held via the inherited fd), and exits.
 func failDaemonStartup(readyW, lockFile *os.File, name string, err error) {
-	releaseDaemonLock(lockFile, name)
+	metadata, _ := readLockMetadataFile(lockFile)
+	removeSessionFilesForGeneration(name, metadata.Token)
+	_ = lockFile.Close()
 	writeReadyErr(readyW, name, err)
 	os.Exit(1)
 }
 
-// releaseDaemonLock unlinks the lock while lockFile still holds its flock,
-// then closes the inherited descriptor to release ownership. Passing lockFile
-// through every daemon teardown path also keeps it strongly reachable for the
-// full daemon lifetime instead of allowing its finalizer to close it after the
-// startup PID write.
-func releaseDaemonLock(lockFile *os.File, name string) {
-	removeLockFile(name)
-	_ = lockFile.Close()
-}
-
-// removeLockFile unlinks the session's lock file. Callers must still hold
-// the flock (or know the owner is gone) so a concurrent start cannot be
-// racing them; starts guard against the unlink race by re-checking the
-// path after locking (see acquireSessionLock).
-func removeLockFile(name string) {
+// removeSessionFilesForGeneration removes name-addressed state only while the
+// lock path still names this exact generation. The caller continues holding
+// the flock through its inherited descriptor until after this check and
+// cleanup, so a replacement cannot acquire the name in between.
+func removeSessionFilesForGeneration(name, token string) bool {
+	if token == "" {
+		return false
+	}
+	metadata, ok := readLockMetadata(name)
+	if !ok || metadata.Token != token {
+		return false
+	}
+	if sp, err := socketPath(name); err == nil {
+		_ = os.Remove(sp)
+	}
 	if lp, err := lockPath(name); err == nil {
 		_ = os.Remove(lp)
 	}
+	return true
 }
 
 func writeReadyErr(w *os.File, name string, err error) {
@@ -316,6 +385,9 @@ func acquireSessionLock(name string) (*os.File, error) {
 // nothing to wait for (never started, or already fully torn down); the
 // caller treats that the same as "not applicable".
 func readLockPID(name string) (int, bool) {
+	if metadata, ok := readLockMetadata(name); ok {
+		return metadata.PID, true
+	}
 	lp, err := lockPath(name)
 	if err != nil {
 		return 0, false
@@ -335,14 +407,15 @@ func readLockPID(name string) (int, bool) {
 // Best-effort: on timeout it just returns, and the caller's subsequent
 // lock acquisition will surface a real ALREADY_RUNNING if the process
 // genuinely never exits, rather than this hanging forever.
-func waitForPIDExit(pid int, timeout time.Duration) {
+func waitForPIDExit(pid int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if err := syscall.Kill(pid, 0); err == syscall.ESRCH {
-			return
+			return true
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	return false
 }
 
 // daemonize re-execs into daemon mode with the given config, holding
@@ -356,23 +429,29 @@ func daemonize(name, dir string, cmd []string, cols, rows int, envOverrides map[
 	if err != nil {
 		return readyMessage{}, err
 	}
-	_ = lf.Truncate(0)
-	_, _ = lf.Seek(0, 0)
-	_, _ = fmt.Fprintf(lf, "%d\n", os.Getpid())
+	token, err := newSessionToken()
+	if err != nil {
+		_ = lf.Close()
+		return readyMessage{}, err
+	}
+	if err := writeLockMetadata(lf, sessionLockMetadata{PID: os.Getpid(), Token: token}); err != nil {
+		_ = lf.Close()
+		return readyMessage{}, fmt.Errorf("write lock generation: %w", err)
+	}
 	// A fresh start owns the name now; don't let a previous session's
 	// exit info be mistaken for this one's.
 	removeTombstone(name)
 
 	pr, pw, err := os.Pipe()
 	if err != nil {
-		removeLockFile(name)
+		removeSessionFilesForGeneration(name, token)
 		_ = lf.Close()
 		return readyMessage{}, fmt.Errorf("pipe: %w", err)
 	}
 
 	exe, err := os.Executable()
 	if err != nil {
-		removeLockFile(name)
+		removeSessionFilesForGeneration(name, token)
 		_ = lf.Close()
 		_ = pr.Close()
 		_ = pw.Close()
@@ -401,7 +480,7 @@ func daemonize(name, dir string, cmd []string, cols, rows int, envOverrides map[
 	child.ExtraFiles = []*os.File{pw, lf}
 	child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := child.Start(); err != nil {
-		removeLockFile(name)
+		removeSessionFilesForGeneration(name, token)
 		_ = lf.Close()
 		_ = pr.Close()
 		_ = pw.Close()

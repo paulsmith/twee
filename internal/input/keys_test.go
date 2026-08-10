@@ -46,6 +46,26 @@ func TestCtrlNormalizesCase(t *testing.T) {
 	}
 }
 
+func TestEncodeCursorKeysHonorsApplicationCursorMode(t *testing.T) {
+	tests := []struct {
+		key  Key
+		want string
+	}{
+		{KeyUp, "\x1bOA"},
+		{KeyDown, "\x1bOB"},
+		{KeyLeft, "\x1bOD"},
+		{KeyRight, "\x1bOC"},
+	}
+	for _, tt := range tests {
+		if got := EncodeWithModes(tt.key, KeyModes{ApplicationCursor: true}); !bytes.Equal(got, []byte(tt.want)) {
+			t.Errorf("EncodeWithModes(%s, DECCKM) = %q, want %q", Name(tt.key), got, tt.want)
+		}
+	}
+	if got := EncodeWithModes(KeyDelete, KeyModes{ApplicationCursor: true}); !bytes.Equal(got, []byte("\x1b[3~")) {
+		t.Errorf("Delete under DECCKM = %q, want unchanged CSI sequence", got)
+	}
+}
+
 func TestParseKnownKeysAndAliases(t *testing.T) {
 	tests := []struct {
 		name string

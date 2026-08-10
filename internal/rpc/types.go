@@ -52,6 +52,10 @@ type StatusData struct {
 type StopArgs struct {
 	Grace             string `json:"grace,omitempty"`
 	SuppressTombstone bool   `json:"suppress_tombstone,omitempty"`
+	// Token scopes a stop request to the daemon generation that returned it
+	// from start. Nil retains the interactive, name-only stop behavior; a
+	// present empty token is invalid and must never fall back to name-only.
+	Token *string `json:"token,omitempty"`
 }
 
 // Input args.
@@ -65,7 +69,8 @@ type KeyArgs struct {
 }
 
 type PasteArgs struct {
-	Text string `json:"text"`
+	Text  string `json:"text"`
+	Force bool   `json:"force,omitempty"`
 }
 
 // Mouse coordinates and scroll ticks are pointers so decoding preserves the
@@ -189,9 +194,10 @@ type LinesData struct {
 }
 
 type CursorData struct {
-	X       int  `json:"x"`
-	Y       int  `json:"y"`
-	Visible bool `json:"visible"`
+	X       int    `json:"x"`
+	Y       int    `json:"y"`
+	Visible bool   `json:"visible"`
+	Shape   string `json:"shape"`
 }
 
 // Color kind values for ColorData.Kind.
@@ -242,10 +248,12 @@ type TitleData struct {
 }
 
 type ModeData struct {
-	DECCKM         bool `json:"decckm"`
-	BracketedPaste bool `json:"bracketed_paste"`
-	AltScreen      bool `json:"alt_screen"`
-	Mouse          bool `json:"mouse"`
+	DECCKM             bool  `json:"decckm"`
+	BracketedPaste     bool  `json:"bracketed_paste"`
+	KittyKeyboardKnown bool  `json:"kitty_keyboard_known"`
+	KittyKeyboardFlags uint8 `json:"kitty_keyboard_flags"`
+	AltScreen          bool  `json:"alt_screen"`
+	Mouse              bool  `json:"mouse"`
 
 	MouseTracking string `json:"mouse_tracking,omitempty"`
 	MouseFormat   string `json:"mouse_format,omitempty"`

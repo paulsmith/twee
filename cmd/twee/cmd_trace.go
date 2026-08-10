@@ -27,7 +27,8 @@ Start a trace recording on the running session.
 
 While tracing is active, twee records PTY output bytes, input events, resize
 events, and the process exit. If --out is omitted, twee creates a temporary
-.twee path and returns it as {"out": "..."}.
+.twee path and returns it as {"out": "..."}. New trace files are created with
+owner-only permissions.
 
 Example:
   twee trace start --out /tmp/session.twee

@@ -18,7 +18,7 @@ Client-side sleep (e.g. "200ms", "1s"). Emits an empty OK envelope.`)
 	registerUsage("screenshot", `twee screenshot [--out <path.png>] [--name <name>]
 Render the current screen to PNG. Without --out, the response includes
 "png_base64". Synthetic bold; emoji cells render as the leftmost glyph
-plus a space.`)
+plus a space. New output files are created with owner-only permissions.`)
 }
 
 func runScreenshot(args []string) {

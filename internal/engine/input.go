@@ -32,12 +32,17 @@ func (t *Term) Key(k input.Key) error {
 	t.inputMu.Lock()
 	defer t.inputMu.Unlock()
 
-	b := input.Encode(k)
+	b, err := t.pump.EncodeKey(k)
+	if err != nil {
+		return failedPrecondition(err.Error(), map[string]any{
+			"key": input.Name(k),
+		}, err)
+	}
 	if len(b) == 0 {
 		return nil
 	}
 	if err := writeAll(t.inputWriter, b); err != nil {
-		return err
+		return inputIO(err)
 	}
 	t.recordInput("Key " + input.Name(k))
 	t.cfgMu.Lock()
@@ -49,14 +54,41 @@ func (t *Term) Key(k input.Key) error {
 	return nil
 }
 
-// Paste sends text wrapped in bracketed-paste markers.
+// Paste sends text wrapped in bracketed-paste markers when the child has
+// enabled DEC mode 2004. Use ForcePaste only when literal marker delivery is
+// deliberately desired despite a known-disabled mode.
 func (t *Term) Paste(text string) error {
+	return t.paste(text, false)
+}
+
+// ForcePaste sends bracketed-paste markers even when DEC mode 2004 is known
+// to be disabled. It is the explicit escape hatch for raw protocol testing.
+func (t *Term) ForcePaste(text string) error {
+	return t.paste(text, true)
+}
+
+func (t *Term) paste(text string, force bool) error {
 	t.inputMu.Lock()
 	defer t.inputMu.Unlock()
 
+	if !force {
+		presentation, err := t.pump.Presentation()
+		if err != nil {
+			return failedPrecondition(err.Error(), map[string]any{
+				"operation": "paste",
+			}, err)
+		}
+		if !presentation.Input.BracketedPaste {
+			return failedPrecondition(
+				"bracketed paste mode is disabled",
+				map[string]any{"mode": 2004, "force_available": true},
+				nil,
+			)
+		}
+	}
 	b := input.EncodePaste(text)
 	if err := writeAll(t.inputWriter, b); err != nil {
-		return err
+		return inputIO(err)
 	}
 	t.recordInput(fmt.Sprintf("Paste %q", text))
 	t.cfgMu.Lock()

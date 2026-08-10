@@ -66,7 +66,7 @@ func TestConcurrentInputsAndResize(t *testing.T) {
 	}
 	run(func(int) error { return term.Type("x") })
 	run(func(int) error { return term.Key(input.KeyTab) })
-	run(func(int) error { return term.Paste("p") })
+	run(func(int) error { return term.ForcePaste("p") })
 	run(func(int) error { return term.Click(0, 0, input.ButtonLeft, nil) })
 	run(func(int) error { return term.Hover(0, 0, nil) })
 	run(func(int) error { return term.Scroll(0, 0, input.ScrollDown, 1, nil) })
@@ -109,7 +109,7 @@ func TestConcurrentLogicalInputsRemainContiguous(t *testing.T) {
 		},
 		{
 			name: "paste",
-			run:  func() error { return term.Paste("PASTE-BODY") },
+			run:  func() error { return term.ForcePaste("PASTE-BODY") },
 			want: input.EncodePaste("PASTE-BODY"),
 		},
 		{

@@ -2,6 +2,9 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/paulsmith/twee/internal/engine"
@@ -23,6 +26,9 @@ Flags:
   --trace <path.twee>
                   record the whole session, spawn to teardown, to a
                   trace bundle; finalized automatically at child exit
+  --token-out <path>
+                  atomically write the session ownership token to a private
+                  file; a write failure stops the just-started generation
   --network-capture
                   capture the managed program's IPv4 traffic (Linux; requires --trace)
   --publish-tcp <listen=guest-port>
@@ -32,7 +38,8 @@ Flags:
                   ALREADY_RUNNING; adds "replaced":true to the response
                   when it actually stopped something. Stale leftovers
                   (a dead daemon's socket/lock) are already recovered
-                  automatically either way.`)
+                  automatically either way. This is an explicit name-only
+                  replacement and bypasses ownership-token protection.`)
 }
 
 func runStart(args []string) {
@@ -57,6 +64,12 @@ func runStart(args []string) {
 			message = msg.Error
 		}
 		emitError(code, message, details, 1)
+	}
+	if opts.tokenOut != "" {
+		if err := writeSessionToken(opts.tokenOut, msg.Token); err != nil {
+			_ = stopSession(opts.name, rpc.StopArgs{Token: &msg.Token})
+			emitError(rpc.CodeIO, err.Error(), nil, 1)
+		}
 	}
 	msg.Replaced = replaced
 	emitOK(msg)
@@ -94,6 +107,7 @@ type startOptions struct {
 	force          bool
 	networkCapture bool
 	publishTCP     []engine.TCPPublication
+	tokenOut       string
 }
 
 func parseStartArgs(args []string) (startOptions, error) {
@@ -111,6 +125,7 @@ func parseStartArgs(args []string) (startOptions, error) {
 		Force          bool     `arg:"--force"`
 		NetworkCapture bool     `arg:"--network-capture"`
 		PublishTCP     []string `arg:"--publish-tcp,separate"`
+		TokenOut       string   `arg:"--token-out"`
 	}
 	if err := requireSeparateValues(before, "--env"); err != nil {
 		return startOptions{}, err
@@ -141,9 +156,38 @@ func parseStartArgs(args []string) (startOptions, error) {
 	if err != nil {
 		return startOptions{}, err
 	}
+	tokenOut, err := absOutPath(parsed.TokenOut)
+	if err != nil {
+		return startOptions{}, err
+	}
 	pubs, err := parseNetworkCaptureFlags(parsed.NetworkCapture, parsed.PublishTCP, trace, "--trace")
 	if err != nil {
 		return startOptions{}, err
 	}
-	return startOptions{name: name, cmd: cmd, cols: cols, rows: rows, dir: parsed.Dir, env: envOverrides, trace: trace, force: parsed.Force, networkCapture: parsed.NetworkCapture, publishTCP: pubs}, nil
+	return startOptions{name: name, cmd: cmd, cols: cols, rows: rows, dir: parsed.Dir, env: envOverrides, trace: trace, force: parsed.Force, networkCapture: parsed.NetworkCapture, publishTCP: pubs, tokenOut: tokenOut}, nil
+}
+
+func writeSessionToken(path, token string) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".twee-token-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create token file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod token file: %w", err)
+	}
+	if _, err := fmt.Fprintln(tmp, token); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write token file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close token file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("install token file: %w", err)
+	}
+	return nil
 }

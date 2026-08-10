@@ -29,7 +29,9 @@ Terminal dimensions: {cols, rows}.`)
 	registerUsage("title", `twee title [--name <name>]
 Window title (OSC 0/2): {title}.`)
 	registerUsage("mode", `twee mode [--name <name>]
-Active VT modes: {decckm, bracketed_paste, alt_screen, mouse, ...}.`)
+Active VT modes: {decckm, bracketed_paste, kitty_keyboard_known,
+kitty_keyboard_flags, alt_screen, mouse, ...}. A nonzero Kitty flag value
+means named key input is currently unsupported.`)
 	registerUsage("scrollback", `twee scrollback [--name <name>]
 Scrollback lines. Retention is not yet implemented; this currently
 always returns an empty list.`)

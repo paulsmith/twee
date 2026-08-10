@@ -30,6 +30,9 @@ Send one named key. Valid names:
   Ctrl+<letter>   (e.g. Ctrl+C, Ctrl+D, Ctrl+Z)
 
 For literal characters or strings, use "twee type" instead.
+Cursor keys honor DEC application-cursor mode (DECCKM). Twee currently
+supports legacy xterm key encoding. Named keys fail with FAILED_PRECONDITION
+while the Kitty keyboard protocol is active; Kitty encoding is not supported.
 
 Flags:
   --name <name>    session name (default: TWEE_SESSION or "default")`)
@@ -41,13 +44,15 @@ to N successive "twee key" calls. Same naming rules as "twee key".
 Flags:
   --name <name>    session name (default: TWEE_SESSION or "default")`)
 
-	registerUsage("paste", `twee paste [client options] -- <text...>
-Send text wrapped in bracketed-paste markers (DEC mode 2004). If the
-TUI hasn't enabled mode 2004, the markers will appear as literal
-input. Multiple args are joined with single spaces.
+	registerUsage("paste", `twee paste [client options] [--force] -- <text...>
+Send text wrapped in bracketed-paste markers (DEC mode 2004). The command
+fails with FAILED_PRECONDITION if the TUI has not enabled mode 2004.
+Use --force only to send the markers deliberately in that state.
+Multiple args are joined with single spaces.
 
 Flags:
-  --name <name>    session name (default: TWEE_SESSION or "default")`)
+  --name <name>    session name (default: TWEE_SESSION or "default")
+  --force          send markers even when mode 2004 is disabled`)
 
 	registerUsage("signal", `twee signal <name> [--name <session>]
 Send a POSIX signal to the child process (not the daemon). Examples:
@@ -124,12 +129,13 @@ func runPaste(args []string) {
 		fatalUsage("paste: %v", err)
 	}
 	var opts struct {
-		Name *string `arg:"--name"`
+		Name  *string `arg:"--name"`
+		Force bool    `arg:"--force"`
 	}
 	if err := parseArg("paste", &opts, before); err != nil {
 		fatalUsage("paste: %v", err)
 	}
-	callSessionAndEmit("paste", opts.Name, rpc.OpPaste, rpc.PasteArgs{Text: strings.Join(payload, " ")})
+	callSessionAndEmit("paste", opts.Name, rpc.OpPaste, rpc.PasteArgs{Text: strings.Join(payload, " "), Force: opts.Force})
 }
 
 func runSignal(args []string) {

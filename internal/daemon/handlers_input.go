@@ -46,7 +46,7 @@ func handleKey(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 		return nil, invalidArgument(err)
 	}
 	if err := t.Key(k); err != nil {
-		return nil, ioFailure(err)
+		return nil, engineFailure(err)
 	}
 	return nil, nil
 }
@@ -56,8 +56,14 @@ func handlePaste(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	if errResp != nil {
 		return nil, errResp
 	}
-	if err := t.Paste(a.Text); err != nil {
-		return nil, ioFailure(err)
+	var err error
+	if a.Force {
+		err = t.ForcePaste(a.Text)
+	} else {
+		err = t.Paste(a.Text)
+	}
+	if err != nil {
+		return nil, engineFailure(err)
 	}
 	return nil, nil
 }
