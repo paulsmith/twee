@@ -164,10 +164,10 @@ func runDaemonChildReal() {
 	_ = os.Remove(sock) // stale socket; lock confirmed no live owner
 
 	var wholeSessionTrace *engine.WholeSessionTraceConfig
-	if networkCapture {
-		wholeSessionTrace = &engine.WholeSessionTraceConfig{
-			Path:    tracePath,
-			Network: &engine.NetworkCaptureConfig{PublishTCP: publishTCP},
+	if tracePath != "" {
+		wholeSessionTrace = &engine.WholeSessionTraceConfig{Path: tracePath}
+		if networkCapture {
+			wholeSessionTrace.Network = &engine.NetworkCaptureConfig{PublishTCP: publishTCP}
 		}
 	}
 	te, err := engine.Start(context.Background(), engine.Config{
@@ -180,19 +180,6 @@ func runDaemonChildReal() {
 	})
 	if err != nil {
 		failDaemonStartup(readyW, lockFile, name, fmt.Errorf("engine.Start: %w", err))
-	}
-
-	if tracePath != "" && !networkCapture {
-		// Reuse the trace_start handler so `start --trace` and the trace
-		// verb produce identical bundles.
-		resp, err := dispatchRunControl(te, rpc.OpTraceStart, rpc.TraceStartArgs{Out: tracePath})
-		if err == nil && !resp.OK {
-			err = fmt.Errorf("%s", resp.Error.Message)
-		}
-		if err != nil {
-			_ = te.Close()
-			failDaemonStartup(readyW, lockFile, name, fmt.Errorf("trace start: %w", err))
-		}
 	}
 
 	l, err := listenUnixSocket(sock)

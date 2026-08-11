@@ -225,15 +225,3 @@ func leadingResize(ops []rpc.Request) (rpc.ResizeArgs, bool) {
 	}
 	return args, args.Cols > 0 && args.Rows > 0
 }
-
-func dispatchRunControl(te *engine.Term, op string, args any) (rpc.Response, error) {
-	var raw json.RawMessage
-	if args != nil {
-		b, err := json.Marshal(args)
-		if err != nil {
-			return rpc.Response{}, err
-		}
-		raw = b
-	}
-	return daemon.NewDispatcher(te).Dispatch(rpc.Request{ID: op, Op: op, Args: raw}), nil
-}

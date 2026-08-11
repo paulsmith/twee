@@ -212,7 +212,7 @@ func TestWaitExitReportsTracePath(t *testing.T) {
 
 func TestWaitExitReportsTraceFinalizationFailure(t *testing.T) {
 	te, err := engine.Start(context.Background(), engine.Config{
-		Cmd: []string{"/bin/sh", "-c", "exit 0"}, Cols: 40, Rows: 5,
+		Cmd: []string{"/bin/sh", "-c", "read line; exit 0"}, Cols: 40, Rows: 5,
 	})
 	if err != nil {
 		t.Fatalf("engine.Start: %v", err)
@@ -224,6 +224,9 @@ func TestWaitExitReportsTraceFinalizationFailure(t *testing.T) {
 	}
 	if err := os.Mkdir(tracePath, 0o700); err != nil {
 		t.Fatalf("Mkdir blocking output: %v", err)
+	}
+	if err := te.Type("\n"); err != nil {
+		t.Fatalf("release child: %v", err)
 	}
 
 	_, rpcErr := handleWaitExit(te, mustJSON(t, rpc.WaitExitArgs{Timeout: "2s"}))
