@@ -418,7 +418,7 @@ func TestParseWrapStartsIndependentRecorders(t *testing.T) {
 }
 
 func TestWrapHelpDocumentsOneShotControls(t *testing.T) {
-	help := usages["wrap"]
+	help := commandRegistry["wrap"].Usage
 	for _, want := range []string{"Ctrl+] s", "Ctrl+] t", "--script-out", "--network-capture", "--publish-tcp", "--no-status"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("wrap help missing %q: %s", want, help)

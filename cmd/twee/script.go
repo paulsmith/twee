@@ -148,8 +148,8 @@ func resolveScriptPath(clientDir, path string) string {
 // streamed to stdout as one NDJSON line as soon as it completes,
 // success or failure alike. So when an op fails in this mode, it has
 // already been reported on stdout; runOpScript runs cleanup itself and
-// exits 1 directly instead of calling fail, which would print a second,
-// redundant error envelope.
+// exits 1 through the shared output policy instead of calling fail, which
+// would print a second, redundant error envelope.
 func runOpScript(ops []rpc.Request, dial func() (net.Conn, error), emitResults bool, cleanup func(), fail func(code, msg string, details json.RawMessage)) {
 	for i, op := range ops {
 		op.ID = fmt.Sprintf("%d", i)
@@ -171,15 +171,14 @@ func runOpScript(ops []rpc.Request, dial func() (net.Conn, error), emitResults b
 		}
 		c.Close()
 		if emitResults {
-			_ = json.NewEncoder(os.Stdout).Encode(resp)
+			emitNDJSON(resp)
 		}
 		if !resp.OK {
 			if !emitResults {
 				fail(resp.Error.Code, resp.Error.Message, resp.Error.Details)
 				return
 			}
-			cleanup()
-			os.Exit(1)
+			exitAfterNDJSONFailure(cleanup)
 		}
 	}
 }

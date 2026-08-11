@@ -68,17 +68,42 @@ type HostInfo struct {
 // different gesture shape (for example, click uses X/Y while drag uses
 // FromX/FromY/ToX/ToY).
 type MouseInput struct {
-	Gesture   string   `json:"gesture"`
-	X         *int     `json:"x,omitempty"`
-	Y         *int     `json:"y,omitempty"`
-	FromX     *int     `json:"from_x,omitempty"`
-	FromY     *int     `json:"from_y,omitempty"`
-	ToX       *int     `json:"to_x,omitempty"`
-	ToY       *int     `json:"to_y,omitempty"`
-	Button    string   `json:"button,omitempty"`
-	Modifiers []string `json:"modifiers"`
-	Direction string   `json:"direction,omitempty"`
-	Ticks     int      `json:"ticks,omitempty"`
+	Gesture   string             `json:"gesture"`
+	X         *int               `json:"x,omitempty"`
+	Y         *int               `json:"y,omitempty"`
+	FromX     *int               `json:"from_x,omitempty"`
+	FromY     *int               `json:"from_y,omitempty"`
+	ToX       *int               `json:"to_x,omitempty"`
+	ToY       *int               `json:"to_y,omitempty"`
+	Button    string             `json:"button,omitempty"`
+	Modifiers []string           `json:"modifiers"`
+	Direction string             `json:"direction,omitempty"`
+	Ticks     int                `json:"ticks,omitempty"`
+	FindClick *FindClickDecision `json:"find_click,omitempty"`
+}
+
+// FindClickDecision records the terminal-state decision behind an atomic
+// pattern click. The containing mouse event carries the exact encoded bytes.
+type FindClickDecision struct {
+	Pattern   string     `json:"pattern"`
+	Regex     bool       `json:"regex"`
+	Selection string     `json:"selection"`
+	Match     TraceMatch `json:"match"`
+	Target    TracePoint `json:"target"`
+}
+
+type TraceMatch struct {
+	X    int    `json:"x"`
+	Y    int    `json:"y"`
+	W    int    `json:"w"`
+	H    int    `json:"h"`
+	Line int    `json:"line"`
+	Text string `json:"text"`
+}
+
+type TracePoint struct {
+	X int `json:"x"`
+	Y int `json:"y"`
 }
 
 // DefaultHostInfo returns HostInfo populated from the current machine.

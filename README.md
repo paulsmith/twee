@@ -253,12 +253,20 @@ The package also supports keyboard input, paste, mouse gestures, screen queries,
 ## Command guide
 
 Run `twee help` for the current command list. Run `twee help <command>` for flags and behavior.
+Use JSON help to discover each command's output contract without maintaining a
+separate command table:
 
 ```sh
 twee help start
 twee help wait text
 twee help wrap
+twee help --format json
+twee help diff --format json
 ```
+
+JSON help starts with `schema_version`. Each descriptor reports whether the
+command is interactive, its normal success-output kind, supported formats,
+structured-error support, exit statuses, and any separately written artifact.
 
 The commands are grouped below by purpose:
 
@@ -305,7 +313,27 @@ twee wait text --pattern="-- INSERT --"
 
 Daemon commands print one JSON value to standard output. Logs go to standard error.
 
+Place the root `--machine` option before a non-interactive command to request a
+stable automation contract. Success is one JSON envelope. Runtime and usage
+errors are JSON envelopes on standard output; diagnostics remain on standard
+error. Usage errors still exit with status 2 and operational errors with status
+1. Interactive `play` and `wrap` reject `--machine` with a structured usage
+error.
+
+```sh
+twee --machine version
+twee --machine export session.twee -o replay.html
+```
+
+The machine-mode export response includes the resolved absolute output path and
+the selected artifact format. Export remains silent on success by default.
+
 `run --emit results` and `do --emit results` stream multiple NDJSON values instead.
+Each completed operation writes one response record. The first failing
+operation writes its error response as the terminal record and the command
+exits with status 1; there is no additional summary record. Failures before an
+operation response exists write one error record. Standard error remains
+reserved for diagnostics.
 
 ```json
 {"ok":true,"data":{"text":"visible viewport"}}
@@ -316,7 +344,8 @@ Void operations return `null` in `data`. Query commands return command-specific 
 
 `help`, `version`, and `completion` print plain text. `play` and `wrap` use the terminal interactively.
 
-Usage errors print plain text to standard error, print nothing to standard output, and exit with status 2.
+Without `--machine`, usage errors print plain text to standard error, print
+nothing to standard output, and exit with status 2.
 
 Common error codes are:
 
@@ -357,7 +386,9 @@ content. On Unix, Twee creates new screenshots, trace bundles, wrap scripts,
 text snapshots, and replay exports with mode `0600` so only the owner can read
 or modify them. Atomic replay export replacement preserves the existing
 destination's permissions. Review an existing destination's permissions before
-overwriting it, and review every artifact before sharing it.
+overwriting it, and review every artifact before sharing it. Machine-mode
+artifact responses contain resolved absolute paths, which can disclose local
+directory names if logs are shared.
 
 ## Wait for terminal state
 
@@ -385,13 +416,27 @@ Use `--timeout` to change a timeout. Use `wait stable --quiet` to change the sta
 
 Screen and mouse commands use zero-based terminal cells. They do not use pixels, bytes, code points, or scrollback positions.
 
-`find` reports `x` and `w` in terminal cells. You can pass a result directly to `click`:
+`find` reports `x` and `w` in terminal cells and remains useful for
+exploration. For an action, prefer the atomic pattern form of `click`:
 
 ```sh
-match="$(twee find --pattern Submit)"
-twee click \
-  --x "$(jq -r '.data[0].x' <<<"$match")" \
-  --y "$(jq -r '.data[0].y' <<<"$match")"
+twee click --pattern Submit
+twee click --pattern 'Save .*' --regex --require one
+twee click --pattern Item --select first
+twee click --pattern Item --select 3
+```
+
+Pattern clicks require exactly one match by default. Multiple matches return
+`AMBIGUOUS_MATCH`; no matches return `NOT_FOUND`; and an invalid or out-of-range
+number returns `INVALID_SELECTION`. `--select first`, `--select last`, and a
+one-based number resolve ambiguity explicitly. The response reports the match,
+the exact target cell, and the applied selection. Matching, selection, mouse
+mode checks, and encoding all use one locked terminal state.
+
+Operation scripts use the distinct `find_click` operation:
+
+```json
+{"op":"find_click","args":{"pattern":"Submit","require":"one"}}
 ```
 
 Mouse commands require a compatible mouse mode from the child TUI. Twee rejects an incompatible gesture before it writes partial input.
@@ -431,6 +476,10 @@ If you omit `--out`, `trace start` creates a temporary path. The JSON response c
 Twee automatically finalizes an active trace when the child exits. `wait exit` and `stop` wait for the trace file to become durable.
 
 Trace events include PTY output, input, terminal resize, and process exit. High-level mouse gestures include their encoded bytes and gesture metadata.
+Atomic pattern clicks also record the pattern, regular-expression flag,
+selection decision, match, and target. Treat traces and screenshots as
+sensitive: terminal text can contain credentials, and a pattern only identifies
+rendered text—it does not establish that the application or target is trusted.
 
 ### Inspect traces
 

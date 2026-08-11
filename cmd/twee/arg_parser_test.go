@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"os"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -127,6 +129,24 @@ func TestParseRootArgsGlobalNameAndHelp(t *testing.T) {
 		if !root.GlobalName.Present || root.GlobalName.Value != "s" {
 			t.Fatalf("global --name for %s not retained: %+v", verb, root)
 		}
+	}
+}
+
+func TestExtractMachineModeRootOnlyAndMalformedName(t *testing.T) {
+	args, machine, err := extractMachineMode([]string{"--name", "--machine", "status"})
+	if err == nil || !strings.Contains(err.Error(), "--name requires a value") {
+		t.Fatalf("error = %v, want malformed --name", err)
+	}
+	if !machine {
+		t.Fatal("machine = false, want true")
+	}
+	if !reflect.DeepEqual(args, []string{"--name", "status"}) {
+		t.Fatalf("args = %#v", args)
+	}
+
+	args, machine, err = extractMachineMode([]string{"status", "--machine"})
+	if err != nil || machine || !reflect.DeepEqual(args, []string{"status", "--machine"}) {
+		t.Fatalf("post-verb machine: args=%#v machine=%v err=%v", args, machine, err)
 	}
 }
 

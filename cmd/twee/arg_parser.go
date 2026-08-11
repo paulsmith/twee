@@ -28,6 +28,39 @@ type rootArgs struct {
 	HelpKey    string
 }
 
+// extractMachineMode selects structured output before normal root parsing so
+// malformed root options can still use the machine error contract.
+func extractMachineMode(args []string) ([]string, bool, error) {
+	out := make([]string, 0, len(args))
+	machine := false
+	var rootErr error
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--machine" {
+			if machine {
+				return nil, true, fmt.Errorf("duplicate --machine")
+			}
+			machine = true
+			continue
+		}
+		out = append(out, a)
+		if a == "--name" {
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				rootErr = fmt.Errorf("--name requires a value")
+				continue
+			}
+			i++
+			out = append(out, args[i])
+			continue
+		}
+		if !strings.HasPrefix(a, "-") || a == "--" {
+			out = append(out, args[i+1:]...)
+			break
+		}
+	}
+	return out, machine, rootErr
+}
+
 func nameOptFromPtr(v *string) nameOpt {
 	if v == nil {
 		return nameOpt{}

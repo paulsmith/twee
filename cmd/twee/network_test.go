@@ -65,7 +65,7 @@ func TestParseWrapNetworkCaptureRequiresTrace(t *testing.T) {
 
 func TestNetworkHelpUsesGuestPortWithoutPrivateAddress(t *testing.T) {
 	for _, command := range []string{"start", "run", "wrap"} {
-		help := usages[command]
+		help := commandRegistry[command].Usage
 		if !strings.Contains(help, "LISTEN_IPV4:PORT=GUEST_PORT") {
 			t.Errorf("%s help missing simplified publication syntax: %s", command, help)
 		}

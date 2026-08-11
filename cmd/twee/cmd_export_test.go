@@ -142,7 +142,7 @@ func TestParseQualityFlagRejectsHTML(t *testing.T) {
 }
 
 func TestExportHelpIncludesSelfContainedHTML(t *testing.T) {
-	help := usages["export"]
+	help := commandRegistry["export"].Usage
 	for _, want := range []string{"out.html", "self-contained HTML", ".gif and .html"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("export help missing %q:\n%s", want, help)
@@ -181,6 +181,8 @@ func TestExportHTMLViaCLI(t *testing.T) {
 	cmd := exec.Command(bin, "export", bundle, "-o", out, "--speed", "2")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("twee export: %v\n%s", err, output)
+	} else if len(output) != 0 {
+		t.Fatalf("default export success output = %q, want silent", output)
 	}
 	page, err := os.ReadFile(out)
 	if err != nil {

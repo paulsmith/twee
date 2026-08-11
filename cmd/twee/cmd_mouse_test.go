@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/paulsmith/twee/internal/input"
+	"github.com/paulsmith/twee/internal/rpc"
 )
 
 func TestParseClickArgs(t *testing.T) {
@@ -30,6 +31,58 @@ func TestParseClickArgs(t *testing.T) {
 	}
 	if strings.Join(got.Modifiers, ",") != "ctrl,shift" {
 		t.Fatalf("modifiers = %#v, want ctrl,shift", got.Modifiers)
+	}
+}
+
+func TestParsePatternClickRequest(t *testing.T) {
+	name, op, value, err := parseClickRequest([]string{
+		"--pattern", "Save .*", "--regex", "--select", "last",
+		"--button", "right", "--modifier", "alt", "--name", "demo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name == nil || *name != "demo" || op != "find_click" {
+		t.Fatalf("name/op = %v/%q", name, op)
+	}
+	got := value.(rpc.FindClickArgs)
+	if got.Pattern != "Save .*" || !got.Regex || got.Select == nil || *got.Select != "last" || got.Button != "right" || len(got.Modifiers) != 1 {
+		t.Fatalf("args = %+v", got)
+	}
+}
+
+func TestParseClickFormsAreExclusive(t *testing.T) {
+	tests := [][]string{
+		{"--pattern", "x", "--x", "1", "--y", "2"},
+		{"--pattern", "x", "--require", "one", "--select", "first"},
+		{"--x", "1", "--y", "2", "--regex"},
+		{"--x", "1"},
+		{"--pattern", "x", "--require", ""},
+		{"--pattern", "x", "--require", "any"},
+		{"--pattern", "x", "--select", ""},
+		{"--pattern", "x", "--require", "one", "--select", ""},
+	}
+	for _, args := range tests {
+		if _, _, _, err := parseClickRequest(args); err == nil {
+			t.Fatalf("parseClickRequest(%v) unexpectedly succeeded", args)
+		}
+	}
+}
+
+func TestClickInvalidPatternOptionsExitUsage(t *testing.T) {
+	bin := buildBinary(t)
+	for _, args := range [][]string{
+		{"click", "--pattern", "x", "--require", ""},
+		{"click", "--pattern", "x", "--require", "any"},
+		{"click", "--pattern", "x", "--select", ""},
+		{"click", "--pattern", "x", "--require", "one", "--select", ""},
+	} {
+		cmd := exec.Command(bin, args...)
+		out, err := cmd.CombinedOutput()
+		exit, ok := err.(*exec.ExitError)
+		if !ok || exit.ExitCode() != 2 {
+			t.Fatalf("%v: exit=%v, output=%s", args, err, out)
+		}
 	}
 }
 
@@ -184,6 +237,67 @@ func TestMouseOpsReachRunAndDoDispatcher(t *testing.T) {
 	doCmd.Env = append(os.Environ(), env...)
 	assertScriptErrorCode(t, doCmd, "FAILED_PRECONDITION")
 	mustOK(t, bin, env, "stop", "--name", name)
+}
+
+func TestFindClickDirectRunAndDo(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+	name := "find-click-equivalence"
+	t.Cleanup(func() {
+		stop := exec.Command(bin, "stop", "--name", name)
+		stop.Env = append(os.Environ(), env...)
+		_ = stop.Run()
+	})
+	child := []string{"/bin/sh", "-c", "printf '\\033[?1003h\\033[?1006hSubmit  Submit'; sleep 30"}
+	mustOK(t, bin, env, append([]string{"start", "--name", name, "--"}, child...)...)
+	mustOK(t, bin, env, "wait", "text", "--name", name, "--pattern", "Submit  Submit")
+
+	direct, _, err := runCLI(t, bin, env, "click", "--name", name, "--pattern", "Submit", "--select", "last")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFindClickData(t, direct, "last")
+
+	script := writeScript(t, `[{"op":"find_click","args":{"pattern":"Submit","select":"first"}}]`)
+	cmd := exec.Command(bin, "do", "--name", name, "--script", script, "--emit", "results")
+	cmd.Env = append(os.Environ(), env...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("do find_click: %v\n%s", err, out)
+	}
+	var doResp map[string]any
+	if err := json.Unmarshal(out, &doResp); err != nil {
+		t.Fatal(err)
+	}
+	assertFindClickData(t, doResp, "first")
+
+	runScript := writeScript(t, `[
+		{"op":"wait_text","args":{"text":"Submit  Submit","timeout":"2s"}},
+		{"op":"find_click","args":{"pattern":"Submit","select":"first"}}
+	]`)
+	runCmd := exec.Command(bin, append([]string{"run", "--script", runScript, "--emit", "results", "--"}, child...)...)
+	runCmd.Env = append(os.Environ(), env...)
+	runOut, err := runCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run find_click: %v\n%s", err, runOut)
+	}
+	lines := strings.Split(strings.TrimSpace(string(runOut)), "\n")
+	var runResp map[string]any
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &runResp); err != nil {
+		t.Fatal(err)
+	}
+	assertFindClickData(t, runResp, "first")
+}
+
+func assertFindClickData(t *testing.T, response map[string]any, selection string) {
+	t.Helper()
+	if response["ok"] != true {
+		t.Fatalf("response = %#v", response)
+	}
+	data, ok := response["data"].(map[string]any)
+	if !ok || data["selection"] != selection || data["match"] == nil || data["target"] == nil {
+		t.Fatalf("find_click data = %#v", data)
+	}
 }
 
 func assertScriptErrorCode(t *testing.T, cmd *exec.Cmd, want string) {

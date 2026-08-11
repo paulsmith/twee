@@ -82,6 +82,15 @@ type ClickArgs struct {
 	Modifiers []string `json:"modifiers,omitempty"`
 }
 
+type FindClickArgs struct {
+	Pattern   string   `json:"pattern"`
+	Regex     bool     `json:"regex,omitempty"`
+	Require   *string  `json:"require,omitempty"`
+	Select    *string  `json:"select,omitempty"`
+	Button    string   `json:"button,omitempty"`
+	Modifiers []string `json:"modifiers,omitempty"`
+}
+
 type HoverArgs struct {
 	X         *int     `json:"x"`
 	Y         *int     `json:"y"`
@@ -287,6 +296,17 @@ type FindMatch struct {
 	H    int    `json:"h"`
 	Line int    `json:"line"`
 	Text string `json:"text"`
+}
+
+type PointData struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+}
+
+type FindClickData struct {
+	Match     FindMatch `json:"match"`
+	Target    PointData `json:"target"`
+	Selection string    `json:"selection"`
 }
 
 type DiffData struct {

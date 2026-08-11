@@ -111,6 +111,31 @@ func TestActiveTraceRecordsOneExactEventPerMouseGesture(t *testing.T) {
 	}
 }
 
+func TestFindClickTraceRecordsDecisionAndExactBytes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "find-click.twee")
+	term := startTracedTerm(t, path, "printf '\\033[?1003h\\033[?1006hREADY Submit'; sleep 30")
+	result, err := term.FindClick("Submit", false, "", input.ButtonRight, []input.MouseModifier{input.ModifierCtrl})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := term.DisableTrace(); err != nil {
+		t.Fatal(err)
+	}
+	events := readMouseTraceEvents(t, path)
+	if len(events) != 1 {
+		t.Fatalf("events = %#v", events)
+	}
+	got := events[0]
+	if !bytes.Equal(got.Bytes, []byte("\x1b[<18;9;1M\x1b[<18;9;1m")) {
+		t.Fatalf("bytes = %q", got.Bytes)
+	}
+	decision := got.Mouse.FindClick
+	if decision == nil || decision.Pattern != "Submit" || decision.Regex || decision.Selection != "exactly_one" ||
+		decision.Match.X != result.Match.X || decision.Target.X != result.Target.X {
+		t.Fatalf("decision = %+v; result = %+v", decision, result)
+	}
+}
+
 func TestFailedMouseGestureRecordsNoTraceOrDiagnostic(t *testing.T) {
 	t.Run("invalid argument", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "invalid-mouse.twee")

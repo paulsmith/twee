@@ -2,8 +2,6 @@ package daemon
 
 import (
 	"encoding/json"
-	"regexp"
-	"strings"
 
 	"github.com/paulsmith/twee/internal/engine"
 	"github.com/paulsmith/twee/internal/rpc"
@@ -131,134 +129,19 @@ func handleFind(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	if errResp != nil {
 		return nil, errResp
 	}
-	if a.Text == "" && !a.Regex {
-		return nil, invalidArgumentMessage("text or regex required")
+	matches, err := engine.FindMatches(t.Snapshot(), a.Text, a.Regex)
+	if err != nil {
+		return nil, invalidArgument(err)
 	}
-	snap := t.Snapshot()
-	matches := make([]rpc.FindMatch, 0)
-	if a.Regex {
-		re, err := regexp.Compile(a.Text)
-		if err != nil {
-			return nil, invalidArgument(err)
-		}
-		for y, line := range snap.Lines {
-			ln := newSearchLine(line)
-			for _, idx := range re.FindAllStringIndex(ln.text, -1) {
-				matches = append(matches, ln.match(y, idx[0], idx[1]))
-			}
-		}
-	} else {
-		for y, line := range snap.Lines {
-			ln := newSearchLine(line)
-			start := 0
-			for {
-				i := strings.Index(ln.text[start:], a.Text)
-				if i < 0 {
-					break
-				}
-				matches = append(matches, ln.match(y, start+i, start+i+len(a.Text)))
-				start = start + i + len(a.Text)
-			}
-		}
+	out := make([]rpc.FindMatch, len(matches))
+	for i, match := range matches {
+		out[i] = findMatchData(match)
 	}
-	return matches, nil
+	return out, nil
 }
 
-// searchLine retains the relationship between a rendered line's UTF-8 byte
-// offsets (which strings.Index and regexp return) and terminal cell
-// coordinates. A grapheme may contain several runes and bytes while occupying
-// one or two cells, so rune counts are no more suitable here than byte counts.
-type searchLine struct {
-	text     string
-	spans    []searchCellSpan
-	finalCol int
-}
-
-type searchCellSpan struct {
-	byteStart, byteEnd int
-	colStart, colEnd   int
-}
-
-func newSearchLine(line engine.Line) searchLine {
-	var b strings.Builder
-	spans := make([]searchCellSpan, 0, len(line.Cells))
-	for col, cell := range line.Cells {
-		if cell.Width == 0 {
-			continue
-		}
-		text := cell.Text
-		if text == "" {
-			text = " "
-		}
-		start := b.Len()
-		b.WriteString(text)
-		spans = append(spans, searchCellSpan{
-			byteStart: start,
-			byteEnd:   b.Len(),
-			colStart:  col,
-			colEnd:    col + cell.Width,
-		})
-	}
-
-	// Match engine.Lines/VisibleText semantics: terminal padding at the end of
-	// the row is not searchable.
-	text := strings.TrimRight(b.String(), " ")
-	ln := searchLine{text: text, spans: spans}
-	ln.finalCol = ln.endCol(len(text))
-	return ln
-}
-
-func (ln searchLine) match(row, byteStart, byteEnd int) rpc.FindMatch {
-	startCol := ln.startCol(byteStart)
-	endCol := ln.endCol(byteEnd)
-	if byteStart == byteEnd {
-		endCol = startCol
-	}
-	return rpc.FindMatch{
-		X: startCol, Y: row, W: endCol - startCol, H: 1,
-		Line: row, Text: ln.text[byteStart:byteEnd],
-	}
-}
-
-func (ln searchLine) startCol(byteOffset int) int {
-	if byteOffset <= 0 {
-		if len(ln.spans) > 0 {
-			return ln.spans[0].colStart
-		}
-		return 0
-	}
-	if byteOffset >= len(ln.text) {
-		return ln.finalCol
-	}
-	for _, span := range ln.spans {
-		switch {
-		case byteOffset <= span.byteStart:
-			return span.colStart
-		case byteOffset < span.byteEnd:
-			return span.colStart
-		case byteOffset == span.byteEnd:
-			return span.colEnd
-		}
-	}
-	return ln.finalCol
-}
-
-func (ln searchLine) endCol(byteOffset int) int {
-	if byteOffset <= 0 {
-		return 0
-	}
-	for _, span := range ln.spans {
-		switch {
-		case byteOffset <= span.byteStart:
-			return span.colStart
-		case byteOffset <= span.byteEnd:
-			return span.colEnd
-		}
-	}
-	if len(ln.spans) == 0 {
-		return 0
-	}
-	return ln.spans[len(ln.spans)-1].colEnd
+func findMatchData(match engine.FindMatch) rpc.FindMatch {
+	return rpc.FindMatch{X: match.X, Y: match.Y, W: match.W, H: match.H, Line: match.Line, Text: match.Text}
 }
 
 func handleSize(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {

@@ -15,7 +15,13 @@ func init() {
 
 	registerUsage("click", `twee click --x <n> --y <n> [--button left|middle|right]
     [--modifier shift|alt|ctrl]... [--name <name>]
-Click a zero-based viewport cell. The button defaults to left.
+  or: twee click --pattern TEXT [--regex] [--require one]
+    [--select first|last|N] [--button left|middle|right]
+    [--modifier shift|alt|ctrl]... [--name <name>]
+Click a zero-based viewport cell, or atomically select and click a visible
+match. Pattern clicks require exactly one match unless --select chooses one.
+Coordinates and pattern selection flags are mutually exclusive.
+The button defaults to left.
 --modifier is repeatable; duplicate modifiers are rejected.`)
 
 	registerUsage("hover", `twee hover --x <n> --y <n>
@@ -36,11 +42,11 @@ defaults to left. A zero-length drag is a click.`)
 }
 
 func runClick(args []string) {
-	name, rpcArgs, err := parseClickArgs(args)
+	name, op, rpcArgs, err := parseClickRequest(args)
 	if err != nil {
 		fatalUsage("click: %v", err)
 	}
-	callSessionAndEmit("click", name, rpc.OpClick, rpcArgs)
+	callSessionAndEmit("click", name, op, rpcArgs)
 }
 
 func runHover(args []string) {
@@ -68,29 +74,68 @@ func runDrag(args []string) {
 }
 
 func parseClickArgs(args []string) (*string, rpc.ClickArgs, error) {
-	if err := rejectDuplicateFlags(args, "--x", "--y", "--button"); err != nil {
+	name, op, value, err := parseClickRequest(args)
+	if err != nil {
 		return nil, rpc.ClickArgs{}, err
+	}
+	if op != rpc.OpClick {
+		return nil, rpc.ClickArgs{}, fmt.Errorf("pattern form does not have coordinate click arguments")
+	}
+	return name, value.(rpc.ClickArgs), nil
+}
+
+func parseClickRequest(args []string) (*string, string, any, error) {
+	if err := rejectDuplicateFlags(args, "--x", "--y", "--pattern", "--require", "--select", "--button"); err != nil {
+		return nil, "", nil, err
 	}
 	var opts struct {
 		Name      *string  `arg:"--name"`
-		X         int      `arg:"--x,required"`
-		Y         int      `arg:"--y,required"`
+		X         *int     `arg:"--x"`
+		Y         *int     `arg:"--y"`
+		Pattern   *string  `arg:"--pattern"`
+		Regex     bool     `arg:"--regex"`
+		Require   *string  `arg:"--require"`
+		Select    *string  `arg:"--select"`
 		Button    *string  `arg:"--button"`
 		Modifiers []string `arg:"--modifier,separate"`
 	}
 	if err := parseArg("click", &opts, args); err != nil {
-		return nil, rpc.ClickArgs{}, err
+		return nil, "", nil, err
 	}
 	button, err := parseMouseButton(opts.Button)
 	if err != nil {
-		return nil, rpc.ClickArgs{}, err
+		return nil, "", nil, err
 	}
 	modifiers, err := parseMouseModifiers(opts.Modifiers)
 	if err != nil {
-		return nil, rpc.ClickArgs{}, err
+		return nil, "", nil, err
 	}
-	return opts.Name, rpc.ClickArgs{
-		X: new(opts.X), Y: new(opts.Y),
+	if opts.Pattern != nil {
+		if opts.X != nil || opts.Y != nil {
+			return nil, "", nil, fmt.Errorf("--pattern is mutually exclusive with --x and --y")
+		}
+		if opts.Require != nil && opts.Select != nil {
+			return nil, "", nil, fmt.Errorf("--require and --select are mutually exclusive")
+		}
+		if opts.Require != nil && *opts.Require != "one" {
+			return nil, "", nil, fmt.Errorf("--require must be one")
+		}
+		if opts.Select != nil && *opts.Select == "" {
+			return nil, "", nil, fmt.Errorf("--select must be first, last, or a positive match number")
+		}
+		return opts.Name, rpc.OpFindClick, rpc.FindClickArgs{
+			Pattern: *opts.Pattern, Regex: opts.Regex, Require: opts.Require, Select: opts.Select,
+			Button: button, Modifiers: modifiers,
+		}, nil
+	}
+	if opts.Regex || opts.Require != nil || opts.Select != nil {
+		return nil, "", nil, fmt.Errorf("--regex, --require, and --select require --pattern")
+	}
+	if opts.X == nil || opts.Y == nil {
+		return nil, "", nil, fmt.Errorf("coordinate form requires --x and --y")
+	}
+	return opts.Name, rpc.OpClick, rpc.ClickArgs{
+		X: opts.X, Y: opts.Y,
 		Button: button, Modifiers: modifiers,
 	}, nil
 }
@@ -209,6 +254,3 @@ func parseMouseModifiers(values []string) ([]string, error) {
 	}
 	return modifiers, nil
 }
-
-//go:fix inline
-func intPointer(value int) *int { return new(value) }

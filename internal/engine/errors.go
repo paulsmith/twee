@@ -16,6 +16,7 @@ const (
 // RequestError is a typed engine failure with optional structured details.
 type RequestError struct {
 	Kind    RequestErrorKind
+	Code    string
 	Message string
 	Details any
 	Err     error

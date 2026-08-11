@@ -16,37 +16,24 @@ trace=${1:-herdr-mouse-demo.twee}
 project_dir=${2:-$PWD}
 session=herdr-mouse-demo-$$
 demo_root=$(mktemp -d)
+token_file=$demo_root/owner.token
 
 mkdir -p "$demo_root/home"
 export TWEE_SESSION=$session
 
 cleanup() {
-	"$TWEE_BIN" stop >/dev/null 2>&1 || true
+	if [[ -s $token_file ]]; then
+		"$TWEE_BIN" stop --token "$(<"$token_file")" >/dev/null 2>&1 || true
+	fi
 	rm -rf "$demo_root"
 }
 trap cleanup EXIT
 
 command -v "$TWEE_BIN" >/dev/null
 command -v "$HERDR_BIN" >/dev/null
-command -v jq >/dev/null
-
-find_cell() {
-	local label=$1
-	local match
-
-	match=$("$TWEE_BIN" find --pattern "$label")
-	jq -er \
-		'if (.data | length) > 0 then .data[0] | "\(.x) \(.y)" else error("label not found") end' \
-		<<<"$match"
-}
-
 click_label() {
 	local label=$1
-	local x
-	local y
-
-	read -r x y < <(find_cell "$label")
-	"$TWEE_BIN" click --x "$x" --y "$y" --button left
+	"$TWEE_BIN" click --pattern "$label" --require one --button left
 }
 
 "$TWEE_BIN" start \
@@ -54,6 +41,7 @@ click_label() {
 	--rows 36 \
 	--dir "$project_dir" \
 	--trace "$trace" \
+	--token-out "$token_file" \
 	--env "HOME=$demo_root/home" \
 	--env "HERDR_CONFIG_PATH=$demo_root/config.toml" \
 	-- "$HERDR_BIN" --no-session >/dev/null
@@ -87,7 +75,7 @@ click_label "Split right"
 "$TWEE_BIN" click --x 95 --y 20 --button left
 "$TWEE_BIN" wait cursor --x 90 --y 6 >/dev/null
 
-"$TWEE_BIN" stop >/dev/null
+"$TWEE_BIN" stop --token "$(<"$token_file")" >/dev/null
 trap - EXIT
 rm -rf "$demo_root"
 

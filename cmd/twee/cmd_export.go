@@ -2,13 +2,13 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/paulsmith/twee/internal/export"
+	"github.com/paulsmith/twee/internal/rpc"
 )
 
 func init() {
@@ -19,6 +19,11 @@ output extension. GIF and self-contained HTML are encoded in pure Go; MP4 and
 WebM require ffmpeg. HTML replays work offline and include playback controls.
 New output files are created with owner-only permissions. Replacing an existing
 output preserves its permissions.
+
+Place the root --machine option before export to receive one JSON envelope on
+success or failure. Success data contains the resolved absolute output path and
+the selected format. Without --machine, success remains silent and failures are
+plain text on standard error.
 
 Frames are emitted only when the screen visibly changes (the cursor is not
 rendered). Timing is faithful to the recording by default.
@@ -51,8 +56,17 @@ Flags:
 func runExport(args []string) {
 	path, out, opts := parseExportArgs(args)
 	if err := export.Export(path, out, opts); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		fatalRuntime(rpc.CodeIO, "%v", err)
+	}
+	if output.machine {
+		resolved, err := filepath.Abs(out)
+		if err != nil {
+			fatalRuntime(rpc.CodeIO, "resolve export output path: %v", err)
+		}
+		emitOK(map[string]string{
+			"path":   resolved,
+			"format": strings.TrimPrefix(strings.ToLower(filepath.Ext(resolved)), "."),
+		})
 	}
 }
 

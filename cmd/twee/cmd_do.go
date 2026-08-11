@@ -29,7 +29,8 @@ Relative paths in operation arguments (screenshot.out, trace_start.out,
 and diff.against) are resolved from the twee do client's working directory,
 not the daemon's or managed program's working directory.
 Ops like "stop" or "wait_exit" are not special-cased: they do whatever
-they normally do, including ending the session.`)
+they normally do, including ending the session. In NDJSON mode, a failing
+operation is the terminal record and exits 1; no final summary is appended.`)
 }
 
 func runDo(args []string) {
@@ -40,6 +41,9 @@ func runDo(args []string) {
 	}
 	if err := parseArg("do", &opts, args); err != nil {
 		fatalUsage("do: %v", err)
+	}
+	if opts.Emit != "" && opts.Emit != "results" {
+		fatalUsage("do: --emit must be results (got %q)", opts.Emit)
 	}
 	name := mustResolveSessionNamePtr("do", opts.Name)
 

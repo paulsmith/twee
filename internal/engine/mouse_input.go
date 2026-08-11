@@ -14,6 +14,78 @@ func (t *Term) Click(x, y int, button input.MouseButton, modifiers []input.Mouse
 	return t.mouseInput(input.NewClick(x, y, button, modifiers))
 }
 
+// FindClick matches, selects, validates, and encodes a click against one
+// locked terminal-model state. The pump lock is released before PTY I/O.
+func (t *Term) FindClick(pattern string, regex bool, selection string, button input.MouseButton, modifiers []input.MouseModifier) (FindClickResult, error) {
+	t.inputMu.Lock()
+	defer t.inputMu.Unlock()
+
+	var result FindClickResult
+	var gesture input.MouseGesture
+	encoded, err := t.pump.EncodeMouseSnapshot(func(snapshot vt.Snapshot) ([]input.MouseEvent, error) {
+		matches, matchErr := FindMatches(FromVT(snapshot), pattern, regex)
+		if matchErr != nil {
+			return nil, invalidRequest(matchErr.Error(), map[string]any{"pattern": pattern, "regex": regex}, matchErr)
+		}
+		match, selected, selectErr := selectFindMatch(matches, selection)
+		if selectErr != nil {
+			var requestErr *RequestError
+			if errors.As(selectErr, &requestErr) {
+				details := requestErr.Details.(map[string]any)
+				details["pattern"], details["regex"] = pattern, regex
+			}
+			return nil, selectErr
+		}
+		target := FindPoint{X: match.X, Y: match.Y}
+		if match.W > 0 {
+			target.X = match.X + (match.W-1)/2
+		}
+		gesture = input.NewClick(target.X, target.Y, button, modifiers)
+		if err := prevalidateMouseCoordinates(gesture, snapshot.Size); err != nil {
+			return nil, err
+		}
+		events, err := gesture.Expand()
+		if err != nil {
+			return nil, invalidRequest(err.Error(), mouseGestureDetails(gesture), err)
+		}
+		result = FindClickResult{Match: match, Target: target, Selection: selected}
+		return events, nil
+	})
+	if err != nil {
+		var requestErr *RequestError
+		if errors.As(err, &requestErr) {
+			return FindClickResult{}, err
+		}
+		return FindClickResult{}, classifyMouseEncodeError(err, input.MouseGestureClick)
+	}
+	if err := writeAll(t.inputWriter, encoded.Bytes); err != nil {
+		return FindClickResult{}, inputIO(err)
+	}
+
+	t.recordInput(fmt.Sprintf("FindClick %q %s @(%d,%d)", pattern, result.Selection, result.Target.X, result.Target.Y))
+	t.cfgMu.Lock()
+	tr := t.tr
+	t.cfgMu.Unlock()
+	if tr != nil {
+		mouse := mouseTraceInput(gesture)
+		mouse.FindClick = &trace.FindClickDecision{
+			Pattern: pattern, Regex: regex, Selection: result.Selection,
+			Match:  trace.TraceMatch{X: result.Match.X, Y: result.Match.Y, W: result.Match.W, H: result.Match.H, Line: result.Match.Line, Text: result.Match.Text},
+			Target: trace.TracePoint{X: result.Target.X, Y: result.Target.Y},
+		}
+		tr.WriteMouseInput(mouse, encoded.Bytes)
+	}
+	return result, nil
+}
+
+type FindPoint struct{ X, Y int }
+
+type FindClickResult struct {
+	Match     FindMatch
+	Target    FindPoint
+	Selection string
+}
+
 // Hover sends buttonless motion at a zero-based terminal cell.
 func (t *Term) Hover(x, y int, modifiers []input.MouseModifier) error {
 	return t.mouseInput(input.NewHover(x, y, modifiers))

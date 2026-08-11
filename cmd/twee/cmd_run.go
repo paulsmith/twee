@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -31,6 +32,9 @@ Flags:
   --publish-tcp <listen=guest-port>
                   publish LISTEN_IPV4:PORT=GUEST_PORT (repeatable)
   --emit results   stream NDJSON op responses instead of one summary
+
+NDJSON emits one record per completed operation. A failing operation is the
+terminal record and exits 1; no final summary record is appended.
 
 The script is a JSON array of RPC bodies (op + args). Use the wire
 op names (e.g. "wait_text", not "wait text").
@@ -194,6 +198,9 @@ func parseRunArgs(args []string) (runOptions, error) {
 	opts.scriptPath = parsed.ScriptPath
 	opts.dir = parsed.Dir
 	opts.emit = parsed.Emit
+	if opts.emit != "" && opts.emit != "results" {
+		return opts, fmt.Errorf("--emit must be results (got %q)", opts.emit)
+	}
 	tracePath, err := absOutPath(parsed.TracePath)
 	if err != nil {
 		return opts, err

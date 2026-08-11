@@ -162,6 +162,41 @@ func TestResizeAndSnapshot(t *testing.T) {
 	}
 }
 
+func TestEncodeMouseSnapshotRepaintSerializationStress(t *testing.T) {
+	p, chunks := startedChunkPump(t)
+	sendChunk(t, chunks, []byte("\x1b[?1006h"))
+	for i := range 50 {
+		oldText, newText := fmt.Sprintf("OLD%02d", i), fmt.Sprintf("NEW%02d", i)
+		sendChunk(t, chunks, []byte("\r\x1b[?1003h"+oldText))
+		waitForText(t, p, oldText)
+
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		done := make(chan error, 1)
+		go func() {
+			_, err := p.EncodeMouseSnapshot(func(s vt.Snapshot) ([]input.MouseEvent, error) {
+				got := vt.VisibleText(s)
+				if !strings.Contains(got, oldText) || strings.Contains(got, newText) {
+					return nil, fmt.Errorf("callback snapshot = %q", got)
+				}
+				close(entered)
+				<-release
+				return input.NewClick(0, 0, input.ButtonLeft, nil).Expand()
+			})
+			done <- err
+		}()
+		<-entered
+		// This repaint also disables tracking. Encoding must still use the
+		// enabled state observed with OLD because the repaint is queued on mu.
+		sendChunk(t, chunks, []byte("\r\x1b[?1003l"+newText))
+		close(release)
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		waitForText(t, p, newText)
+	}
+}
+
 func TestWaitImmediateTimeoutContextAndClosed(t *testing.T) {
 	p := New(vt.New(5, 2), bytes.NewReader(nil))
 	if err := p.Wait(context.Background(), time.Second, func(vt.Snapshot) bool { return true }); err != nil {

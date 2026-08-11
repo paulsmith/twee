@@ -128,7 +128,7 @@ func TestValidSpeedRejectsNonFiniteAndNonPositive(t *testing.T) {
 }
 
 func TestPlayHelpDocumentsBackendConstraints(t *testing.T) {
-	help := usages["play"]
+	help := commandRegistry["play"].Usage
 	for _, want := range []string{
 		"auto tries Kitty, then iTerm2, then Sixel",
 		"direct terminal", "tmux and screen", "native pixel geometry", "--no-mouse-annotations",

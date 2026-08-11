@@ -407,12 +407,13 @@ func TestFindSearchLineUsesCellCoordinates(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			line := newSearchLine(engine.Line{Cells: tt.cells})
-			idx := strings.Index(line.text, tt.pattern)
-			if idx < 0 {
-				t.Fatalf("pattern %q not found in %q", tt.pattern, line.text)
+			snap := engine.Snapshot{Lines: make([]engine.Line, 5)}
+			snap.Lines[4] = engine.Line{Cells: tt.cells}
+			matches, err := engine.FindMatches(snap, tt.pattern, false)
+			if err != nil || len(matches) != 1 {
+				t.Fatalf("FindMatches(%q) = %#v, %v", tt.pattern, matches, err)
 			}
-			got := line.match(4, idx, idx+len(tt.pattern))
+			got := matches[0]
 			if got.Text != tt.wantText || got.X != tt.wantX || got.W != tt.wantWidth ||
 				got.Y != 4 || got.Line != 4 || got.H != 1 {
 				t.Fatalf("match = %+v, want text=%q x=%d y=4 w=%d h=1",

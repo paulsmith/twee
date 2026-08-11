@@ -185,6 +185,113 @@ func TestMouseHandlers(t *testing.T) {
 	}
 }
 
+func TestFindClickHandlerSelectionAndErrors(t *testing.T) {
+	te, err := engine.Start(context.Background(), engine.Config{
+		Cmd:  []string{"/bin/sh", "-c", "printf '\\033[?1003h\\033[?1006hSubmit  界界  Submit'; sleep 30"},
+		Cols: 40, Rows: 5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = te.Close() })
+	if err := te.WaitForText("Submit  界界  Submit"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, rpcErr := handleFindClick(te, mustJSON(t, rpc.FindClickArgs{Pattern: "missing"}))
+	if rpcErr == nil || rpcErr.Code != rpc.CodeNotFound {
+		t.Fatalf("missing error = %+v", rpcErr)
+	}
+	_, rpcErr = handleFindClick(te, mustJSON(t, rpc.FindClickArgs{Pattern: "Submit"}))
+	if rpcErr == nil || rpcErr.Code != rpc.CodeAmbiguousMatch {
+		t.Fatalf("ambiguous error = %+v", rpcErr)
+	}
+	var details struct {
+		Pattern    string          `json:"pattern"`
+		Regex      bool            `json:"regex"`
+		MatchCount int             `json:"match_count"`
+		Selection  string          `json:"selection"`
+		Matches    []rpc.FindMatch `json:"matches"`
+	}
+	if err := json.Unmarshal(rpcErr.Details, &details); err != nil || details.Pattern != "Submit" || details.Regex ||
+		details.MatchCount != 2 || details.Selection != "exactly_one" || len(details.Matches) != 2 {
+		t.Fatalf("ambiguous details = %+v, %v", details, err)
+	}
+	_, rpcErr = handleFindClick(te, mustJSON(t, rpc.FindClickArgs{Pattern: "Submit", Select: new("3")}))
+	if rpcErr == nil || rpcErr.Code != rpc.CodeInvalidSelection {
+		t.Fatalf("selection error = %+v", rpcErr)
+	}
+	_, rpcErr = handleFindClick(te, mustJSON(t, rpc.FindClickArgs{Pattern: "Submit", Select: new("one")}))
+	if rpcErr == nil || rpcErr.Code != rpc.CodeInvalidSelection {
+		t.Fatalf("named selection error = %+v", rpcErr)
+	}
+
+	data, rpcErr := handleFindClick(te, mustJSON(t, rpc.FindClickArgs{
+		Pattern: "界+", Regex: true, Select: new("first"), Button: "right", Modifiers: []string{"ctrl"},
+	}))
+	if rpcErr != nil {
+		t.Fatalf("find click: %+v", rpcErr)
+	}
+	got := data.(rpc.FindClickData)
+	if got.Match.Text != "界界" || got.Match.W != 4 || got.Target.X != got.Match.X+1 || got.Selection != "first" {
+		t.Fatalf("data = %+v", got)
+	}
+}
+
+func TestFindClickHandlerStrictArgs(t *testing.T) {
+	te := startTestTerm(t)
+	for _, raw := range []json.RawMessage{
+		json.RawMessage(`{"pattern":"x","selection":"first"}`),
+		mustJSON(t, rpc.FindClickArgs{Pattern: "x", Require: new("any")}),
+		mustJSON(t, rpc.FindClickArgs{Pattern: "x", Require: new("one"), Select: new("first")}),
+		mustJSON(t, rpc.FindClickArgs{Pattern: "x", Require: new("")}),
+		mustJSON(t, rpc.FindClickArgs{Pattern: "x", Select: new("")}),
+		mustJSON(t, rpc.FindClickArgs{Pattern: "x", Require: new(""), Select: new("")}),
+	} {
+		if _, rpcErr := handleFindClick(te, raw); rpcErr == nil || rpcErr.Code != rpc.CodeInvalidArgument {
+			t.Fatalf("strict args error = %+v for %s", rpcErr, raw)
+		}
+	}
+}
+
+func TestFindClickRejectsZeroWidthRegexTargets(t *testing.T) {
+	te, err := engine.Start(context.Background(), engine.Config{
+		Cmd:  []string{"/bin/sh", "-c", "printf '\\033[?1003h\\033[?1006hABCDEFGH'; sleep 30"},
+		Cols: 8, Rows: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = te.Close() })
+	if err := te.WaitForText("ABCDEFGH"); err != nil {
+		t.Fatal(err)
+	}
+	for _, pattern := range []string{"", "^", "$"} {
+		_, rpcErr := handleFindClick(te, mustJSON(t, rpc.FindClickArgs{
+			Pattern: pattern, Regex: true, Select: new("first"),
+		}))
+		if rpcErr == nil || rpcErr.Code != rpc.CodeInvalidSelection {
+			t.Fatalf("pattern %q error = %+v", pattern, rpcErr)
+		}
+		var details struct {
+			Pattern   string        `json:"pattern"`
+			Regex     bool          `json:"regex"`
+			Selection string        `json:"selection"`
+			Match     rpc.FindMatch `json:"match"`
+		}
+		if err := json.Unmarshal(rpcErr.Details, &details); err != nil || details.Pattern != pattern || !details.Regex ||
+			details.Selection != "first" || details.Match.W != 0 {
+			t.Fatalf("pattern %q details = %+v, %v", pattern, details, err)
+		}
+		if pattern == "$" && details.Match.X != 8 {
+			t.Fatalf("right-edge match = %+v, want x=8 without click", details.Match)
+		}
+	}
+	if got := len(te.RecentInputs()); got != 0 {
+		t.Fatalf("zero-width matches recorded %d clicks", got)
+	}
+}
+
 func TestMouseHandlerCoordinateDetails(t *testing.T) {
 	te := startMouseTestTerm(t, "1003")
 	x, y := 40, 1

@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -13,11 +14,15 @@ import (
 var Version = "dev"
 
 func init() {
+	register("completion", runCompletion)
+	register("help", runHelp)
+	register("version", runVersion)
 	registerUsage("completion", `twee completion <bash|zsh|fish>
 Print a shell completion script. Completion generation is currently a
 placeholder.`)
-	registerUsage("help", `twee help [<verb> [<subverb>...]]
-Print top-level help or per-command usage.`)
+	registerUsage("help", `twee help [<verb> [<subverb>...]] [--format text|json]
+Print top-level help or per-command usage. JSON output is a versioned command
+descriptor API for automation.`)
 	registerUsage("version", `twee version
 Print the twee version.`)
 }
@@ -27,12 +32,27 @@ func main() {
 		runDaemonChild()
 		return // unreachable
 	}
-	root, err := parseRootArgs(os.Args[1:])
+	args, machine, err := extractMachineMode(os.Args[1:])
+	output.machine = machine
+	if err != nil {
+		fatalUsage("%v", err)
+	}
+	root, err := parseRootArgs(args)
 	if err != nil {
 		fatalUsage("%v", err)
 	}
 	rootGlobalName = root.GlobalName
 	if root.Help {
+		if output.machine {
+			var text bytes.Buffer
+			if root.HelpKey == "" {
+				printUsage(&text)
+			} else {
+				printVerbHelp(&text, strings.Split(root.HelpKey, " "))
+			}
+			emitTextSuccess(strings.TrimSuffix(text.String(), "\n"))
+			return
+		}
 		if root.HelpKey == "" {
 			printUsage(os.Stdout)
 			return
@@ -41,73 +61,56 @@ func main() {
 		return
 	}
 	if root.Verb == "" {
+		if output.machine {
+			fatalUsage("missing subcommand")
+		}
 		printUsage(os.Stderr)
 		os.Exit(2)
 	}
 	verb := root.Verb
-	args := root.Args
+	verbArgs := root.Args
 
-	if h := dispatch[verb]; h != nil {
-		h(args)
+	if d := commandRegistry[verb]; d != nil && d.handler != nil {
+		if output.machine && d.Interactive {
+			fatalUsage("%s: --machine is not supported for interactive commands", verb)
+		}
+		d.handler(verbArgs)
 		return
 	}
-
-	switch verb {
-	case "version":
-		fmt.Println(Version)
-	case "help":
-		if len(args) > 0 {
-			printVerbHelp(os.Stdout, args)
-			return
-		}
-		printUsage(os.Stdout)
-	case "completion":
-		runCompletion(args)
-	default:
-		fmt.Fprintf(os.Stderr, "twee: unknown subcommand %q\n", verb)
-		printUsage(os.Stderr)
-		os.Exit(2)
+	if output.machine {
+		fatalUsage("unknown subcommand %q", verb)
 	}
+	fmt.Fprintf(os.Stderr, "twee: unknown subcommand %q\n", verb)
+	printUsage(os.Stderr)
+	os.Exit(2)
 }
-
-// dispatch is the verb table. Other files (cmd_*.go) populate it via
-// init() so M1 builds without their dependencies.
-var dispatch = map[string]func(args []string){}
-
-func register(verb string, fn func(args []string)) { dispatch[verb] = fn }
-
-// usages holds per-verb help text, populated by cmd_*.go init() funcs
-// via registerUsage. Multi-word verbs (e.g. "wait text") are keyed by
-// their full verb path joined with a single space.
-var usages = map[string]string{}
-
-func registerUsage(verb, help string) { usages[verb] = help }
 
 func printVerbHelp(w io.Writer, args []string) {
 	key := strings.Join(args, " ")
-	if h, ok := usages[key]; ok {
-		fmt.Fprintln(w, h)
+	if d := commandRegistry[key]; d != nil && d.Usage != "" {
+		_, _ = fmt.Fprintln(w, d.Usage)
 		return
 	}
 	// Fall back to the first word — e.g. "help wait" prints the wait
 	// overview when no specific subverb was given.
-	if h, ok := usages[args[0]]; ok {
-		fmt.Fprintln(w, h)
+	if d := commandRegistry[args[0]]; d != nil && d.Usage != "" {
+		_, _ = fmt.Fprintln(w, d.Usage)
 		return
 	}
-	fmt.Fprintf(os.Stderr, "twee: no help available for %q\n", key)
-	os.Exit(2)
+	fatalUsage("no help available for %q", key)
 }
 
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, `twee - drive TUIs from the shell.
 
-Usage: twee [--name <session>] <verb> [args...]
+Usage: twee [--machine] [--name <session>] <verb> [args...]
 
 Commands:`)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	for _, cmd := range commandSummaries {
-		fmt.Fprintf(tw, "  %s\t%s\n", cmd.name, cmd.summary)
+	for _, cmd := range sortedDescriptors() {
+		if len(cmd.Path) == 1 {
+			_, _ = fmt.Fprintf(tw, "  %s\t%s\n", cmd.Path[0], cmd.Summary)
+		}
 	}
 	_ = tw.Flush()
 	fmt.Fprintln(w, `
@@ -119,6 +122,7 @@ Wait commands:
   wait text       Wait for text or a regex to appear
 
 Common flags:
+  --machine         emit structured success and error output; place before the command
   --name <name>     Target a named daemon (default: TWEE_SESSION or "default")
   --timeout <dur>   Override timeout for wait verbs
 
@@ -139,69 +143,75 @@ Output is JSON by default:
   {"ok": false, "error": {...}}          on failure
 
 Run "twee help <verb>" for per-verb usage (e.g. "twee help start",
-"twee help wait text").`)
+"twee help wait text"). Use "twee help --format json" to discover the
+versioned output contract for every command.`)
 }
 
-type commandSummary struct {
-	name    string
-	summary string
-}
-
-var commandSummaries = []commandSummary{
-	{"cell", "Show one cell at x,y"},
-	{"click", "Click a viewport cell"},
-	{"completion", "Print shell completion setup"},
-	{"cursor", "Show cursor state"},
-	{"diff", "Compare the viewport to a saved text snapshot"},
-	{"do", "Run an op script against a running session"},
-	{"drag", "Drag between viewport cells"},
-	{"export", "Export a .twee trace bundle to GIF, self-contained HTML, MP4, or WebM"},
-	{"find", "Find text in the viewport"},
-	{"help", "Print top-level or per-command help"},
-	{"hover", "Move the mouse to a viewport cell"},
-	{"inspect", "Validate and inspect a .twee trace bundle"},
-	{"key", "Send one named key"},
-	{"keys", "Send multiple named keys"},
-	{"lines", "Show visible viewport lines"},
-	{"ls", "List running daemons"},
-	{"mode", "Show active terminal modes"},
-	{"paste", "Send bracketed paste text"},
-	{"play", "Play a .twee trace bundle"},
-	{"region", "Show cells in a rectangular region"},
-	{"resize", "Resize the terminal"},
-	{"run", "Run a one-shot ephemeral session"},
-	{"screenshot", "Render the current screen to PNG"},
-	{"scroll", "Send vertical wheel input"},
-	{"scrollback", "Show retained scrollback"},
-	{"signal", "Send a signal to the child process"},
-	{"size", "Show terminal dimensions"},
-	{"sleep", "Sleep client-side"},
-	{"snapshot", "Show the full terminal snapshot"},
-	{"start", "Spawn a TUI in a daemon"},
-	{"status", "Show daemon status"},
-	{"stop", "Stop the running daemon"},
-	{"text", "Show visible viewport text"},
-	{"title", "Show the window title"},
-	{"trace", "Start or stop .twee trace recording"},
-	{"type", "Write literal text to the PTY"},
-	{"version", "Print the twee version"},
-	{"wait", "Wait for terminal state or process exit"},
-	{"wrap", "Wrap a terminal command with optional recording"},
+func runHelp(args []string) {
+	format := "text"
+	var path []string
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--format":
+			if i+1 >= len(args) {
+				fatalUsage("help: --format requires a value")
+			}
+			format, i = args[i+1], i+1
+		case strings.HasPrefix(args[i], "--format="):
+			format = strings.TrimPrefix(args[i], "--format=")
+		case strings.HasPrefix(args[i], "-"):
+			fatalUsage("help: unknown option %s", args[i])
+		default:
+			path = append(path, args[i])
+		}
+	}
+	if format != "text" && format != "json" {
+		fatalUsage("help: invalid --format %q (want json or text)", format)
+	}
+	if format == "json" {
+		if output.machine {
+			value, err := jsonHelpValue(path)
+			if err != nil {
+				fatalUsage("help: %v", err)
+			}
+			emitOK(value)
+			return
+		}
+		if err := writeJSONHelp(os.Stdout, path); err != nil {
+			fatalUsage("help: %v", err)
+		}
+		return
+	}
+	if output.machine {
+		var text bytes.Buffer
+		if len(path) > 0 {
+			printVerbHelp(&text, path)
+		} else {
+			printUsage(&text)
+		}
+		emitTextSuccess(strings.TrimSuffix(text.String(), "\n"))
+		return
+	}
+	if len(path) > 0 {
+		printVerbHelp(os.Stdout, path)
+		return
+	}
+	printUsage(os.Stdout)
 }
 
 func runCompletion(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "twee completion: missing shell argument (bash|zsh|fish)")
-		os.Exit(2)
+		fatalUsage("completion: missing shell argument (bash|zsh|fish)")
 	}
 	switch args[0] {
 	case "bash", "zsh", "fish":
-		fmt.Println("# twee completion: not yet generated")
+		emitTextSuccess("# twee completion: not yet generated")
 	default:
-		fmt.Fprintf(os.Stderr, "twee completion: unknown shell %q\n", args[0])
-		os.Exit(2)
+		fatalUsage("completion: unknown shell %q", args[0])
 	}
 }
+
+func runVersion(_ []string) { emitTextSuccess(Version) }
 
 func inDaemonMode() bool { return inDaemonModeReal() }
 func runDaemonChild()    { runDaemonChildReal() }

@@ -4,14 +4,15 @@ package rpc
 // wait text) become a single op name.
 const (
 	// Input
-	OpType   = "type"
-	OpKey    = "key"
-	OpPaste  = "paste"
-	OpClick  = "click"
-	OpHover  = "hover"
-	OpScroll = "scroll"
-	OpDrag   = "drag"
-	OpSignal = "signal"
+	OpType      = "type"
+	OpKey       = "key"
+	OpPaste     = "paste"
+	OpClick     = "click"
+	OpFindClick = "find_click"
+	OpHover     = "hover"
+	OpScroll    = "scroll"
+	OpDrag      = "drag"
+	OpSignal    = "signal"
 
 	// Queries
 	OpText       = "text"

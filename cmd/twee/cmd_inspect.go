@@ -42,6 +42,9 @@ func runInspect(args []string) {
 	default:
 		fatalUsage("inspect: invalid --format %q (want json or text)", format)
 	}
+	if output.machine && format == "text" {
+		fatalUsage("inspect: --format text is not compatible with --machine")
+	}
 
 	decoded, validation, err := tracebundle.OpenValidated(parsed.Path)
 	if err != nil {

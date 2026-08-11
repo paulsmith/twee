@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -205,6 +206,54 @@ func TestDoEmitResultsStreamsNDJSON(t *testing.T) {
 		if resp["ok"] != true {
 			t.Fatalf("line %d response = %s", i, line)
 		}
+	}
+}
+
+func TestDoEmitResultsStreamContracts(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+	name := "do-emit-contract"
+	t.Cleanup(func() { _ = exec.Command(bin, "stop", "--name", name).Run() })
+	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
+
+	for _, tt := range []struct {
+		name     string
+		script   string
+		exitCode int
+		lastOK   bool
+	}{
+		{name: "success", script: `[{"op":"status"},{"op":"status"}]`, lastOK: true},
+		{name: "terminal operation failure", script: `[{"op":"status"},{"op":"wait_text","args":{"pattern":"nope"}}]`, exitCode: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			script := writeScript(t, tt.script)
+			result := runContractCLI(t, bin, env, "do", "--name", name, "--script", script, "--emit", "results")
+			if result.exitCode != tt.exitCode {
+				t.Fatalf("exit = %d, want %d\nstdout: %s\nstderr: %s", result.exitCode, tt.exitCode, result.stdout, result.stderr)
+			}
+			if len(result.stderr) != 0 {
+				t.Fatalf("stderr = %q, want empty", result.stderr)
+			}
+			lines := strings.Split(strings.TrimSpace(string(result.stdout)), "\n")
+			if len(lines) != 2 {
+				t.Fatalf("records = %d, want 2 (no summary)\n%s", len(lines), result.stdout)
+			}
+			for i, line := range lines {
+				var response struct {
+					ID string `json:"id"`
+					OK bool   `json:"ok"`
+				}
+				if err := json.Unmarshal([]byte(line), &response); err != nil {
+					t.Fatalf("record %d is not JSON: %v\n%s", i, err, line)
+				}
+				if response.ID != fmt.Sprint(i) {
+					t.Fatalf("record %d id = %q", i, response.ID)
+				}
+				if i == len(lines)-1 && response.OK != tt.lastOK {
+					t.Fatalf("terminal record ok = %v, want %v\n%s", response.OK, tt.lastOK, line)
+				}
+			}
+		})
 	}
 }
 

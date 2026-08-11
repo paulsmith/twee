@@ -101,15 +101,19 @@ func engineFailure(err error) *rpc.Error {
 	}
 
 	var code string
-	switch requestErr.Kind {
-	case engine.RequestErrorInvalidArgument:
-		code = rpc.CodeInvalidArgument
-	case engine.RequestErrorFailedPrecondition:
-		code = rpc.CodeFailedPrecondition
-	case engine.RequestErrorIO:
-		code = rpc.CodeIO
-	default:
-		return internalFailure(err)
+	if requestErr.Code != "" {
+		code = requestErr.Code
+	} else {
+		switch requestErr.Kind {
+		case engine.RequestErrorInvalidArgument:
+			code = rpc.CodeInvalidArgument
+		case engine.RequestErrorFailedPrecondition:
+			code = rpc.CodeFailedPrecondition
+		case engine.RequestErrorIO:
+			code = rpc.CodeIO
+		default:
+			return internalFailure(err)
+		}
 	}
 
 	resp := rpcError(code, requestErr.Error())

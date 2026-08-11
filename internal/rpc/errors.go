@@ -4,6 +4,8 @@ package rpc
 const (
 	CodeTimeout            = "TIMEOUT"
 	CodeNotFound           = "NOT_FOUND"
+	CodeAmbiguousMatch     = "AMBIGUOUS_MATCH"
+	CodeInvalidSelection   = "INVALID_SELECTION"
 	CodeAlreadyRunning     = "ALREADY_RUNNING"
 	CodeChildExited        = "CHILD_EXITED"
 	CodeInvalidArgument    = "INVALID_ARGUMENT"

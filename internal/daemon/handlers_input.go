@@ -17,6 +17,7 @@ func init() {
 		d.Register(rpc.OpKey, handleKey)
 		d.Register(rpc.OpPaste, handlePaste)
 		d.Register(rpc.OpClick, handleClick)
+		d.Register(rpc.OpFindClick, handleFindClick)
 		d.Register(rpc.OpHover, handleHover)
 		d.Register(rpc.OpScroll, handleScroll)
 		d.Register(rpc.OpDrag, handleDrag)
@@ -91,6 +92,45 @@ func handleClick(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 		return nil, engineFailure(err)
 	}
 	return nil, nil
+}
+
+func handleFindClick(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
+	a, errResp := decodeArgs[rpc.FindClickArgs](raw)
+	if errResp != nil {
+		return nil, errResp
+	}
+	if a.Pattern == "" && !a.Regex {
+		return nil, invalidArgumentMessage("pattern or regex required")
+	}
+	if a.Require != nil && a.Select != nil {
+		return nil, invalidArgumentMessage("require and select are mutually exclusive")
+	}
+	if a.Require != nil && *a.Require != "one" {
+		return nil, invalidArgumentMessage("require must be one")
+	}
+	if a.Select != nil && *a.Select == "" {
+		return nil, invalidArgumentMessage("select must not be empty")
+	}
+	button, errResp := parseMouseButton(a.Button)
+	if errResp != nil {
+		return nil, errResp
+	}
+	modifiers, errResp := parseMouseModifiers(a.Modifiers)
+	if errResp != nil {
+		return nil, errResp
+	}
+	selection := ""
+	if a.Select != nil {
+		selection = *a.Select
+	}
+	result, err := t.FindClick(a.Pattern, a.Regex, selection, button, modifiers)
+	if err != nil {
+		return nil, engineFailure(err)
+	}
+	return rpc.FindClickData{
+		Match:  findMatchData(result.Match),
+		Target: rpc.PointData{X: result.Target.X, Y: result.Target.Y}, Selection: result.Selection,
+	}, nil
 }
 
 func handleHover(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {

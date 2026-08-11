@@ -227,6 +227,11 @@ func (p *Pump) Resize(cols, rows int) error {
 func (p *Pump) EncodeMouse(events []input.MouseEvent) (vt.MouseEncodingResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	return p.encodeMouseLocked(events)
+}
+
+// encodeMouseLocked encodes a normalized mouse batch. The caller holds p.mu.
+func (p *Pump) encodeMouseLocked(events []input.MouseEvent) (vt.MouseEncodingResult, error) {
 	model, ok := p.model.(vt.MouseModel)
 	if !ok {
 		return vt.MouseEncodingResult{}, &vt.MouseEncodeError{
@@ -234,6 +239,19 @@ func (p *Pump) EncodeMouse(events []input.MouseEvent) (vt.MouseEncodingResult, e
 		}
 	}
 	return model.EncodeMouse(events)
+}
+
+// EncodeMouseSnapshot builds and encodes a mouse batch while holding the same
+// model lock across snapshot inspection and encoding. The callback must be
+// pure with respect to Pump and must not perform I/O.
+func (p *Pump) EncodeMouseSnapshot(build func(vt.Snapshot) ([]input.MouseEvent, error)) (vt.MouseEncodingResult, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	events, err := build(p.model.Snapshot())
+	if err != nil {
+		return vt.MouseEncodingResult{}, err
+	}
+	return p.encodeMouseLocked(events)
 }
 
 // MouseState returns the mouse capability's state under the same mutex used
