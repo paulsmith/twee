@@ -109,6 +109,44 @@ func TestMenuFixtureViaCLI(t *testing.T) {
 	mustOK(t, bin, env, "stop", "--name", "menu-test")
 }
 
+func TestBracketedPasteModeAndPasteStayConsistentAcrossFragmentedTransitions(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+	const name = "bracketed-paste-mode"
+	defer func() {
+		cmd := exec.Command(bin, "stop", "--name", name)
+		cmd.Env = append(os.Environ(), env...)
+		_ = cmd.Run()
+	}()
+
+	child := `stty raw -echo
+printf '\033'; sleep 0.02; printf '[?20'; sleep 0.02; printf '04hREADY'
+IFS= read -r -N 13 pasted || exit 1
+[[ "$pasted" == $'\e[200~x\e[201~' ]] || { printf 'BAD-PASTE:%q' "$pasted"; exit 1; }
+printf 'PASTE-OK\033[?20'; sleep 0.02; printf '04lDISABLED'
+sleep 30`
+	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/bash", "-c", child)
+	mustOK(t, bin, env, "wait", "text", "--name", name, "--pattern", "READY")
+
+	mode, raw, err := runCLI(t, bin, env, "mode", "--name", name)
+	if err != nil {
+		t.Fatalf("enabled mode: %v\n%s", err, raw)
+	}
+	if data, ok := mode["data"].(map[string]any); !ok || data["bracketed_paste"] != true {
+		t.Fatalf("enabled mode = %v, want bracketed_paste=true", mode)
+	}
+
+	mustOK(t, bin, env, "paste", "--name", name, "--", "x")
+	mustOK(t, bin, env, "wait", "text", "--name", name, "--pattern", "DISABLED")
+	mode, raw, err = runCLI(t, bin, env, "mode", "--name", name)
+	if err != nil {
+		t.Fatalf("disabled mode: %v\n%s", err, raw)
+	}
+	if data, ok := mode["data"].(map[string]any); !ok || data["bracketed_paste"] != false {
+		t.Fatalf("disabled mode = %v, want bracketed_paste=false", mode)
+	}
+}
+
 func mustOK(t *testing.T, bin string, env []string, args ...string) {
 	t.Helper()
 	cmd := exec.Command(bin, args...)

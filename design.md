@@ -298,11 +298,12 @@ Defer:
 
 Input encoding should be profile-aware. For example, cursor keys may differ when application cursor mode is active. If `libghostty-vt` exposes the active mode state, use it. Otherwise, keep v0 conservative and document behavior.
 
-`Paste` should support two modes:
+`Paste` is strict about bracketed-paste mode:
 
 ```go
-term.Paste(text)        // bracketed paste if app enabled it; fallback otherwise
-term.Type(text)         // literal key-like text entry
+term.Paste(text)        // bracketed paste only when the app enabled mode 2004
+term.ForcePaste(text)   // bracketed markers despite a known-disabled mode
+term.Type(text)         // unwrapped literal text entry
 ```
 
 ## Query API

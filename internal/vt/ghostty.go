@@ -124,25 +124,32 @@ func (g *ghosttyTerm) Feed(p []byte) error {
 
 // Presentation returns only terminal state that changes host-generated input
 // bytes or the cursor shape. Display state remains private to Snapshot.
-func (g *ghosttyTerm) Presentation() Presentation {
-	mode := func(m libghostty.Mode) bool {
-		set, err := g.t.ModeGet(m)
-		return err == nil && set
+func (g *ghosttyTerm) Presentation() (Presentation, error) {
+	p := Presentation{}
+	for _, entry := range []struct {
+		name string
+		mode libghostty.Mode
+		dst  *bool
+	}{
+		{"DECCKM", libghostty.ModeDECCKM, &p.Input.ApplicationCursor},
+		{"keypad keys", libghostty.ModeKeypadKeys, &p.Input.ApplicationKeypad},
+		{"bracketed paste", libghostty.ModeBracketedPaste, &p.Input.BracketedPaste},
+		{"focus events", libghostty.ModeFocusEvent, &p.Input.FocusEvents},
+		{"X10 mouse", libghostty.ModeX10Mouse, &p.Input.MouseX10},
+		{"normal mouse", libghostty.ModeNormalMouse, &p.Input.MouseNormal},
+		{"button mouse", libghostty.ModeButtonMouse, &p.Input.MouseButton},
+		{"any-event mouse", libghostty.ModeAnyMouse, &p.Input.MouseAny},
+		{"UTF-8 mouse", libghostty.ModeUTF8Mouse, &p.Input.MouseUTF8},
+		{"SGR mouse", libghostty.ModeSGRMouse, &p.Input.MouseSGR},
+		{"URxvt mouse", libghostty.ModeURxvtMouse, &p.Input.MouseURxvt},
+		{"SGR-pixels mouse", libghostty.ModeSGRPixelsMouse, &p.Input.MouseSGRPixels},
+	} {
+		value, err := g.t.ModeGet(entry.mode)
+		if err != nil {
+			return Presentation{}, fmt.Errorf("query %s mode: %w", entry.name, err)
+		}
+		*entry.dst = value
 	}
-	p := Presentation{Input: InputModes{
-		ApplicationCursor: mode(libghostty.ModeDECCKM),
-		ApplicationKeypad: mode(libghostty.ModeKeypadKeys),
-		BracketedPaste:    mode(libghostty.ModeBracketedPaste),
-		FocusEvents:       mode(libghostty.ModeFocusEvent),
-		MouseX10:          mode(libghostty.ModeX10Mouse),
-		MouseNormal:       mode(libghostty.ModeNormalMouse),
-		MouseButton:       mode(libghostty.ModeButtonMouse),
-		MouseAny:          mode(libghostty.ModeAnyMouse),
-		MouseUTF8:         mode(libghostty.ModeUTF8Mouse),
-		MouseSGR:          mode(libghostty.ModeSGRMouse),
-		MouseURxvt:        mode(libghostty.ModeURxvtMouse),
-		MouseSGRPixels:    mode(libghostty.ModeSGRPixelsMouse),
-	}}
 	if flags, err := g.t.KittyKeyboardFlags(); err == nil {
 		p.Input.KittyKeyboardKnown = true
 		p.Input.KittyKeyboardFlags = uint8(flags)
@@ -153,7 +160,7 @@ func (g *ghosttyTerm) Presentation() Presentation {
 			p.Cursor = cursorStyleFromGhostty(style)
 		}
 	}
-	return p
+	return p, nil
 }
 
 func cursorStyleFromGhostty(style libghostty.CursorVisualStyle) CursorStyle {

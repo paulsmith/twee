@@ -531,6 +531,15 @@ func TestPresentationAndKeyEncodingShareModelState(t *testing.T) {
 	if _, err := unsupported.Presentation(); !errors.Is(err, ErrPresentationUnavailable) {
 		t.Fatalf("unsupported Presentation error = %v, want %v", err, ErrPresentationUnavailable)
 	}
+	modeErr := errors.New("mode unavailable")
+	model.err = modeErr
+	if _, err := p.Presentation(); !errors.Is(err, modeErr) {
+		t.Fatalf("Presentation mode error = %v, want %v", err, modeErr)
+	}
+	if _, err := p.EncodeKey(input.KeyUp); !errors.Is(err, modeErr) {
+		t.Fatalf("EncodeKey mode error = %v, want %v", err, modeErr)
+	}
+	model.err = nil
 	model.presentation.Input.KittyKeyboardFlags = 1
 	if _, err := p.EncodeKey(input.KeyUp); !errors.Is(err, ErrKittyKeyboardUnsupported) {
 		t.Fatalf("active Kitty EncodeKey error = %v, want %v", err, ErrKittyKeyboardUnsupported)
@@ -543,13 +552,14 @@ func TestPresentationAndKeyEncodingShareModelState(t *testing.T) {
 
 type fakePresentationModel struct {
 	presentation vt.Presentation
+	err          error
 }
 
 func (*fakePresentationModel) Feed([]byte) error     { return nil }
 func (*fakePresentationModel) Resize(int, int) error { return nil }
 func (*fakePresentationModel) Snapshot() vt.Snapshot { return vt.Snapshot{} }
-func (m *fakePresentationModel) Presentation() vt.Presentation {
-	return m.presentation
+func (m *fakePresentationModel) Presentation() (vt.Presentation, error) {
+	return m.presentation, m.err
 }
 
 type fakeMouseModel struct {

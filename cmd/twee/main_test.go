@@ -109,7 +109,7 @@ func TestInputHelpDocumentsModeDependentBehavior(t *testing.T) {
 	if err != nil {
 		t.Fatalf("help paste: %v", err)
 	}
-	for _, want := range []string{"FAILED_PRECONDITION", "--force", "mode 2004"} {
+	for _, want := range []string{"FAILED_PRECONDITION", "--force", "mode 2004", "writes no bytes", "ESC[200~", "twee type"} {
 		if !bytes.Contains(pasteHelp, []byte(want)) {
 			t.Errorf("paste help missing %q:\n%s", want, pasteHelp)
 		}

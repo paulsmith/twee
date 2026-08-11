@@ -14,8 +14,10 @@ type PTYReplySource interface{ DrainPTYReplies() [][]byte }
 
 // PresentationSource optionally reports the small subset of terminal state
 // that must be reflected by a host terminal which is proxying user input.
-// It deliberately excludes arbitrary child presentation state.
-type PresentationSource interface{ Presentation() Presentation }
+// It deliberately excludes arbitrary child presentation state. An error means
+// the backend could not determine that state; callers must not interpret the
+// zero value as modes being disabled.
+type PresentationSource interface{ Presentation() (Presentation, error) }
 
 // New returns the libghostty-vt-backed Model. The underlying type is
 // unexported to keep the backend swappable.

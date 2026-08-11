@@ -199,7 +199,7 @@ func presentationOf(model vt.Model) (vt.Presentation, error) {
 	if !ok {
 		return vt.Presentation{}, ErrPresentationUnavailable
 	}
-	return source.Presentation(), nil
+	return source.Presentation()
 }
 
 // RecentBytes returns a copy of the most recent output for diagnostics.

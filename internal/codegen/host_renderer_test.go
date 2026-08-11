@@ -216,7 +216,10 @@ func TestHostRendererRestoresSavedHostState(t *testing.T) {
 	if err := host.Feed([]byte("\x1b[?1h\x1b=\x1b[?2004h\x1b[?1004h\x1b[?1000h\x1b[?1006h\x1b[?25l\x1b[6 q")); err != nil {
 		t.Fatal(err)
 	}
-	want := host.(vt.PresentationSource).Presentation()
+	want, err := host.(vt.PresentationSource).Presentation()
+	if err != nil {
+		t.Fatal(err)
+	}
 	var b bytes.Buffer
 	r := hostRenderer{w: &b, hostRows: 4, status: true, preserve: true}
 	r.enter()
@@ -226,7 +229,10 @@ func TestHostRendererRestoresSavedHostState(t *testing.T) {
 	if err := host.Feed(b.Bytes()); err != nil {
 		t.Fatal(err)
 	}
-	got := host.(vt.PresentationSource).Presentation()
+	got, err := host.(vt.PresentationSource).Presentation()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got.Input != want.Input || host.Snapshot().Cursor.Style != vt.CursorStyleBar || host.Snapshot().Cursor.Visible {
 		t.Fatalf("restored presentation=%+v cursor=%+v", got, host.Snapshot().Cursor)
 	}

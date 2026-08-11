@@ -529,7 +529,8 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 
 func presentationOf(model vt.Model) vt.Presentation {
 	if source, ok := model.(vt.PresentationSource); ok {
-		return source.Presentation()
+		presentation, _ := source.Presentation()
+		return presentation
 	}
 	return vt.Presentation{}
 }

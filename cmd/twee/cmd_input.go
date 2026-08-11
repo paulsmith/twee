@@ -45,10 +45,11 @@ Flags:
   --name <name>    session name (default: TWEE_SESSION or "default")`)
 
 	registerUsage("paste", `twee paste [client options] [--force] -- <text...>
-Send text wrapped in bracketed-paste markers (DEC mode 2004). The command
-fails with FAILED_PRECONDITION if the TUI has not enabled mode 2004.
-Use --force only to send the markers deliberately in that state.
-Multiple args are joined with single spaces.
+Send text wrapped in bracketed-paste markers (DEC mode 2004). By default,
+Twee writes no bytes unless its terminal model reports mode 2004 enabled;
+the command otherwise fails with FAILED_PRECONDITION. --force bypasses only
+that check and still sends ESC[200~ and ESC[201~ markers. Use "twee type"
+for unwrapped text. Multiple args are joined with single spaces.
 
 Flags:
   --name <name>    session name (default: TWEE_SESSION or "default")
