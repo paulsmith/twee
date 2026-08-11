@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/paulsmith/twee/internal/termios"
 	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/tracearchive"
 	"github.com/paulsmith/twee/internal/tracepolicy"
@@ -115,6 +116,7 @@ func openValidated(path string, openFile func(string) (*os.File, error)) (Bundle
 			if sizeIssue := terminalSizeIssue(man.Cols, man.Rows); sizeIssue != "" {
 				issues = append(issues, "manifest.json: "+sizeIssue)
 			}
+			issues = append(issues, childPTYTermiosIssues(man.ChildPTYTermios)...)
 		}
 	}
 
@@ -282,6 +284,59 @@ func inspectEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int) ([]E
 		issues = append(issues, "events.jsonl: "+err.Error())
 	}
 	return events, count, issues
+}
+
+func childPTYTermiosIssues(record *termios.Record) []string {
+	if record == nil {
+		return nil
+	}
+	var issues []string
+	if record.SchemaVersion != 1 {
+		issues = append(issues, fmt.Sprintf("manifest.json: child_pty_termios schema version %d is unsupported", record.SchemaVersion))
+	}
+	if record.Platform == "" {
+		issues = append(issues, "manifest.json: child_pty_termios.platform is empty")
+	}
+	issues = append(issues, termiosSnapshotIssues("start", record.Start)...)
+	if record.Exit != nil {
+		issues = append(issues, termiosSnapshotIssues("exit", *record.Exit)...)
+	}
+	return issues
+}
+
+func termiosSnapshotIssues(endpoint string, snapshot termios.Snapshot) []string {
+	prefix := "manifest.json: child_pty_termios." + endpoint
+	var issues []string
+	switch snapshot.Status {
+	case termios.StatusCaptured:
+		if snapshot.State == nil {
+			issues = append(issues, prefix+" status captured requires state")
+		}
+		if snapshot.Error != "" {
+			issues = append(issues, prefix+" status captured must not include error")
+		}
+	case termios.StatusUnavailable, termios.StatusUnsupported:
+		if snapshot.State != nil {
+			issues = append(issues, prefix+" status "+snapshot.Status+" must not include state")
+		}
+	default:
+		issues = append(issues, fmt.Sprintf("%s has invalid status %q", prefix, snapshot.Status))
+	}
+	if snapshot.State != nil {
+		controlChars := snapshot.State.Raw.ControlChars
+		if len(controlChars) == 0 {
+			issues = append(issues, prefix+" raw.control_chars is empty")
+		}
+		if len(controlChars) > 64 {
+			issues = append(issues, prefix+" raw.control_chars exceeds 64 entries")
+		}
+		for i, value := range controlChars {
+			if value < 0 || value > 255 {
+				issues = append(issues, fmt.Sprintf("%s raw.control_chars[%d] is outside 0..255", prefix, i))
+			}
+		}
+	}
+	return issues
 }
 
 func terminalSizeIssue(cols, rows int) string {

@@ -529,11 +529,18 @@ snapshot, and every observed mode transition. Transitions identify the trace
 timestamp, zero-based event index, and byte offset that completed the control
 sequence, so enable/disable pairs remain visible even when they occur in one
 output event. Text output prints the final viewport and a concise transition
-summary. Mid-session traces describe state observable from the recorded replay;
-modes enabled before tracing began are not reconstructible unless the trace
-contains their enabling sequence.
+summary. The separate `child_pty_termios` object records the managed child
+PTY's attributes at trace start and, when child exit is observed before
+tracing stops, at child exit. It reports capture failures explicitly and is
+unrelated to the host terminal state that `twee wrap` restores on shutdown.
+Mid-session traces
+describe state observable from the recorded replay; modes enabled before
+tracing began are not reconstructible unless the trace contains their enabling
+sequence.
 
-Validation covers ZIP integrity, the manifest, the format version, every event, timestamp order, replay-safe dimensions, and declared network capture data.
+Validation covers ZIP integrity, the manifest, the format version, every event,
+timestamp order, replay-safe dimensions, child PTY termios metadata, and
+declared network capture data.
 
 An invalid bundle returns `INVALID_ARGUMENT`. The `error.details.issues` array contains all detected validation problems.
 

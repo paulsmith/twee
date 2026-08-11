@@ -11,6 +11,7 @@ import (
 
 	"github.com/paulsmith/twee/internal/inspect"
 	"github.com/paulsmith/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/termios"
 	"github.com/paulsmith/twee/internal/tracebundle"
 )
 
@@ -22,8 +23,8 @@ terminal model, and print metadata plus final semantic state. Replay includes
 final dimensions, visible text, cursor, alternate screen, styled cells, modes,
 and control-sequence-granular mode transitions. Validation checks zip integrity,
 the manifest and version, every event record, timestamp order, replay-safe
-terminal dimensions, and any declared network capture. Invalid bundles report
-every validation problem in error.details.issues.
+terminal dimensions, child PTY termios captured at trace start and child exit,
+and any declared network capture. Invalid bundles report every validation problem in error.details.issues.
 
 Flags:
   --format json|text    output format (default json)`)
@@ -97,6 +98,7 @@ func printInspectText(w io.Writer, s inspect.Summary) {
 	} else {
 		fmt.Fprintln(w, "Exit: not recorded")
 	}
+	printChildPTYTermiosText(w, s.ChildPTYTermios)
 	if !s.Network.Present {
 		fmt.Fprintln(w, "Network capture: none")
 	} else {
@@ -107,6 +109,29 @@ func printInspectText(w io.Writer, s inspect.Summary) {
 		fmt.Fprintln(w)
 	}
 	printInspectReplayText(w, s.Replay)
+}
+
+func printChildPTYTermiosText(w io.Writer, summary inspect.ChildPTYTermiosSummary) {
+	if !summary.Present {
+		fmt.Fprintln(w, "Child PTY termios: not recorded")
+		return
+	}
+	fmt.Fprintf(w, "Child PTY termios (%s): start %s; exit %s\n",
+		summary.Platform, formatTermiosSnapshot(summary.Start), formatTermiosSnapshot(summary.Exit))
+}
+
+func formatTermiosSnapshot(snapshot *termios.Snapshot) string {
+	if snapshot == nil {
+		return "not recorded"
+	}
+	if snapshot.Status != termios.StatusCaptured || snapshot.State == nil {
+		if snapshot.Error != "" {
+			return fmt.Sprintf("%s (%s)", snapshot.Status, snapshot.Error)
+		}
+		return snapshot.Status
+	}
+	state := snapshot.State
+	return fmt.Sprintf("canonical=%t echo=%t signals=%t", state.Canonical, state.Echo, state.Signals)
 }
 
 func printInspectReplayText(w io.Writer, replay inspect.ReplaySummary) {

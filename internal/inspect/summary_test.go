@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/paulsmith/twee/internal/termios"
 	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/tracebundle"
 )
@@ -19,6 +20,14 @@ func TestSummarizeUsesManifestDurationAndCountsEvents(t *testing.T) {
 			Rows:      24,
 			StartedAt: start,
 			StoppedAt: stop,
+			ChildPTYTermios: &termios.Record{
+				SchemaVersion: 1,
+				Platform:      "linux",
+				Start: termios.Snapshot{Status: termios.StatusCaptured, State: &termios.State{
+					Canonical: true, Echo: true, Signals: true,
+				}},
+				Exit: &termios.Snapshot{Status: termios.StatusCaptured, State: &termios.State{}},
+			},
 			Network: &trace.NetworkCapture{
 				Format: trace.NetworkCaptureFormat, Stream: trace.NetworkCaptureStream,
 				GVisorVersion: "test-version", PublishTCP: []string{"127.0.0.1:8080=80"},
@@ -75,6 +84,12 @@ func TestSummarizeUsesManifestDurationAndCountsEvents(t *testing.T) {
 	if !s.Exit.Recorded || s.Exit.Code == nil || *s.Exit.Code != 7 {
 		t.Fatalf("exit = %+v, want recorded code 7", s.Exit)
 	}
+	if !s.ChildPTYTermios.Present || s.ChildPTYTermios.SchemaVersion != 1 || s.ChildPTYTermios.Platform != "linux" || s.ChildPTYTermios.Start == nil || s.ChildPTYTermios.Exit == nil {
+		t.Fatalf("child PTY termios = %+v", s.ChildPTYTermios)
+	}
+	if s.ChildPTYTermios.Start.State == nil || !s.ChildPTYTermios.Start.State.Canonical || s.ChildPTYTermios.Exit.State == nil || s.ChildPTYTermios.Exit.State.Canonical {
+		t.Fatalf("child PTY termios endpoints = %+v", s.ChildPTYTermios)
+	}
 	if !s.Network.Present || s.Network.Format != "pcap" || s.Network.SizeBytes != 512 || s.Network.PacketCount != 17 || !s.Network.Truncated || s.Network.Status != "truncated" {
 		t.Fatalf("network = %+v", s.Network)
 	}
@@ -96,6 +111,9 @@ func TestSummarizeNoExitEvent(t *testing.T) {
 	}
 	if s.Exit.Code != nil {
 		t.Fatalf("exit code = %v, want nil", *s.Exit.Code)
+	}
+	if s.ChildPTYTermios.Present {
+		t.Fatalf("child PTY termios = %+v, want absent", s.ChildPTYTermios)
 	}
 	if s.Network.Present {
 		t.Fatalf("network = %+v, want absent", s.Network)

@@ -49,7 +49,8 @@ func TestInspectDefaultJSON(t *testing.T) {
 				Recorded bool `json:"recorded"`
 				Code     *int `json:"code"`
 			} `json:"exit"`
-			Replay struct {
+			ChildPTYTermios inspect.ChildPTYTermiosSummary `json:"child_pty_termios"`
+			Replay          struct {
 				InitialModes struct {
 					KittyKeyboardKnown bool `json:"kitty_keyboard_known"`
 				} `json:"initial_modes"`
@@ -98,6 +99,9 @@ func TestInspectDefaultJSON(t *testing.T) {
 	if !got.Data.Exit.Recorded || got.Data.Exit.Code == nil || *got.Data.Exit.Code != 7 {
 		t.Fatalf("exit = %+v", got.Data.Exit)
 	}
+	if !got.Data.ChildPTYTermios.Present || got.Data.ChildPTYTermios.Start == nil || got.Data.ChildPTYTermios.Exit == nil || got.Data.ChildPTYTermios.Start.State == nil || !got.Data.ChildPTYTermios.Start.State.Canonical || got.Data.ChildPTYTermios.Exit.State == nil || got.Data.ChildPTYTermios.Exit.State.Canonical {
+		t.Fatalf("child PTY termios = %+v", got.Data.ChildPTYTermios)
+	}
 	if !got.Data.Replay.InitialModes.KittyKeyboardKnown {
 		t.Fatalf("initial modes = %+v", got.Data.Replay.InitialModes)
 	}
@@ -133,6 +137,7 @@ func TestInspectTextOutput(t *testing.T) {
 		"Events: 5 total",
 		"Input: key=1, type=1",
 		"Exit: code 7",
+		"Child PTY termios (linux): start canonical=true echo=true signals=true; exit canonical=false echo=false signals=false",
 		"Network capture: none",
 		"Replay final: 100x40 at 30 ms (event 3)",
 		"Cursor: x=2 y=0 visible=true",
@@ -307,7 +312,13 @@ func writeInspectBundle(t *testing.T) string {
 			"cols": 80,
 			"rows": 24,
 			"started_at": "2026-06-23T12:00:00Z",
-			"stopped_at": "2026-06-23T12:00:01.234Z"
+			"stopped_at": "2026-06-23T12:00:01.234Z",
+			"child_pty_termios": {
+				"schema_version": 1,
+				"platform": "linux",
+				"start": {"status":"captured","state":{"canonical":true,"echo":true,"signals":true,"extended_input":true,"input_flow_control":true,"output_flow_control":false,"output_processing":true,"map_nl_to_crnl":true,"raw":{"input_flags":1,"output_flags":2,"control_flags":3,"local_flags":4,"control_chars":[3,28,127,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"input_speed":15,"output_speed":15}}},
+				"exit": {"status":"captured","state":{"canonical":false,"echo":false,"signals":false,"extended_input":false,"input_flow_control":false,"output_flow_control":false,"output_processing":true,"map_nl_to_crnl":true,"raw":{"input_flags":1,"output_flags":2,"control_flags":3,"local_flags":0,"control_chars":[3,28,127,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"input_speed":15,"output_speed":15}}}
+			}
 		}`,
 		"events.jsonl": strings.Join([]string{
 			`{"t_ms":0,"type":"output","bytes_b64":"` + base64.StdEncoding.EncodeToString([]byte("hi")) + `"}`,

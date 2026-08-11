@@ -168,7 +168,7 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 		}
 	}
 	if opts.TracePath != "" {
-		if err := traces.start(opts.TracePath, model.Snapshot()); err != nil {
+		if err := traces.start(opts.TracePath, model.Snapshot(), runner.InitialTermios()); err != nil {
 			_ = runner.Close()
 			return fmt.Errorf("trace: %w", err)
 		}
@@ -312,7 +312,7 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 					break
 				}
 				if traces.state == recorderIdle {
-					if err := traces.start("", model.Snapshot()); err != nil && runErr == nil {
+					if err := traces.start("", model.Snapshot(), runner.Termios()); err != nil && runErr == nil {
 						runErr = err
 					} else if traces.state == recorderRecording {
 						setToast("trace started")
@@ -504,6 +504,9 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 	}
 	flushPendingWait()
 	traces.recordExit(runner.ExitCode())
+	if snapshot, ok := runner.ExitTermios(); ok {
+		traces.recordChildPTYTermiosExit(snapshot)
+	}
 	scriptErr := script.close()
 	var networkErr error
 	if network != nil {

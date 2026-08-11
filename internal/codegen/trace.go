@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/paulsmith/twee/internal/engine"
+	"github.com/paulsmith/twee/internal/termios"
 	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/vt"
 )
@@ -43,6 +44,7 @@ type traceWriter interface {
 	Close() error
 	Abort(error) error
 	AttachNetworkCapture(string, trace.NetworkCapture) error
+	SetChildPTYTermiosExit(termios.Snapshot)
 	WriteOutput([]byte, time.Time)
 	WriteInput(trace.InputKind, string, []byte)
 	WriteExit(int)
@@ -61,7 +63,7 @@ func newTraceController(opts Options, cols, rows, pid int) *traceController {
 	}
 }
 
-func (c *traceController) start(path string, snap vt.Snapshot) error {
+func (c *traceController) start(path string, snap vt.Snapshot, startTermios termios.Snapshot) error {
 	if c.state != recorderIdle {
 		return fmt.Errorf("trace already finalized: %s", terminalPath(c.path))
 	}
@@ -75,7 +77,7 @@ func (c *traceController) start(path string, snap vt.Snapshot) error {
 			return err
 		}
 	}
-	if err := c.open(path, snap); err != nil {
+	if err := c.open(path, snap, startTermios); err != nil {
 		cleanupReservedPath(path, reservation)
 		c.state = recorderFailed
 		c.path = path
@@ -85,14 +87,15 @@ func (c *traceController) start(path string, snap vt.Snapshot) error {
 	return nil
 }
 
-func (c *traceController) open(path string, snap vt.Snapshot) error {
+func (c *traceController) open(path string, snap vt.Snapshot, startTermios termios.Snapshot) error {
 	startedAt := time.Now()
 	tr, err := trace.New(path, trace.Manifest{
-		Command: c.command,
-		Env:     c.env,
-		Cols:    c.cols,
-		Rows:    c.rows,
-		Pid:     c.pid,
+		Command:         c.command,
+		Env:             c.env,
+		Cols:            c.cols,
+		Rows:            c.rows,
+		Pid:             c.pid,
+		ChildPTYTermios: termios.NewRecord(startTermios),
 	})
 	if err != nil {
 		return err
@@ -166,6 +169,12 @@ func (c *traceController) recordInput(in inputEvent) {
 func (c *traceController) recordTerminalReply(b []byte) {
 	if c.tr != nil && len(b) > 0 {
 		c.tr.WriteInput(trace.InputKindTerminalReply, "", b)
+	}
+}
+
+func (c *traceController) recordChildPTYTermiosExit(snapshot termios.Snapshot) {
+	if c.tr != nil {
+		c.tr.SetChildPTYTermiosExit(snapshot)
 	}
 }
 

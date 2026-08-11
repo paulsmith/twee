@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/paulsmith/twee/internal/termios"
 	"github.com/paulsmith/twee/third_party/netwrap"
 	"golang.org/x/sys/unix"
 )
@@ -38,6 +39,10 @@ type Runner struct {
 	backend   runnerBackend
 	closeOnce sync.Once
 	closeErr  error
+
+	termiosMu    sync.Mutex
+	startTermios termios.Snapshot
+	exitTermios  *termios.Snapshot
 }
 
 type runnerBackend interface {
@@ -124,18 +129,36 @@ func Start(ctx context.Context, cfg Config) (*Runner, error) {
 	if cfg.Dir != "" {
 		cmd.Dir = cfg.Dir
 	}
-	master, err := pty.StartWithSize(cmd, &pty.Winsize{
-		Cols: uint16(cfg.Cols),
-		Rows: uint16(cfg.Rows),
-	})
+	master, slave, err := pty.Open()
 	if err != nil {
 		group.startFailed()
 		return nil, err
 	}
+	if err := pty.Setsize(master, &pty.Winsize{
+		Cols: uint16(cfg.Cols),
+		Rows: uint16(cfg.Rows),
+	}); err != nil {
+		group.startFailed()
+		_ = master.Close()
+		_ = slave.Close()
+		return nil, err
+	}
+	cmd.Stdin = slave
+	cmd.Stdout = slave
+	cmd.Stderr = slave
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
+	startTermios := termios.Capture(slave.Fd())
+	if err := cmd.Start(); err != nil {
+		group.startFailed()
+		_ = master.Close()
+		_ = slave.Close()
+		return nil, err
+	}
+	_ = slave.Close()
 	backend := &localBackend{cmd: cmd, group: group, exited: make(chan struct{}), reaped: make(chan struct{})}
-	r := &Runner{master: master, backend: backend}
+	r := &Runner{master: master, backend: backend, startTermios: startTermios}
 	group.started(cmd.Process.Pid)
-	go backend.wait()
+	go backend.wait(r.captureExitTermios)
 	return r, nil
 }
 
@@ -161,6 +184,7 @@ func startNetwork(ctx context.Context, cfg Config) (*Runner, error) {
 		return nil, fmt.Errorf("dup PTY slave for capture warnings: %w", err)
 	}
 	warnings := os.NewFile(uintptr(warningsFd), slave.Name())
+	startTermios := termios.Capture(slave.Fd())
 	process, err := netwrap.Start(ctx, netwrap.Config{
 		Command: cfg.Command, Env: cfg.Env, Dir: cfg.Dir,
 		Stdin: slave, Stdout: slave, Stderr: slave, ControllingTTY: true,
@@ -178,7 +202,7 @@ func startNetwork(ctx context.Context, cfg Config) (*Runner, error) {
 	// open would prevent the master from observing EOF after command exit.
 	_ = slave.Close()
 	backend := &networkBackend{process: process, exited: make(chan struct{})}
-	r := &Runner{master: master, backend: backend}
+	r := &Runner{master: master, backend: backend, startTermios: startTermios}
 	go func() {
 		result, runErr := process.Wait()
 		// Wait returns after the recorder closes, so no warning can still be
@@ -192,14 +216,16 @@ func startNetwork(ctx context.Context, cfg Config) (*Runner, error) {
 			MaxBytes: result.Capture.MaxBytes, BytesWritten: result.Capture.BytesWritten,
 			PacketCount: result.Capture.PacketCount, Truncated: result.Capture.Truncated,
 		}
+		r.captureExitTermios()
 		close(backend.exited)
 	}()
 	return r, nil
 }
 
-func (b *localBackend) wait() {
+func (b *localBackend) wait(captureExit func()) {
 	b.group.wait(b.cmd, func(info exitInfo) {
 		b.exit = info
+		captureExit()
 		close(b.exited)
 	})
 	close(b.reaped)
@@ -216,6 +242,34 @@ func (b *networkBackend) pid() int { return b.process.PID() }
 // Master returns the PTY master fd. Reads on it produce app output;
 // writes deliver input to the app.
 func (r *Runner) Master() io.ReadWriter { return r.master }
+
+// InitialTermios returns the child PTY state captured immediately before the
+// child was started.
+func (r *Runner) InitialTermios() termios.Snapshot {
+	return termios.CloneSnapshot(r.startTermios)
+}
+
+// Termios captures the child PTY's current state.
+func (r *Runner) Termios() termios.Snapshot {
+	return termios.Capture(r.master.Fd())
+}
+
+// ExitTermios returns the state captured when child exit was observed.
+func (r *Runner) ExitTermios() (termios.Snapshot, bool) {
+	r.termiosMu.Lock()
+	defer r.termiosMu.Unlock()
+	if r.exitTermios == nil {
+		return termios.Snapshot{}, false
+	}
+	return termios.CloneSnapshot(*r.exitTermios), true
+}
+
+func (r *Runner) captureExitTermios() {
+	snapshot := termios.Capture(r.master.Fd())
+	r.termiosMu.Lock()
+	r.exitTermios = &snapshot
+	r.termiosMu.Unlock()
+}
 
 // Resize updates the PTY winsize and sends SIGWINCH to the child.
 func (r *Runner) Resize(cols, rows int) error {

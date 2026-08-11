@@ -20,6 +20,7 @@ import (
 
 	"github.com/paulsmith/twee/internal/bundle"
 	"github.com/paulsmith/twee/internal/engine"
+	"github.com/paulsmith/twee/internal/termios"
 	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/tracearchive"
 	"github.com/paulsmith/twee/internal/tracepolicy"
@@ -106,6 +107,9 @@ func TestNetworkCaptureIncludesPublishedTCPExchange(t *testing.T) {
 	}
 	if err := manifestFile.Close(); err != nil {
 		t.Fatal(err)
+	}
+	if manifest.ChildPTYTermios == nil || manifest.ChildPTYTermios.Start.Status != termios.StatusCaptured || manifest.ChildPTYTermios.Exit == nil || manifest.ChildPTYTermios.Exit.Status != termios.StatusCaptured {
+		t.Fatalf("child PTY termios = %+v, want captured start and exit", manifest.ChildPTYTermios)
 	}
 	wantPublication := hostAddress + "=18091"
 	if manifest.Network == nil || len(manifest.Network.PublishTCP) != 1 || manifest.Network.PublishTCP[0] != wantPublication {

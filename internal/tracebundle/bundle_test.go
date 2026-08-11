@@ -42,6 +42,47 @@ func TestOpenRoundTrip(t *testing.T) {
 	}
 }
 
+func TestOpenValidatesChildPTYTermios(t *testing.T) {
+	valid := writeTestBundle(t, map[string]string{
+		"manifest.json": `{"version":1,"cols":10,"rows":3,"child_pty_termios":{"schema_version":1,"platform":"linux","start":{"status":"captured","state":{"canonical":true,"echo":true,"signals":true,"extended_input":true,"input_flow_control":true,"output_flow_control":false,"output_processing":true,"map_nl_to_crnl":true,"raw":{"input_flags":1,"output_flags":2,"control_flags":3,"local_flags":4,"control_chars":[3,28,127,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"input_speed":15,"output_speed":15}}},"exit":{"status":"unavailable","error":"ioctl failed"}}}`,
+		"events.jsonl":  "",
+	})
+	bundle, err := Open(valid)
+	if err != nil {
+		t.Fatalf("Open valid termios: %v", err)
+	}
+	if bundle.Manifest.ChildPTYTermios == nil || bundle.Manifest.ChildPTYTermios.Exit == nil {
+		t.Fatalf("termios metadata = %+v", bundle.Manifest.ChildPTYTermios)
+	}
+
+	tests := []struct {
+		name, metadata, want string
+	}{
+		{"unsupported schema", `{"schema_version":2,"platform":"linux","start":{"status":"unavailable"}}`, "schema version 2 is unsupported"},
+		{"empty platform", `{"schema_version":1,"platform":"","start":{"status":"unavailable"}}`, "platform is empty"},
+		{"invalid status", `{"schema_version":1,"platform":"linux","start":{"status":"missing"}}`, `invalid status "missing"`},
+		{"captured without state", `{"schema_version":1,"platform":"linux","start":{"status":"captured"}}`, "requires state"},
+		{"captured empty state", `{"schema_version":1,"platform":"linux","start":{"status":"captured","state":{}}}`, "raw.control_chars is empty"},
+		{"unavailable with state", `{"schema_version":1,"platform":"linux","start":{"status":"unavailable","state":{}}}`, "must not include state"},
+		{"invalid control byte", `{"schema_version":1,"platform":"linux","start":{"status":"captured","state":{"raw":{"control_chars":[256]}}}}`, "outside 0..255"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := writeTestBundle(t, map[string]string{
+				"manifest.json": `{"version":1,"cols":10,"rows":3,"child_pty_termios":` + test.metadata + `}`,
+				"events.jsonl":  "",
+			})
+			_, validation, err := OpenValidated(path)
+			if err != nil {
+				t.Fatalf("OpenValidated: %v", err)
+			}
+			if validation.Valid || !containsIssue(validation.Issues, test.want) {
+				t.Fatalf("validation = %+v, want %q", validation, test.want)
+			}
+		})
+	}
+}
+
 func TestOpenEmptyEventsIsLegal(t *testing.T) {
 	path := writeTestBundle(t, map[string]string{
 		"manifest.json": `{"version":1,"command":[],"cols":10,"rows":3}`,

@@ -6,9 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/paulsmith/twee/internal/termios"
+	"github.com/paulsmith/twee/internal/tracebundle"
 )
 
 func TestFinalizeArtifactsWritesTraceBundleAndSignalsDone(t *testing.T) {
@@ -58,6 +62,45 @@ func TestFinalizeArtifactsWritesTraceBundleAndSignalsDone(t *testing.T) {
 	_ = zr.Close()
 	if !traceBundleHasExitCode(t, out, 0) {
 		t.Fatal("bundle missing exit event with code 0")
+	}
+}
+
+func TestFinalizeArtifactsCapturesChildPTYTermios(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("termios capture is unsupported on this platform")
+	}
+	out := filepath.Join(t.TempDir(), "termios.twee")
+	te, err := Start(context.Background(), Config{
+		Cmd:               []string{"/bin/sh", "-c", "stty -echo -icanon -isig; exit 0"},
+		WholeSessionTrace: &WholeSessionTraceConfig{Path: out},
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = te.Close() }()
+	if _, err := te.WaitForExit(WithTimeout(5 * time.Second)); err != nil {
+		t.Fatalf("WaitForExit: %v", err)
+	}
+	if err := te.FinalizeArtifacts(); err != nil {
+		t.Fatalf("FinalizeArtifacts: %v", err)
+	}
+
+	bundle, err := tracebundle.Open(out)
+	if err != nil {
+		t.Fatalf("Open trace: %v", err)
+	}
+	record := bundle.Manifest.ChildPTYTermios
+	if record == nil || record.Start.Status != termios.StatusCaptured || record.Start.State == nil {
+		t.Fatalf("start termios = %+v, want captured", record)
+	}
+	if !record.Start.State.Canonical || !record.Start.State.Echo || !record.Start.State.Signals {
+		t.Fatalf("start modes = %+v", record.Start.State)
+	}
+	if record.Exit == nil || record.Exit.Status != termios.StatusCaptured || record.Exit.State == nil {
+		t.Fatalf("exit termios = %+v, want captured", record)
+	}
+	if record.Exit.State.Canonical || record.Exit.State.Echo || record.Exit.State.Signals {
+		t.Fatalf("exit modes = %+v", record.Exit.State)
 	}
 }
 

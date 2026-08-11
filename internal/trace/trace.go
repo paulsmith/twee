@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/paulsmith/twee/internal/termios"
 	"github.com/paulsmith/twee/internal/tracearchive"
 	"github.com/paulsmith/twee/internal/tracepolicy"
 )
@@ -24,16 +25,17 @@ import (
 // Manifest is the top-level metadata written to manifest.json inside
 // the zip bundle.
 type Manifest struct {
-	Version   int               `json:"version"`
-	Command   []string          `json:"command"`
-	Env       map[string]string `json:"env,omitempty"`
-	Cols      int               `json:"cols"`
-	Rows      int               `json:"rows"`
-	Pid       int               `json:"pid"`
-	Host      HostInfo          `json:"host"`
-	StartedAt time.Time         `json:"started_at"`
-	StoppedAt time.Time         `json:"stopped_at"`
-	Network   *NetworkCapture   `json:"network_capture,omitempty"`
+	Version         int               `json:"version"`
+	Command         []string          `json:"command"`
+	Env             map[string]string `json:"env,omitempty"`
+	Cols            int               `json:"cols"`
+	Rows            int               `json:"rows"`
+	Pid             int               `json:"pid"`
+	Host            HostInfo          `json:"host"`
+	StartedAt       time.Time         `json:"started_at"`
+	StoppedAt       time.Time         `json:"stopped_at"`
+	Network         *NetworkCapture   `json:"network_capture,omitempty"`
+	ChildPTYTermios *termios.Record   `json:"child_pty_termios,omitempty"`
 }
 
 type NetworkCapture struct {
@@ -222,6 +224,17 @@ func (tr *Trace) AttachNetworkCapture(source string, capture NetworkCapture) err
 	return nil
 }
 
+// SetChildPTYTermiosExit adds the state captured when child exit was observed.
+func (tr *Trace) SetChildPTYTermiosExit(snapshot termios.Snapshot) {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	if tr.closed || tr.man.ChildPTYTermios == nil {
+		return
+	}
+	exit := termios.CloneSnapshot(snapshot)
+	tr.man.ChildPTYTermios.Exit = &exit
+}
+
 // Abort closes and removes trace staging without publishing a bundle. The
 // cause is retained as Close's idempotent result.
 func (tr *Trace) Abort(cause error) error {
@@ -304,6 +317,7 @@ func newWithFS(path string, m Manifest, fsys traceFS) (*Trace, error) {
 	m.Version = 1
 	m.StartedAt = now
 	m.Host = DefaultHostInfo()
+	m.ChildPTYTermios = termios.CloneRecord(m.ChildPTYTermios)
 	tr := &Trace{
 		path:       path,
 		workDir:    workDir,

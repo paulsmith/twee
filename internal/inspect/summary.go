@@ -4,25 +4,27 @@ package inspect
 import (
 	"time"
 
+	"github.com/paulsmith/twee/internal/termios"
 	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/tracebundle"
 )
 
 // Summary is the JSON/text inspect shape for a .twee trace bundle.
 type Summary struct {
-	Path        string         `json:"path"`
-	Version     int            `json:"version"`
-	Command     []string       `json:"command"`
-	Duration    string         `json:"duration"`
-	DurationMS  int64          `json:"duration_ms"`
-	EventSpanMS int64          `json:"event_span_ms"`
-	StartedAt   *time.Time     `json:"started_at"`
-	StoppedAt   *time.Time     `json:"stopped_at"`
-	Terminal    Terminal       `json:"terminal"`
-	Events      EventSummary   `json:"events"`
-	Exit        ExitSummary    `json:"exit"`
-	Network     NetworkSummary `json:"network_capture"`
-	Replay      ReplaySummary  `json:"replay"`
+	Path            string                 `json:"path"`
+	Version         int                    `json:"version"`
+	Command         []string               `json:"command"`
+	Duration        string                 `json:"duration"`
+	DurationMS      int64                  `json:"duration_ms"`
+	EventSpanMS     int64                  `json:"event_span_ms"`
+	StartedAt       *time.Time             `json:"started_at"`
+	StoppedAt       *time.Time             `json:"stopped_at"`
+	Terminal        Terminal               `json:"terminal"`
+	Events          EventSummary           `json:"events"`
+	Exit            ExitSummary            `json:"exit"`
+	Network         NetworkSummary         `json:"network_capture"`
+	ChildPTYTermios ChildPTYTermiosSummary `json:"child_pty_termios"`
+	Replay          ReplaySummary          `json:"replay"`
 }
 
 // Terminal summarizes initial and maximum terminal dimensions.
@@ -58,6 +60,16 @@ type NetworkSummary struct {
 	PublishTCP    []string `json:"publish_tcp,omitempty"`
 	Truncated     bool     `json:"truncated"`
 	Status        string   `json:"status,omitempty"`
+}
+
+// ChildPTYTermiosSummary describes child PTY terminal attributes captured at
+// trace start and, when available, child exit.
+type ChildPTYTermiosSummary struct {
+	Present       bool              `json:"present"`
+	SchemaVersion int               `json:"schema_version,omitempty"`
+	Platform      string            `json:"platform,omitempty"`
+	Start         *termios.Snapshot `json:"start,omitempty"`
+	Exit          *termios.Snapshot `json:"exit,omitempty"`
 }
 
 // Summarize computes an inspect summary for bundle.
@@ -96,6 +108,17 @@ func Summarize(path string, bundle tracebundle.Bundle) Summary {
 			code := ev.Code
 			s.Exit.Recorded = true
 			s.Exit.Code = &code
+		}
+	}
+	if record := bundle.Manifest.ChildPTYTermios; record != nil {
+		start := termios.CloneSnapshot(record.Start)
+		s.ChildPTYTermios = ChildPTYTermiosSummary{
+			Present: true, SchemaVersion: record.SchemaVersion,
+			Platform: record.Platform, Start: &start,
+		}
+		if record.Exit != nil {
+			exit := termios.CloneSnapshot(*record.Exit)
+			s.ChildPTYTermios.Exit = &exit
 		}
 	}
 	if capture := bundle.Manifest.Network; capture != nil {

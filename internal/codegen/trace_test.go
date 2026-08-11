@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/paulsmith/twee/internal/termios"
 	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/vt"
 )
@@ -19,6 +20,7 @@ func (closeFailingTrace) Abort(err error) error { return err }
 func (closeFailingTrace) AttachNetworkCapture(string, trace.NetworkCapture) error {
 	return nil
 }
+func (closeFailingTrace) SetChildPTYTermiosExit(termios.Snapshot)    {}
 func (closeFailingTrace) WriteOutput([]byte, time.Time)              {}
 func (closeFailingTrace) WriteInput(trace.InputKind, string, []byte) {}
 func (closeFailingTrace) WriteExit(int)                              {}
@@ -87,13 +89,13 @@ func TestNextRecorderPathConcurrentReservations(t *testing.T) {
 func TestTraceControllerOneShot(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "x.twee")
 	c := newTraceController(Options{Command: []string{"/bin/cat"}}, 80, 24, 1)
-	if err := c.start(p, vt.New(80, 24).Snapshot()); err != nil {
+	if err := c.start(p, vt.New(80, 24).Snapshot(), termios.Snapshot{Status: termios.StatusUnavailable}); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.start(p, vt.New(80, 24).Snapshot()); err == nil {
+	if err := c.start(p, vt.New(80, 24).Snapshot(), termios.Snapshot{Status: termios.StatusUnavailable}); err == nil {
 		t.Fatal("restart succeeded")
 	}
 }
@@ -108,13 +110,13 @@ func TestNetworkTraceControllerIsWholeSession(t *testing.T) {
 func TestTraceOpenFailureIsPermanent(t *testing.T) {
 	c := newTraceController(Options{Command: []string{"/bin/cat"}}, 80, 24, 1)
 	bad := t.TempDir()
-	if err := c.start(bad, vt.New(80, 24).Snapshot()); err == nil {
+	if err := c.start(bad, vt.New(80, 24).Snapshot(), termios.Snapshot{Status: termios.StatusUnavailable}); err == nil {
 		t.Fatal("directory target succeeded")
 	}
 	if c.state != recorderFailed {
 		t.Fatalf("state=%v", c.state)
 	}
-	if err := c.start(filepath.Join(t.TempDir(), "ok.twee"), vt.New(80, 24).Snapshot()); err == nil {
+	if err := c.start(filepath.Join(t.TempDir(), "ok.twee"), vt.New(80, 24).Snapshot(), termios.Snapshot{Status: termios.StatusUnavailable}); err == nil {
 		t.Fatal("retry succeeded")
 	}
 }

@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/paulsmith/twee/internal/termios"
 )
 
 func TestStartRejectsEmptyCommand(t *testing.T) {
@@ -67,6 +70,39 @@ func TestRunnerExitCode(t *testing.T) {
 	}
 	if err := r.Err(); err != nil {
 		t.Fatalf("Err = %v, want nil for an ordinary nonzero exit", err)
+	}
+}
+
+func TestRunnerCapturesInitialAndExitTermios(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("termios capture is unsupported on this platform")
+	}
+	r, err := Start(context.Background(), Config{
+		Command: []string{"/bin/sh", "-c", "stty -echo -icanon -isig ixoff -ixon; exit 0"},
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+
+	initial := r.InitialTermios()
+	if initial.Status != termios.StatusCaptured || initial.State == nil {
+		t.Fatalf("initial termios = %+v, want captured state", initial)
+	}
+	if !initial.State.Canonical || !initial.State.Echo || !initial.State.Signals {
+		t.Fatalf("initial modes = %+v, want canonical/echo/signals enabled", initial.State)
+	}
+
+	waitExited(t, r)
+	exit, ok := r.ExitTermios()
+	if !ok || exit.Status != termios.StatusCaptured || exit.State == nil {
+		t.Fatalf("exit termios = %+v, %t; want captured state", exit, ok)
+	}
+	if exit.State.Canonical || exit.State.Echo || exit.State.Signals {
+		t.Fatalf("exit modes = %+v, want canonical/echo/signals disabled", exit.State)
+	}
+	if !exit.State.InputFlowControl || exit.State.OutputFlowControl {
+		t.Fatalf("exit flow control = %+v, want IXOFF input=true and IXON output=false", exit.State)
 	}
 }
 

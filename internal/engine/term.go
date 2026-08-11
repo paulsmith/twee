@@ -12,6 +12,7 @@ import (
 	"github.com/paulsmith/twee/internal/networkcapture"
 	"github.com/paulsmith/twee/internal/ptyrunner"
 	"github.com/paulsmith/twee/internal/pump"
+	"github.com/paulsmith/twee/internal/termios"
 	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/vt"
 )
@@ -256,6 +257,18 @@ func (t *Term) FinalizedTracePath() string {
 // have checked t.tr != nil.
 func (t *Term) closeTraceLocked() error {
 	path := t.tracePath
+	// ExitedCh is the child-exit publication boundary. A concurrent trace stop
+	// records exit data only when that publication wins the race.
+	select {
+	case <-t.runner.ExitedCh():
+		if snapshot, ok := t.runner.ExitTermios(); ok {
+			t.tr.SetChildPTYTermiosExit(snapshot)
+		}
+		if !t.finalized {
+			t.tr.WriteExit(t.runner.ExitCode())
+		}
+	default:
+	}
 	err := t.tr.Close()
 	t.tr = nil
 	t.tracePath = ""
@@ -298,6 +311,11 @@ func (t *Term) EnableTrace(path string) error {
 	if t.finalized {
 		return errors.New("EnableTrace: artifacts already finalized")
 	}
+	select {
+	case <-t.runner.ExitedCh():
+		return errors.New("EnableTrace: child already exited")
+	default:
+	}
 	if t.tr != nil {
 		if err := t.closeTraceLocked(); err != nil {
 			return err
@@ -315,12 +333,17 @@ func (t *Term) startTrace(path string) error {
 }
 
 func (t *Term) startTraceLocked(path string) error {
+	startTermios := t.runner.Termios()
+	if t.cfg.WholeSessionTrace != nil {
+		startTermios = t.runner.InitialTermios()
+	}
 	tr, err := trace.New(path, trace.Manifest{
-		Command: t.cfg.Cmd,
-		Env:     t.cfg.Env,
-		Cols:    t.cfg.Cols,
-		Rows:    t.cfg.Rows,
-		Pid:     t.runner.Pid(),
+		Command:         t.cfg.Cmd,
+		Env:             t.cfg.Env,
+		Cols:            t.cfg.Cols,
+		Rows:            t.cfg.Rows,
+		Pid:             t.runner.Pid(),
+		ChildPTYTermios: termios.NewRecord(startTermios),
 	})
 	if err != nil {
 		return err
