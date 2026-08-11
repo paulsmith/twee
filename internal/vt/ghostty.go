@@ -17,8 +17,9 @@ import (
 type ghosttyTerm struct {
 	*ghosttyResources
 
-	cleanup runtime.Cleanup
-	replies *ptyReplies
+	cleanup   runtime.Cleanup
+	closeOnce sync.Once
+	replies   *ptyReplies
 }
 
 // ghosttyResources contains the C-side resources owned by ghosttyTerm. It is
@@ -104,9 +105,13 @@ func (g *ghosttyTerm) DrainPTYReplies() [][]byte {
 }
 
 func (g *ghosttyTerm) finalize() {
-	g.cleanup.Stop()
-	g.ghosttyResources.close()
+	g.closeOnce.Do(func() {
+		g.cleanup.Stop()
+		g.ghosttyResources.close()
+	})
 }
+
+func (g *ghosttyTerm) Close() { g.finalize() }
 
 func (r *ghosttyResources) close() {
 	r.mouseEvent.Close()
@@ -125,35 +130,11 @@ func (g *ghosttyTerm) Feed(p []byte) error {
 // Presentation returns only terminal state that changes host-generated input
 // bytes or the cursor shape. Display state remains private to Snapshot.
 func (g *ghosttyTerm) Presentation() (Presentation, error) {
-	p := Presentation{}
-	for _, entry := range []struct {
-		name string
-		mode libghostty.Mode
-		dst  *bool
-	}{
-		{"DECCKM", libghostty.ModeDECCKM, &p.Input.ApplicationCursor},
-		{"keypad keys", libghostty.ModeKeypadKeys, &p.Input.ApplicationKeypad},
-		{"bracketed paste", libghostty.ModeBracketedPaste, &p.Input.BracketedPaste},
-		{"focus events", libghostty.ModeFocusEvent, &p.Input.FocusEvents},
-		{"X10 mouse", libghostty.ModeX10Mouse, &p.Input.MouseX10},
-		{"normal mouse", libghostty.ModeNormalMouse, &p.Input.MouseNormal},
-		{"button mouse", libghostty.ModeButtonMouse, &p.Input.MouseButton},
-		{"any-event mouse", libghostty.ModeAnyMouse, &p.Input.MouseAny},
-		{"UTF-8 mouse", libghostty.ModeUTF8Mouse, &p.Input.MouseUTF8},
-		{"SGR mouse", libghostty.ModeSGRMouse, &p.Input.MouseSGR},
-		{"URxvt mouse", libghostty.ModeURxvtMouse, &p.Input.MouseURxvt},
-		{"SGR-pixels mouse", libghostty.ModeSGRPixelsMouse, &p.Input.MouseSGRPixels},
-	} {
-		value, err := g.t.ModeGet(entry.mode)
-		if err != nil {
-			return Presentation{}, fmt.Errorf("query %s mode: %w", entry.name, err)
-		}
-		*entry.dst = value
+	inputModes, err := g.inputModes()
+	if err != nil {
+		return Presentation{}, err
 	}
-	if flags, err := g.t.KittyKeyboardFlags(); err == nil {
-		p.Input.KittyKeyboardKnown = true
-		p.Input.KittyKeyboardFlags = uint8(flags)
-	}
+	p := Presentation{Input: inputModes}
 	if err := g.rs.Update(g.t); err == nil {
 		style, styleErr := g.rs.CursorVisualStyle()
 		if styleErr == nil {
@@ -161,6 +142,59 @@ func (g *ghosttyTerm) Presentation() (Presentation, error) {
 		}
 	}
 	return p, nil
+}
+
+func (g *ghosttyTerm) inputModes() (InputModes, error) {
+	modes := InputModes{}
+	for _, entry := range []struct {
+		name string
+		mode libghostty.Mode
+		dst  *bool
+	}{
+		{"DECCKM", libghostty.ModeDECCKM, &modes.ApplicationCursor},
+		{"keypad keys", libghostty.ModeKeypadKeys, &modes.ApplicationKeypad},
+		{"bracketed paste", libghostty.ModeBracketedPaste, &modes.BracketedPaste},
+		{"focus events", libghostty.ModeFocusEvent, &modes.FocusEvents},
+		{"X10 mouse", libghostty.ModeX10Mouse, &modes.MouseX10},
+		{"normal mouse", libghostty.ModeNormalMouse, &modes.MouseNormal},
+		{"button mouse", libghostty.ModeButtonMouse, &modes.MouseButton},
+		{"any-event mouse", libghostty.ModeAnyMouse, &modes.MouseAny},
+		{"UTF-8 mouse", libghostty.ModeUTF8Mouse, &modes.MouseUTF8},
+		{"SGR mouse", libghostty.ModeSGRMouse, &modes.MouseSGR},
+		{"URxvt mouse", libghostty.ModeURxvtMouse, &modes.MouseURxvt},
+		{"SGR-pixels mouse", libghostty.ModeSGRPixelsMouse, &modes.MouseSGRPixels},
+	} {
+		value, err := g.t.ModeGet(entry.mode)
+		if err != nil {
+			return InputModes{}, fmt.Errorf("query %s mode: %w", entry.name, err)
+		}
+		*entry.dst = value
+	}
+	if flags, err := g.t.KittyKeyboardFlags(); err == nil {
+		modes.KittyKeyboardKnown = true
+		modes.KittyKeyboardFlags = uint8(flags)
+	}
+	return modes, nil
+}
+
+func (g *ghosttyTerm) ModeState() (ModeState, error) {
+	inputModes, err := g.inputModes()
+	if err != nil {
+		return ModeState{}, err
+	}
+	mouse, err := g.MouseState()
+	if err != nil {
+		return ModeState{}, err
+	}
+	active, err := g.t.ActiveScreen()
+	if err != nil {
+		return ModeState{}, fmt.Errorf("query active screen: %w", err)
+	}
+	return ModeState{
+		Input:     inputModes,
+		Mouse:     mouse,
+		AltScreen: active == libghostty.ScreenAlternate,
+	}, nil
 }
 
 func cursorStyleFromGhostty(style libghostty.CursorVisualStyle) CursorStyle {

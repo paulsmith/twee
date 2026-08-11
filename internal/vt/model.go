@@ -19,6 +19,20 @@ type PTYReplySource interface{ DrainPTYReplies() [][]byte }
 // zero value as modes being disabled.
 type PresentationSource interface{ Presentation() (Presentation, error) }
 
+// ModeState is the complete terminal mode state exposed for live queries and
+// offline semantic replay.
+type ModeState struct {
+	Input     InputModes
+	Mouse     MouseState
+	AltScreen bool
+}
+
+// ModeStateSource reports terminal modes without copying rendered cells.
+type ModeStateSource interface{ ModeState() (ModeState, error) }
+
+// Closer releases model resources deterministically when supported.
+type Closer interface{ Close() }
+
 // New returns the libghostty-vt-backed Model. The underlying type is
 // unexported to keep the backend swappable.
 func New(cols, rows int) Model {

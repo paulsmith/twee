@@ -83,7 +83,7 @@ func TestQueryHandlers(t *testing.T) {
 	if modeData.(rpc.ModeData).AltScreen {
 		t.Fatalf("alt screen = true, want false")
 	}
-	if got := modeData.(rpc.ModeData); got.Mouse ||
+	if got := modeData.(rpc.ModeData); got.Mouse || !got.MouseKnown || got.MouseRaw ||
 		got.MouseTracking != "none" || got.MouseFormat != "x10" {
 		t.Fatalf("default mouse mode = %+v, want disabled none/x10", got)
 	}
@@ -98,6 +98,8 @@ func TestQueryHandlers(t *testing.T) {
 		t.Fatalf("mode JSON omits explicit false mouse state: %s", rawMode)
 	}
 	for _, field := range []string{
+		`"mouse_known":true`,
+		`"mouse_raw":false`,
 		`"mouse_tracking_x10":false`,
 		`"mouse_tracking_any":false`,
 		`"mouse_format_sgr":false`,
@@ -156,8 +158,8 @@ func TestModeHandlerReportsMouseState(t *testing.T) {
 		t.Fatalf("handleMode: %+v", rpcErr)
 	}
 	got := data.(rpc.ModeData)
-	if !got.Mouse || got.MouseTracking != "" || got.MouseFormat != "" {
-		t.Fatalf("mouse mode = %+v, want enabled with unproven effective fields omitted", got)
+	if got.Mouse || got.MouseKnown || !got.MouseRaw || got.MouseTracking != "" || got.MouseFormat != "" {
+		t.Fatalf("mouse mode = %+v, want unknown effective state with raw bits retained", got)
 	}
 	if !got.MouseTrackingAny || !got.MouseFormatSGR {
 		t.Fatalf("raw mouse modes = %+v, want any and SGR", got)
@@ -168,7 +170,7 @@ func TestModeAndCursorHandlersReportPresentationTransitions(t *testing.T) {
 	te, err := engine.Start(context.Background(), engine.Config{
 		Cmd: []string{
 			"/bin/bash", "-c",
-			"stty raw -echo; printf '\033[?1h\033[?2004h\033[>1u\033[6 qREADY'; IFS= read -r -N 1; printf '\033[?1l\033[?2004l\033[<u\033[4 qRESET'; sleep 30",
+			"stty raw -echo; printf '\033[?1h\033=\033[?2004h\033[?1004h\033[>1u\033[6 qREADY'; IFS= read -r -N 1; printf '\033[?1l\033>\033[?2004l\033[?1004l\033[<u\033[4 qRESET'; sleep 30",
 		},
 		Cols: 40, Rows: 5,
 	})
@@ -184,8 +186,8 @@ func TestModeAndCursorHandlersReportPresentationTransitions(t *testing.T) {
 	if rpcErr != nil {
 		t.Fatalf("enabled handleMode: %+v", rpcErr)
 	}
-	if got := mode.(rpc.ModeData); !got.DECCKM || !got.BracketedPaste {
-		t.Fatalf("enabled mode = %+v, want decckm and bracketed_paste", got)
+	if got := mode.(rpc.ModeData); !got.DECCKM || !got.ApplicationKeypad || !got.BracketedPaste || !got.FocusEvents {
+		t.Fatalf("enabled mode = %+v, want decckm, application keypad, bracketed paste, and focus events", got)
 	}
 	if got := mode.(rpc.ModeData); !got.KittyKeyboardKnown || got.KittyKeyboardFlags != 1 {
 		t.Fatalf("enabled Kitty keyboard mode = %+v, want known flags=1", got)
@@ -208,8 +210,8 @@ func TestModeAndCursorHandlersReportPresentationTransitions(t *testing.T) {
 	if rpcErr != nil {
 		t.Fatalf("disabled handleMode: %+v", rpcErr)
 	}
-	if got := mode.(rpc.ModeData); got.DECCKM || got.BracketedPaste {
-		t.Fatalf("disabled mode = %+v, want both false", got)
+	if got := mode.(rpc.ModeData); got.DECCKM || got.ApplicationKeypad || got.BracketedPaste || got.FocusEvents {
+		t.Fatalf("disabled mode = %+v, want all false", got)
 	}
 	if got := mode.(rpc.ModeData); !got.KittyKeyboardKnown || got.KittyKeyboardFlags != 0 {
 		t.Fatalf("reset Kitty keyboard mode = %+v, want known disabled", got)

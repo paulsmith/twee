@@ -49,6 +49,32 @@ func TestInspectDefaultJSON(t *testing.T) {
 				Recorded bool `json:"recorded"`
 				Code     *int `json:"code"`
 			} `json:"exit"`
+			Replay struct {
+				InitialModes struct {
+					KittyKeyboardKnown bool `json:"kitty_keyboard_known"`
+				} `json:"initial_modes"`
+				Final struct {
+					EventIndex  *int   `json:"event_index"`
+					TMS         *int64 `json:"t_ms"`
+					VisibleText string `json:"visible_text"`
+					Size        struct {
+						Cols int `json:"cols"`
+						Rows int `json:"rows"`
+					} `json:"size"`
+					Cursor struct {
+						X       int    `json:"x"`
+						Y       int    `json:"y"`
+						Visible bool   `json:"visible"`
+						Shape   string `json:"shape"`
+					} `json:"cursor"`
+					Lines []struct {
+						Runs []struct {
+							Count int `json:"count"`
+						} `json:"runs"`
+					} `json:"lines"`
+				} `json:"final"`
+				ModeTransitions []json.RawMessage `json:"mode_transitions"`
+			} `json:"replay"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
@@ -72,6 +98,22 @@ func TestInspectDefaultJSON(t *testing.T) {
 	if !got.Data.Exit.Recorded || got.Data.Exit.Code == nil || *got.Data.Exit.Code != 7 {
 		t.Fatalf("exit = %+v", got.Data.Exit)
 	}
+	if !got.Data.Replay.InitialModes.KittyKeyboardKnown {
+		t.Fatalf("initial modes = %+v", got.Data.Replay.InitialModes)
+	}
+	final := got.Data.Replay.Final
+	if final.EventIndex == nil || *final.EventIndex != 3 || final.TMS == nil || *final.TMS != 30 || final.Size.Cols != 100 || final.Size.Rows != 40 || !strings.Contains(final.VisibleText, "hi") {
+		t.Fatalf("replay final = %+v", final)
+	}
+	firstLineWidth := 0
+	if len(final.Lines) > 0 {
+		for _, run := range final.Lines[0].Runs {
+			firstLineWidth += run.Count
+		}
+	}
+	if len(final.Lines) != 40 || firstLineWidth != 100 || got.Data.Replay.ModeTransitions == nil {
+		t.Fatalf("replay lines/transitions = %d/%d %#v", len(final.Lines), firstLineWidth, got.Data.Replay.ModeTransitions)
+	}
 }
 
 func TestInspectTextOutput(t *testing.T) {
@@ -92,6 +134,11 @@ func TestInspectTextOutput(t *testing.T) {
 		"Input: key=1, type=1",
 		"Exit: code 7",
 		"Network capture: none",
+		"Replay final: 100x40 at 30 ms (event 3)",
+		"Cursor: x=2 y=0 visible=true",
+		"Mode transitions: 0",
+		"Final viewport:",
+		"   0 | hi",
 	} {
 		if !strings.Contains(string(out), want) {
 			t.Fatalf("inspect text missing %q:\n%s", want, out)

@@ -317,11 +317,15 @@ type TitleData struct {
 
 type ModeData struct {
 	DECCKM             bool  `json:"decckm"`
+	ApplicationKeypad  bool  `json:"application_keypad"`
 	BracketedPaste     bool  `json:"bracketed_paste"`
+	FocusEvents        bool  `json:"focus_events"`
 	KittyKeyboardKnown bool  `json:"kitty_keyboard_known"`
 	KittyKeyboardFlags uint8 `json:"kitty_keyboard_flags"`
 	AltScreen          bool  `json:"alt_screen"`
 	Mouse              bool  `json:"mouse"`
+	MouseKnown         bool  `json:"mouse_known"`
+	MouseRaw           bool  `json:"mouse_raw"`
 
 	MouseTracking string `json:"mouse_tracking,omitempty"`
 	MouseFormat   string `json:"mouse_format,omitempty"`

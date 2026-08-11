@@ -517,14 +517,23 @@ rendered text—it does not establish that the application or target is trusted.
 
 ### Inspect traces
 
-`twee inspect` validates a bundle and prints summary metadata. It does not need a daemon or an interactive terminal.
+`twee inspect` validates a bundle, replays its output and resize events through the terminal model, and reports metadata plus final semantic state. It does not need a daemon or an interactive terminal.
 
 ```sh
 twee inspect session.twee
 twee inspect --format text session.twee
 ```
 
-Validation covers ZIP integrity, the manifest, the format version, every event, timestamp order, and declared network capture data.
+The JSON `replay` object contains the initial modes, a full styled final
+snapshot, and every observed mode transition. Transitions identify the trace
+timestamp, zero-based event index, and byte offset that completed the control
+sequence, so enable/disable pairs remain visible even when they occur in one
+output event. Text output prints the final viewport and a concise transition
+summary. Mid-session traces describe state observable from the recorded replay;
+modes enabled before tracing began are not reconstructible unless the trace
+contains their enabling sequence.
+
+Validation covers ZIP integrity, the manifest, the format version, every event, timestamp order, replay-safe dimensions, and declared network capture data.
 
 An invalid bundle returns `INVALID_ARGUMENT`. The `error.details.issues` array contains all detected validation problems.
 

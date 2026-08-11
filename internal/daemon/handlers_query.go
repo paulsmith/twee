@@ -174,11 +174,14 @@ func modeData(diagnostic engine.Diagnostic) rpc.ModeData {
 	mouse := diagnostic.Mouse
 	data := rpc.ModeData{
 		DECCKM:             presentation.Input.ApplicationCursor,
+		ApplicationKeypad:  presentation.Input.ApplicationKeypad,
 		BracketedPaste:     presentation.Input.BracketedPaste,
+		FocusEvents:        presentation.Input.FocusEvents,
 		KittyKeyboardKnown: presentation.Input.KittyKeyboardKnown,
 		KittyKeyboardFlags: presentation.Input.KittyKeyboardFlags,
 		AltScreen:          diagnostic.Snapshot.AltScreen,
-		Mouse:              mouse.Enabled,
+		MouseKnown:         mouse.TrackingKnown,
+		MouseRaw:           mouse.Enabled,
 
 		MouseTrackingX10:    mouse.Raw.TrackingX10,
 		MouseTrackingNormal: mouse.Raw.TrackingNormal,
@@ -191,6 +194,7 @@ func modeData(diagnostic engine.Diagnostic) rpc.ModeData {
 		MouseFormatSGRPixels: mouse.Raw.FormatSGRPixels,
 	}
 	if mouse.TrackingKnown {
+		data.Mouse = mouse.Tracking != vt.MouseTrackingNone
 		data.MouseTracking = string(mouse.Tracking)
 	}
 	if mouse.FormatKnown {

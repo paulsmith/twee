@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,10 +17,13 @@ import (
 func init() {
 	register("inspect", runInspect)
 	registerUsage("inspect", `twee inspect [--format json|text] <bundle.twee>
-Validate a .twee trace bundle and print summary metadata. Validation checks
-zip integrity, the manifest and version, every event record, timestamp order,
-and any declared network capture. Invalid bundles report every validation
-problem in error.details.issues.
+Validate a .twee trace bundle, replay output and resize events through the
+terminal model, and print metadata plus final semantic state. Replay includes
+final dimensions, visible text, cursor, alternate screen, styled cells, modes,
+and control-sequence-granular mode transitions. Validation checks zip integrity,
+the manifest and version, every event record, timestamp order, replay-safe
+terminal dimensions, and any declared network capture. Invalid bundles report
+every validation problem in error.details.issues.
 
 Flags:
   --format json|text    output format (default json)`)
@@ -54,7 +58,16 @@ func runInspect(args []string) {
 		emitInvalidBundle("inspect", validation.Issues)
 	}
 
+	replay, err := inspect.Replay(decoded)
+	if err != nil {
+		var limitErr *inspect.LimitError
+		if errors.As(err, &limitErr) {
+			emitInvalidBundle("inspect", []string{limitErr.Error()})
+		}
+		emitError(rpc.CodeInternal, err.Error(), nil, 1)
+	}
 	summary := inspect.Summarize(parsed.Path, decoded)
+	summary.Replay = replay
 	if format == "json" {
 		emitOK(summary)
 		return
@@ -86,13 +99,38 @@ func printInspectText(w io.Writer, s inspect.Summary) {
 	}
 	if !s.Network.Present {
 		fmt.Fprintln(w, "Network capture: none")
-		return
+	} else {
+		fmt.Fprintf(w, "Network capture: %s, %d packets, %d bytes, status %s", s.Network.Format, s.Network.PacketCount, s.Network.SizeBytes, s.Network.Status)
+		if s.Network.Truncated {
+			fmt.Fprint(w, " (truncated)")
+		}
+		fmt.Fprintln(w)
 	}
-	fmt.Fprintf(w, "Network capture: %s, %d packets, %d bytes, status %s", s.Network.Format, s.Network.PacketCount, s.Network.SizeBytes, s.Network.Status)
-	if s.Network.Truncated {
-		fmt.Fprint(w, " (truncated)")
+	printInspectReplayText(w, s.Replay)
+}
+
+func printInspectReplayText(w io.Writer, replay inspect.ReplaySummary) {
+	final := replay.Final
+	if final.EventIndex == nil || final.TMS == nil {
+		fmt.Fprintf(w, "Replay final: %dx%d (initial state)\n", final.Size.Cols, final.Size.Rows)
+	} else {
+		fmt.Fprintf(w, "Replay final: %dx%d at %d ms (event %d)\n", final.Size.Cols, final.Size.Rows, *final.TMS, *final.EventIndex)
 	}
-	fmt.Fprintln(w)
+	fmt.Fprintf(w, "Cursor: x=%d y=%d visible=%t shape=%s\n", final.Cursor.X, final.Cursor.Y, final.Cursor.Visible, final.Cursor.Shape)
+	fmt.Fprintf(w, "Alternate screen: %t\n", final.AltScreen)
+	fmt.Fprintf(w, "Modes: decckm=%t, application_keypad=%t, bracketed_paste=%t, focus_events=%t, kitty_keyboard_known=%t, kitty_keyboard_flags=%d, mouse=%t, mouse_known=%t, mouse_raw=%t\n",
+		final.Modes.DECCKM, final.Modes.ApplicationKeypad, final.Modes.BracketedPaste,
+		final.Modes.FocusEvents, final.Modes.KittyKeyboardKnown, final.Modes.KittyKeyboardFlags,
+		final.Modes.Mouse, final.Modes.MouseKnown, final.Modes.MouseRaw)
+	fmt.Fprintf(w, "Mode transitions: %d\n", len(replay.ModeTransitions))
+	for _, transition := range replay.ModeTransitions {
+		fmt.Fprintf(w, "  %d ms event=%d byte=%d: %s\n", transition.TMS, transition.EventIndex, transition.ByteOffset, strings.Join(transition.Changed, ", "))
+	}
+	fmt.Fprintf(w, "Styled cells: %d\n", final.StyledCells)
+	fmt.Fprintln(w, "Final viewport:")
+	for row, line := range strings.Split(final.VisibleText, "\n") {
+		fmt.Fprintf(w, "%4d | %s\n", row, line)
+	}
 }
 
 func formatCommand(command []string) string {

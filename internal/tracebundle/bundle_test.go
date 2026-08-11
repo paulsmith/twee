@@ -56,6 +56,47 @@ func TestOpenEmptyEventsIsLegal(t *testing.T) {
 	}
 }
 
+func TestOpenRejectsUnsafeReplayDimensionsAndNegativeTimestamps(t *testing.T) {
+	tests := []struct {
+		name     string
+		manifest string
+		events   string
+		want     string
+	}{
+		{"zero initial", `{"version":1,"cols":0,"rows":3}`, "", "terminal size 0x3"},
+		{"oversized initial", `{"version":1,"cols":65536,"rows":1}`, "", "outside 1..65535"},
+		{"cell budget initial", `{"version":1,"cols":2000,"rows":1000}`, "", "exceeds 100000 cells"},
+		{"zero resize", `{"version":1,"cols":10,"rows":3}`, `{"t_ms":0,"type":"resize","cols":10,"rows":0}`, "terminal size 10x0"},
+		{"cell budget resize", `{"version":1,"cols":10,"rows":3}`, `{"t_ms":0,"type":"resize","cols":2000,"rows":1000}`, "exceeds 100000 cells"},
+		{"negative timestamp", `{"version":1,"cols":10,"rows":3}`, `{"t_ms":-1,"type":"output"}`, "timestamp -1 is negative"},
+		{"timestamp overflow", `{"version":1,"cols":10,"rows":3}`, `{"t_ms":9223372036854775807,"type":"output"}`, "exceeds time.Duration range"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := writeTestBundle(t, map[string]string{
+				"manifest.json": test.manifest,
+				"events.jsonl":  test.events,
+			})
+			_, validation, err := OpenValidated(path)
+			if err != nil {
+				t.Fatalf("OpenValidated: %v", err)
+			}
+			if validation.Valid || !containsIssue(validation.Issues, test.want) {
+				t.Fatalf("validation = %+v, want issue containing %q", validation, test.want)
+			}
+		})
+	}
+}
+
+func containsIssue(issues []string, want string) bool {
+	for _, issue := range issues {
+		if strings.Contains(issue, want) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestOpenNegativeCases(t *testing.T) {
 	tests := []struct {
 		name  string

@@ -20,6 +20,9 @@ const (
 	MaxEventLineBytes           = 1 * 1024 * 1024
 	MaxEventCount               = 1_000_000
 	MaxDecodedPayloadBytes      = 32 * 1024 * 1024
+	MaxModeTransitions          = 10_000
+	MaxTerminalCells            = 100_000
+	MaxInspectReplayBytes       = 16 * 1024 * 1024
 	MaxNetworkCaptureBytes      = 64 * 1024 * 1024
 	MaxArchiveUncompressedBytes = MaxManifestBytes + MaxEventsBytes + MaxNetworkCaptureBytes
 )

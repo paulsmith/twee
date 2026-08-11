@@ -29,10 +29,13 @@ Terminal dimensions: {cols, rows}.`)
 	registerUsage("title", `twee title [--name <name>]
 Window title (OSC 0/2): {title}.`)
 	registerUsage("mode", `twee mode [--name <name>]
-Active VT modes: {decckm, bracketed_paste, kitty_keyboard_known,
-kitty_keyboard_flags, alt_screen, mouse, ...}. bracketed_paste is the
-same modeled DEC mode 2004 state that gates an unforced "twee paste".
-A nonzero Kitty flag value means named key input is currently unsupported.`)
+Active VT modes: {decckm, application_keypad, bracketed_paste, focus_events,
+kitty_keyboard_known, kitty_keyboard_flags, alt_screen, mouse, mouse_known,
+mouse_raw, ...}. mouse is authoritative only when mouse_known is true;
+mouse_raw and the individual mouse fields retain backend mode bits.
+bracketed_paste is the same modeled DEC mode 2004 state that gates an
+unforced "twee paste". A nonzero Kitty flag value means named key input is
+currently unsupported.`)
 	registerUsage("scrollback", `twee scrollback [--name <name>]
 Scrollback lines. Retention is not yet implemented; this currently
 always returns an empty list.`)

@@ -22,6 +22,7 @@ type Summary struct {
 	Events      EventSummary   `json:"events"`
 	Exit        ExitSummary    `json:"exit"`
 	Network     NetworkSummary `json:"network_capture"`
+	Replay      ReplaySummary  `json:"replay"`
 }
 
 // Terminal summarizes initial and maximum terminal dimensions.

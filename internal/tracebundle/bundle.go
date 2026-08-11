@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -111,6 +112,9 @@ func openValidated(path string, openFile func(string) (*os.File, error)) (Bundle
 			issues = append(issues, fmt.Sprintf("unsupported bundle version %d", man.Version))
 		} else {
 			manifestValid = true
+			if sizeIssue := terminalSizeIssue(man.Cols, man.Rows); sizeIssue != "" {
+				issues = append(issues, "manifest.json: "+sizeIssue)
+			}
 		}
 	}
 
@@ -230,6 +234,11 @@ func inspectEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int) ([]E
 		if !header.Type.IsKnown() {
 			issues = append(issues, fmt.Sprintf("events.jsonl line %d: unknown event type %q", lineNo, header.Type))
 		}
+		if header.TMS < 0 {
+			issues = append(issues, fmt.Sprintf("events.jsonl line %d: timestamp %d is negative", lineNo, header.TMS))
+		} else if header.TMS > math.MaxInt64/int64(time.Millisecond) {
+			issues = append(issues, fmt.Sprintf("events.jsonl line %d: timestamp %d exceeds time.Duration range", lineNo, header.TMS))
+		}
 		if haveLast && header.TMS < lastTMS {
 			issues = append(issues, fmt.Sprintf("events.jsonl line %d: timestamp %d before previous %d", lineNo, header.TMS, lastTMS))
 		}
@@ -240,6 +249,11 @@ func inspectEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int) ([]E
 		if err := json.Unmarshal(line, &raw); err != nil {
 			issues = append(issues, fmt.Sprintf("events.jsonl line %d: %v", lineNo, err))
 			continue
+		}
+		if header.Type == trace.EventTypeResize {
+			if sizeIssue := terminalSizeIssue(raw.Cols, raw.Rows); sizeIssue != "" {
+				issues = append(issues, fmt.Sprintf("events.jsonl line %d: %s", lineNo, sizeIssue))
+			}
 		}
 		var decoded []byte
 		if raw.Bytes != "" {
@@ -268,4 +282,14 @@ func inspectEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int) ([]E
 		issues = append(issues, "events.jsonl: "+err.Error())
 	}
 	return events, count, issues
+}
+
+func terminalSizeIssue(cols, rows int) string {
+	if cols < 1 || cols > 65535 || rows < 1 || rows > 65535 {
+		return fmt.Sprintf("terminal size %dx%d is outside 1..65535", cols, rows)
+	}
+	if cols > tracepolicy.MaxTerminalCells/rows {
+		return fmt.Sprintf("terminal size %dx%d exceeds %d cells", cols, rows, tracepolicy.MaxTerminalCells)
+	}
+	return ""
 }
