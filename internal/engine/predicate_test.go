@@ -62,6 +62,24 @@ func TestRegionMatchesClipsWithoutOverflowAndRejectsEmptyIntersection(t *testing
 	}
 }
 
+func TestRegionEvaluationSummary(t *testing.T) {
+	snapshot := Snapshot{Cols: 3, Rows: 1, Lines: []Line{{Cells: []Cell{{Text: "a"}, {Text: "b"}, {Text: "a"}}}}}
+	evaluation := EvaluateRegion(snapshot, &Rect{X: 1, Y: 0, W: 9, H: 1}, RegionMatchAll, CellPredicate{Text: ptr("a")})
+	if evaluation.Matches {
+		t.Fatal("mixed region unexpectedly matched all")
+	}
+	summary := evaluation.Summary
+	if summary.TotalCells != 2 || summary.MatchingCells != 1 {
+		t.Fatalf("summary counts = %d/%d", summary.MatchingCells, summary.TotalCells)
+	}
+	if summary.Clipped == nil || *summary.Clipped != (Rect{X: 1, Y: 0, W: 2, H: 1}) {
+		t.Fatalf("clipped = %+v", summary.Clipped)
+	}
+	if summary.FirstMismatch == nil || summary.FirstMismatch.X != 1 || summary.FirstMismatch.Cell.Text != "b" {
+		t.Fatalf("first mismatch = %+v", summary.FirstMismatch)
+	}
+}
+
 func TestRegionMatchesAnyAndAll(t *testing.T) {
 	snapshot := Snapshot{Cols: 2, Rows: 1, Lines: []Line{{Cells: []Cell{{Bold: true}, {Bold: false}}}}}
 	predicate := CellPredicate{Bold: ptr(true)}

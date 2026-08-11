@@ -423,6 +423,12 @@ Colors use `default`, `palette:N`, `#RRGGBB`, or `rgb:R,G,B`. Region assertions
 default to the whole viewport and `--match any`; use `--match all` to require
 every clipped cell to match. Assertion mismatches return `ASSERTION_FAILED`.
 
+Failed waits and assertions include structured diagnostic details captured from
+the evaluated terminal state: viewport text and dimensions, cursor, input and
+mouse modes, recent bounded input/output/resize activity, and an active or
+finalized trace path when available. Region assertion failures also report the
+clipped region, matching/total cell counts, and the first mismatching cell.
+
 `wait text`, `wait no-text`, `wait cell`, and `wait cursor` return `SESSION_ENDED` when the session ends first. This result differs from `TIMEOUT`.
 
 `wait stable` returns success when the session ends because the screen cannot change again. An active spinner can prevent stability.

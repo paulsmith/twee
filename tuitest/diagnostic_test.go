@@ -35,7 +35,7 @@ func TestDiagnosticIncludesInputsAndExitStatus(t *testing.T) {
 exited:
 	d := term.Diagnostic()
 	for _, want := range []string{
-		`Type "world"`,
+		"type payload redacted",
 		"Key Enter",
 		"exit status: 0",
 		"hello",
@@ -43,6 +43,29 @@ exited:
 	} {
 		if !strings.Contains(d, want) {
 			t.Errorf("diagnostic missing %q. full text:\n%s", want, d)
+		}
+	}
+}
+
+func TestDiagnosticIncludesModes(t *testing.T) {
+	term := Run(t, "/bin/sh", Args("-c", "printf '\\033[?1h\\033[?2004h\\033[>1u\\033[?1003h\\033[?1006hREADY'; sleep 30"), Size(40, 5))
+	if err := term.WaitForText("READY"); err != nil {
+		t.Fatal(err)
+	}
+	diagnostic := term.Diagnostic()
+	for _, want := range []string{
+		"application cursor: true",
+		"bracketed paste: true",
+		"kitty keyboard known: true",
+		"kitty keyboard flags: 1",
+		"mouse enabled: true",
+		"mouse tracking: unknown",
+		"mouse format: unknown",
+		"mouse raw tracking: x10=false normal=false button=false any=true",
+		"mouse raw format: utf8=false sgr=true",
+	} {
+		if !strings.Contains(diagnostic, want) {
+			t.Errorf("diagnostic missing %q. full text:\n%s", want, diagnostic)
 		}
 	}
 }

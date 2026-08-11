@@ -50,7 +50,7 @@ func (t *Term) waitOpts(opts []WaitOption) WaitOpts {
 // WaitForText waits until s appears as a substring of any visible line.
 func (t *Term) WaitForText(s string, opts ...WaitOption) error {
 	o := t.waitOpts(opts)
-	err := t.pump.Wait(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
+	capture, err := t.pump.WaitCapture(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
 		for _, line := range vt.VisibleLines(snap) {
 			if strings.Contains(line, s) {
 				return true
@@ -59,7 +59,7 @@ func (t *Term) WaitForText(s string, opts ...WaitOption) error {
 		return false
 	})
 	if err != nil {
-		return fmt.Errorf("WaitForText(%q): %w\n%s", s, err, t.Diagnostic())
+		return t.waitError(fmt.Sprintf("WaitForText(%q)", s), err, capture)
 	}
 	return nil
 }
@@ -67,7 +67,7 @@ func (t *Term) WaitForText(s string, opts ...WaitOption) error {
 // WaitForNoText waits until s no longer appears in any visible line.
 func (t *Term) WaitForNoText(s string, opts ...WaitOption) error {
 	o := t.waitOpts(opts)
-	err := t.pump.Wait(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
+	capture, err := t.pump.WaitCapture(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
 		for _, line := range vt.VisibleLines(snap) {
 			if strings.Contains(line, s) {
 				return false
@@ -76,7 +76,7 @@ func (t *Term) WaitForNoText(s string, opts ...WaitOption) error {
 		return true
 	})
 	if err != nil {
-		return fmt.Errorf("WaitForNoText(%q): %w\n%s", s, err, t.Diagnostic())
+		return t.waitError(fmt.Sprintf("WaitForNoText(%q)", s), err, capture)
 	}
 	return nil
 }
@@ -84,11 +84,11 @@ func (t *Term) WaitForNoText(s string, opts ...WaitOption) error {
 // WaitForTextRegex waits until re matches the visible viewport joined by \n.
 func (t *Term) WaitForTextRegex(re *regexp.Regexp, opts ...WaitOption) error {
 	o := t.waitOpts(opts)
-	err := t.pump.Wait(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
+	capture, err := t.pump.WaitCapture(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
 		return re.MatchString(vt.VisibleText(snap))
 	})
 	if err != nil {
-		return fmt.Errorf("WaitForTextRegex(%q): %w\n%s", re, err, t.Diagnostic())
+		return t.waitError(fmt.Sprintf("WaitForTextRegex(%q)", re), err, capture)
 	}
 	return nil
 }
@@ -100,9 +100,9 @@ func (t *Term) WaitForTextRegex(re *regexp.Regexp, opts ...WaitOption) error {
 // IsSessionEnded's doc comment for why.
 func (t *Term) WaitForStableScreen(quietFor time.Duration, opts ...WaitOption) error {
 	o := t.waitOpts(opts)
-	err := t.pump.WaitStable(o.Ctx, quietFor, o.Timeout)
+	capture, err := t.pump.WaitStableCapture(o.Ctx, quietFor, o.Timeout)
 	if err != nil {
-		return fmt.Errorf("WaitForStableScreen: %w\n%s", err, t.Diagnostic())
+		return t.waitError("WaitForStableScreen", err, capture)
 	}
 	return nil
 }
@@ -118,9 +118,9 @@ func (t *Term) WaitForStableScreenExcept(quietFor time.Duration, excluded []Rect
 	for i, rect := range excluded {
 		rects[i] = pump.Rect{X: rect.X, Y: rect.Y, W: rect.W, H: rect.H}
 	}
-	err := t.pump.WaitStableExcept(o.Ctx, quietFor, o.Timeout, rects)
+	capture, err := t.pump.WaitStableExceptCapture(o.Ctx, quietFor, o.Timeout, rects)
 	if err != nil {
-		return fmt.Errorf("WaitForStableScreenExcept: %w\n%s", err, t.Diagnostic())
+		return t.waitError("WaitForStableScreenExcept", err, capture)
 	}
 	return nil
 }
@@ -149,11 +149,11 @@ func IsSessionEnded(err error) bool {
 // WaitUntil waits until fn(snapshot) returns true.
 func (t *Term) WaitUntil(fn func(Snapshot) bool, opts ...WaitOption) error {
 	o := t.waitOpts(opts)
-	err := t.pump.Wait(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
+	capture, err := t.pump.WaitCapture(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
 		return fn(FromVT(snap))
 	})
 	if err != nil {
-		return fmt.Errorf("WaitUntil: %w\n%s", err, t.Diagnostic())
+		return t.waitError("WaitUntil", err, capture)
 	}
 	return nil
 }
@@ -173,26 +173,25 @@ func (t *Term) WaitForCellAtSnapshot(x, y int, predicate CellPredicate, opts ...
 		return Snapshot{}, invalidRequest("cell predicate must not be empty", nil, nil)
 	}
 	o := t.waitOpts(opts)
-	var last Snapshot
-	err := t.pump.Wait(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
-		last = FromVT(snap)
-		cell, ok := CellAt(last, x, y)
+	capture, err := t.pump.WaitCapture(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
+		cell, ok := CellAt(FromVT(snap), x, y)
 		return ok && predicate.Matches(cell)
 	})
+	snapshot := FromVT(capture.Snapshot)
 	if err != nil {
-		return last, fmt.Errorf("WaitForCellAt(%d,%d): %w\n%s", x, y, err, t.diagnostic(last))
+		return snapshot, t.waitError(fmt.Sprintf("WaitForCellAt(%d,%d)", x, y), err, capture)
 	}
-	return last, nil
+	return snapshot, nil
 }
 
 // WaitForCursorAt waits until the cursor is at (col, row).
 func (t *Term) WaitForCursorAt(col, row int, opts ...WaitOption) error {
 	o := t.waitOpts(opts)
-	err := t.pump.Wait(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
+	capture, err := t.pump.WaitCapture(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
 		return snap.Cursor.Col == col && snap.Cursor.Row == row
 	})
 	if err != nil {
-		return fmt.Errorf("WaitForCursorAt(%d,%d): %w\n%s", col, row, err, t.Diagnostic())
+		return t.waitError(fmt.Sprintf("WaitForCursorAt(%d,%d)", col, row), err, capture)
 	}
 	return nil
 }
@@ -206,8 +205,18 @@ func (t *Term) WaitForExit(opts ...WaitOption) (int, error) {
 	case <-t.runner.ExitedCh():
 		return t.runner.ExitCode(), nil
 	case <-timer.C:
-		return 0, fmt.Errorf("WaitForExit: timeout after %s", o.Timeout)
+		select {
+		case <-t.runner.ExitedCh():
+			return t.runner.ExitCode(), nil
+		default:
+		}
+		cause := fmt.Errorf("WaitForExit: timeout after %s", o.Timeout)
+		diagnostic := t.CaptureDiagnostic()
+		diagnostic.ExitCode = nil
+		return 0, &WaitError{Cause: cause, Diagnostic: diagnostic}
 	case <-o.Ctx.Done():
-		return 0, o.Ctx.Err()
+		diagnostic := t.CaptureDiagnostic()
+		diagnostic.ExitCode = nil
+		return 0, &WaitError{Cause: o.Ctx.Err(), Diagnostic: diagnostic}
 	}
 }

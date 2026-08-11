@@ -62,7 +62,7 @@ func (t *Term) FindClick(pattern string, regex bool, selection string, button in
 		return FindClickResult{}, inputIO(err)
 	}
 
-	t.recordInput(fmt.Sprintf("FindClick %q %s @(%d,%d)", pattern, result.Selection, result.Target.X, result.Target.Y))
+	t.recordInput("click", fmt.Sprintf("FindClick %q %s @(%d,%d)", pattern, result.Selection, result.Target.X, result.Target.Y))
 	t.cfgMu.Lock()
 	tr := t.tr
 	t.cfgMu.Unlock()
@@ -147,7 +147,7 @@ func (t *Term) mouseInput(gesture input.MouseGesture) error {
 		return inputIO(err)
 	}
 
-	t.recordInput(mouseGestureDescription(gesture))
+	t.recordInput("mouse", mouseGestureDescription(gesture))
 	t.cfgMu.Lock()
 	tr := t.tr
 	t.cfgMu.Unlock()

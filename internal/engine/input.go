@@ -17,7 +17,7 @@ func (t *Term) Type(s string) error {
 	if err := writeAll(t.inputWriter, []byte(s)); err != nil {
 		return err
 	}
-	t.recordInput(fmt.Sprintf("Type %q", s))
+	t.recordInput("type", fmt.Sprintf("Type %q", s))
 	t.cfgMu.Lock()
 	tr := t.tr
 	t.cfgMu.Unlock()
@@ -44,7 +44,7 @@ func (t *Term) Key(k input.Key) error {
 	if err := writeAll(t.inputWriter, b); err != nil {
 		return inputIO(err)
 	}
-	t.recordInput("Key " + input.Name(k))
+	t.recordInput("key", "Key "+input.Name(k))
 	t.cfgMu.Lock()
 	tr := t.tr
 	t.cfgMu.Unlock()
@@ -90,7 +90,7 @@ func (t *Term) paste(text string, force bool) error {
 	if err := writeAll(t.inputWriter, b); err != nil {
 		return inputIO(err)
 	}
-	t.recordInput(fmt.Sprintf("Paste %q", text))
+	t.recordInput("paste", fmt.Sprintf("Paste %q", text))
 	t.cfgMu.Lock()
 	tr := t.tr
 	t.cfgMu.Unlock()
@@ -112,7 +112,7 @@ func (t *Term) Resize(cols, rows int) error {
 	if err := t.pump.Resize(cols, rows); err != nil {
 		return err
 	}
-	t.recordInput(fmt.Sprintf("Resize %dx%d", cols, rows))
+	t.recordInput("resize", fmt.Sprintf("Resize %dx%d", cols, rows))
 	t.cfgMu.Lock()
 	tr := t.tr
 	t.cfgMu.Unlock()
@@ -144,6 +144,6 @@ func writeAll(w io.Writer, b []byte) error {
 
 // Signal forwards a signal to the child process.
 func (t *Term) Signal(sig os.Signal) error {
-	t.recordInput(fmt.Sprintf("Signal %v", sig))
+	t.recordInput("signal", fmt.Sprintf("Signal %v", sig))
 	return t.runner.Signal(sig)
 }

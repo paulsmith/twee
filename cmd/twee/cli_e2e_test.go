@@ -171,7 +171,8 @@ func TestCellPredicateCommandsViaCLI(t *testing.T) {
 	var response struct {
 		OK    bool `json:"ok"`
 		Error struct {
-			Code string `json:"code"`
+			Code    string         `json:"code"`
+			Details map[string]any `json:"details"`
 		} `json:"error"`
 	}
 	if jsonErr := json.Unmarshal(out, &response); jsonErr != nil {
@@ -179,6 +180,11 @@ func TestCellPredicateCommandsViaCLI(t *testing.T) {
 	}
 	if response.OK || response.Error.Code != "ASSERTION_FAILED" {
 		t.Fatalf("assertion response = %+v, want ASSERTION_FAILED", response)
+	}
+	for _, key := range []string{"predicate", "actual", "viewport", "cursor", "modes", "recent_events", "last_screen"} {
+		if _, ok := response.Error.Details[key]; !ok {
+			t.Fatalf("assertion details = %v, missing %q", response.Error.Details, key)
+		}
 	}
 }
 

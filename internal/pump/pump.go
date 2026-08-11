@@ -57,6 +57,19 @@ type Rect struct {
 	W, H int
 }
 
+// Capture is one coherent observation of pump-owned terminal state.
+type Capture struct {
+	CapturedAt      time.Time
+	Generation      uint64
+	Snapshot        vt.Snapshot
+	Presentation    vt.Presentation
+	PresentationErr error
+	Mouse           vt.MouseState
+	MouseErr        error
+	RecentOutput    []byte
+	Closed          bool
+}
+
 // New constructs a Pump. The caller must call Run in a goroutine.
 func New(model vt.Model, r io.Reader) *Pump {
 	p := &Pump{
@@ -163,6 +176,30 @@ func (p *Pump) Snapshot() vt.Snapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.model.Snapshot()
+}
+
+// Capture returns one coherent copy of the current terminal state.
+func (p *Pump) Capture() Capture {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.captureLocked()
+}
+
+func (p *Pump) captureLocked() Capture {
+	capture := Capture{
+		CapturedAt:   time.Now(),
+		Generation:   p.gen,
+		Snapshot:     p.model.Snapshot(),
+		RecentOutput: append([]byte(nil), p.recent...),
+		Closed:       p.closed,
+	}
+	capture.Presentation, capture.PresentationErr = presentationOf(p.model)
+	if model, ok := p.model.(vt.MouseModel); ok {
+		capture.Mouse, capture.MouseErr = model.MouseState()
+	} else {
+		capture.MouseErr = &vt.MouseEncodeError{Reason: vt.MouseErrorUnsupportedBackend}
+	}
+	return capture
 }
 
 // Presentation returns the current host-relevant terminal state under the
@@ -273,14 +310,20 @@ func (p *Pump) MouseState() (vt.MouseState, error) {
 // or the pump closes. pred is evaluated under mu after every model
 // change.
 func (p *Pump) Wait(ctx context.Context, timeout time.Duration, pred func(vt.Snapshot) bool) error {
+	_, err := p.WaitCapture(ctx, timeout, pred)
+	return err
+}
+
+// WaitCapture is Wait with the final evaluated terminal capture.
+func (p *Pump) WaitCapture(ctx context.Context, timeout time.Duration, pred func(vt.Snapshot) bool) (Capture, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if pred(p.model.Snapshot()) {
-		return nil
+		return p.captureLocked(), nil
 	}
 	if p.closed {
-		return ErrClosed
+		return p.captureLocked(), ErrClosed
 	}
 
 	deadline := time.Now().Add(timeout)
@@ -307,19 +350,19 @@ func (p *Pump) Wait(ctx context.Context, timeout time.Duration, pred func(vt.Sna
 	for {
 		p.cond.Wait()
 		if pred(p.model.Snapshot()) {
-			return nil
+			return p.captureLocked(), nil
 		}
 		if p.closed {
 			if pred(p.model.Snapshot()) {
-				return nil
+				return p.captureLocked(), nil
 			}
-			return ErrClosed
+			return p.captureLocked(), ErrClosed
 		}
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return p.captureLocked(), ctx.Err()
 		}
 		if time.Now().After(deadline) {
-			return ErrTimeout
+			return p.captureLocked(), ErrTimeout
 		}
 	}
 }
@@ -330,6 +373,12 @@ func (p *Pump) Wait(ctx context.Context, timeout time.Duration, pred func(vt.Sna
 // made immediately after Run would return on an empty screen if the
 // app's first paint is later than quietFor.
 func (p *Pump) WaitStable(ctx context.Context, quietFor, timeout time.Duration) error {
+	_, err := p.WaitStableCapture(ctx, quietFor, timeout)
+	return err
+}
+
+// WaitStableCapture is WaitStable with the terminal capture at completion.
+func (p *Pump) WaitStableCapture(ctx context.Context, quietFor, timeout time.Duration) (Capture, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -363,7 +412,7 @@ func (p *Pump) WaitStable(ctx context.Context, quietFor, timeout time.Duration) 
 		now := time.Now()
 		stable := p.gotAnyFeed && now.Sub(p.lastFeed) >= quietFor
 		if stable || p.closed {
-			return nil
+			return p.captureLocked(), nil
 		}
 		// Compute the next interesting wakeup: either when the quiet
 		// window completes (relative to the last feed if any, else
@@ -378,19 +427,19 @@ func (p *Pump) WaitStable(ctx context.Context, quietFor, timeout time.Duration) 
 			wakeIn = rem
 		}
 		if wakeIn <= 0 {
-			return ErrTimeout
+			return p.captureLocked(), ErrTimeout
 		}
 		timer.Reset(wakeIn)
 		p.cond.Wait()
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return p.captureLocked(), ctx.Err()
 		}
 		if time.Now().After(deadline) {
 			// Final re-check before declaring timeout.
 			if p.gotAnyFeed && time.Since(p.lastFeed) >= quietFor {
-				return nil
+				return p.captureLocked(), nil
 			}
-			return ErrTimeout
+			return p.captureLocked(), ErrTimeout
 		}
 	}
 }
@@ -400,6 +449,12 @@ func (p *Pump) WaitStable(ctx context.Context, quietFor, timeout time.Duration) 
 // than using lastFeed: output that changes only an excluded region must not
 // delay success. A closed pump remains trivially stable, matching WaitStable.
 func (p *Pump) WaitStableExcept(ctx context.Context, quietFor, timeout time.Duration, excluded []Rect) error {
+	_, err := p.WaitStableExceptCapture(ctx, quietFor, timeout, excluded)
+	return err
+}
+
+// WaitStableExceptCapture is WaitStableExcept with the terminal capture at completion.
+func (p *Pump) WaitStableExceptCapture(ctx context.Context, quietFor, timeout time.Duration, excluded []Rect) (Capture, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -448,7 +503,7 @@ func (p *Pump) WaitStableExcept(ctx context.Context, quietFor, timeout time.Dura
 		}
 
 		if (haveSnapshot && now.Sub(lastChange) >= quietFor) || p.closed {
-			return nil
+			return p.captureLocked(), nil
 		}
 
 		var wakeIn time.Duration
@@ -461,12 +516,12 @@ func (p *Pump) WaitStableExcept(ctx context.Context, quietFor, timeout time.Dura
 			wakeIn = remaining
 		}
 		if wakeIn <= 0 {
-			return ErrTimeout
+			return p.captureLocked(), ErrTimeout
 		}
 		timer.Reset(wakeIn)
 		p.cond.Wait()
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return p.captureLocked(), ctx.Err()
 		}
 		if time.Now().After(deadline) {
 			// A feed and the deadline can race. Compare one last snapshot so
@@ -474,13 +529,13 @@ func (p *Pump) WaitStableExcept(ctx context.Context, quietFor, timeout time.Dura
 			// for an already-stable screen.
 			if haveSnapshot {
 				if !sameOutside(previous, p.model.Snapshot(), excluded) {
-					return ErrTimeout
+					return p.captureLocked(), ErrTimeout
 				}
 				if time.Since(lastChange) >= quietFor {
-					return nil
+					return p.captureLocked(), nil
 				}
 			}
-			return ErrTimeout
+			return p.captureLocked(), ErrTimeout
 		}
 	}
 }

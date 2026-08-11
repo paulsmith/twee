@@ -64,30 +64,66 @@ const (
 	RegionMatchAll RegionMatch = "all"
 )
 
-// RegionMatches evaluates predicate over the viewport intersection of rect.
-// A nil rect means the whole viewport. Empty intersections never match.
-func RegionMatches(s Snapshot, rect *Rect, mode RegionMatch, predicate CellPredicate) bool {
+// CellObservation identifies one physical cell in a retained snapshot.
+type CellObservation struct {
+	X, Y int
+	Cell Cell
+}
+
+// RegionSummary describes how a predicate evaluated over a clipped region.
+type RegionSummary struct {
+	Requested     *Rect
+	Clipped       *Rect
+	TotalCells    int
+	MatchingCells int
+	FirstMismatch *CellObservation
+}
+
+// RegionEvaluation is a region predicate result and its diagnostic summary.
+type RegionEvaluation struct {
+	Matches bool
+	Summary RegionSummary
+}
+
+// EvaluateRegion evaluates predicate and returns bounded diagnostic context.
+func EvaluateRegion(s Snapshot, rect *Rect, mode RegionMatch, predicate CellPredicate) RegionEvaluation {
+	summary := RegionSummary{}
+	if rect != nil {
+		requested := *rect
+		summary.Requested = &requested
+	}
 	x0, y0, x1, y1, ok := clippedRegion(s, rect)
 	if !ok {
-		return false
+		return RegionEvaluation{Summary: summary}
 	}
-	matched := 0
-	total := 0
+	summary.Clipped = &Rect{X: x0, Y: y0, W: x1 - x0, H: y1 - y0}
 	for y := y0; y < y1; y++ {
 		rowEnd := min(x1, len(s.Lines[y].Cells))
 		for x := x0; x < rowEnd; x++ {
-			total++
-			if predicate.Matches(s.Lines[y].Cells[x]) {
-				matched++
-				if mode == RegionMatchAny {
-					return true
-				}
-			} else if mode == RegionMatchAll {
-				return false
+			cell := s.Lines[y].Cells[x]
+			summary.TotalCells++
+			if predicate.Matches(cell) {
+				summary.MatchingCells++
+			} else if summary.FirstMismatch == nil {
+				summary.FirstMismatch = &CellObservation{X: x, Y: y, Cell: cell}
 			}
 		}
 	}
-	return total > 0 && mode == RegionMatchAll && matched == total
+	matches := summary.TotalCells > 0
+	if mode == RegionMatchAny {
+		matches = summary.MatchingCells > 0
+	} else if mode == RegionMatchAll {
+		matches = matches && summary.MatchingCells == summary.TotalCells
+	} else {
+		matches = false
+	}
+	return RegionEvaluation{Matches: matches, Summary: summary}
+}
+
+// RegionMatches evaluates predicate over the viewport intersection of rect.
+// A nil rect means the whole viewport. Empty intersections never match.
+func RegionMatches(s Snapshot, rect *Rect, mode RegionMatch, predicate CellPredicate) bool {
+	return EvaluateRegion(s, rect, mode, predicate).Matches
 }
 
 func clippedRegion(s Snapshot, rect *Rect) (x0, y0, x1, y1 int, ok bool) {

@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/paulsmith/twee/internal/vt"
@@ -98,52 +97,5 @@ func (t *Term) RecentInputs() []InputEvent {
 
 // Diagnostic returns a multi-line failure block describing current state.
 func (t *Term) Diagnostic() string {
-	return t.diagnostic(FromVT(t.pump.Snapshot()))
+	return t.CaptureDiagnostic().String()
 }
-
-func (t *Term) diagnostic(snap Snapshot) string {
-	lines := visibleSnapshotLines(snap)
-	var sb diagBuf
-	sb.printf("command: %v\n", t.cfg.Cmd)
-	sb.printf("size: %dx%d\n", snap.Cols, snap.Rows)
-	sb.printf("cursor: (%d,%d)\n", snap.Cursor.Col, snap.Cursor.Row)
-	sb.printf("alt screen: %v\n", snap.AltScreen)
-	select {
-	case <-t.runner.ExitedCh():
-		sb.printf("exit status: %d\n", t.runner.ExitCode())
-	default:
-		sb.printf("exit status: (still running)\n")
-	}
-	sb.printf("--- visible screen ---\n")
-	for _, ln := range lines {
-		sb.printf("%s\n", ln)
-	}
-	sb.printf("--- recent input events (last 16) ---\n")
-	evs := t.RecentInputs()
-	if n := len(evs); n > 16 {
-		evs = evs[n-16:]
-	}
-	if len(evs) == 0 {
-		sb.printf("(none)\n")
-	}
-	for _, ev := range evs {
-		sb.printf("  %s\n", ev.Desc)
-	}
-	sb.printf("--- recent bytes (escaped, last 1KB) ---\n")
-	r := t.pump.RecentBytes()
-	if len(r) > 1024 {
-		r = r[len(r)-1024:]
-	}
-	sb.printf("%q\n", string(r))
-	if tracePath := t.TracePath(); tracePath != "" {
-		sb.printf("trace: %s\n", tracePath)
-	}
-	return sb.String()
-}
-
-type diagBuf struct{ b []byte }
-
-func (s *diagBuf) printf(format string, a ...any) {
-	s.b = append(s.b, fmt.Sprintf(format, a...)...)
-}
-func (s *diagBuf) String() string { return string(s.b) }

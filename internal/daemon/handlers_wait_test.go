@@ -292,11 +292,9 @@ func TestWaitStableStaysSuccessOnPumpClose(t *testing.T) {
 	}
 }
 
-// TestWaitExitTimeoutUnchanged pins down that wait exit's timeout
-// message/cause are untouched by the dedup fix: WaitForExit's error
-// isn't wrapped with a diagnostic dump to begin with, so cause still
-// equals the (short) message, same as before.
-func TestWaitExitTimeoutUnchanged(t *testing.T) {
+// TestWaitExitTimeoutIncludesDiagnostic verifies that wait exit now carries the
+// same bounded failure context as the other waits while retaining a short cause.
+func TestWaitExitTimeoutIncludesDiagnostic(t *testing.T) {
 	te, err := engine.Start(context.Background(), engine.Config{
 		Cmd:  []string{"/bin/sh", "-c", "sleep 30"},
 		Cols: 10, Rows: 3,
@@ -311,13 +309,22 @@ func TestWaitExitTimeoutUnchanged(t *testing.T) {
 		t.Fatal("handleWaitExit unexpectedly succeeded")
 	}
 	var details struct {
-		Cause string `json:"cause"`
+		Cause      string         `json:"cause"`
+		LastScreen string         `json:"last_screen"`
+		Cursor     rpc.CursorData `json:"cursor"`
+		Modes      rpc.ModeData   `json:"modes"`
 	}
 	if err := json.Unmarshal(errResp.Details, &details); err != nil {
 		t.Fatalf("decode details: %v", err)
 	}
-	if details.Cause != errResp.Message {
-		t.Fatalf("wait exit cause = %q, message = %q; want equal (unchanged semantics)", details.Cause, errResp.Message)
+	if details.Cause != "WaitForExit: timeout after 50ms" {
+		t.Fatalf("wait exit cause = %q", details.Cause)
+	}
+	if !strings.Contains(errResp.Message, "--- visible screen ---") {
+		t.Fatalf("message missing diagnostic: %q", errResp.Message)
+	}
+	if details.Cursor.X != 0 || details.Cursor.Y != 0 || details.Modes.AltScreen {
+		t.Fatalf("diagnostic cursor/modes = %+v / %+v", details.Cursor, details.Modes)
 	}
 }
 

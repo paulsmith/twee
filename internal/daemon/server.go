@@ -83,5 +83,14 @@ func (s *Server) handleConn(c net.Conn) {
 	}
 	_ = c.SetReadDeadline(time.Time{})
 	resp := s.d.Dispatch(req)
-	_ = rpc.WriteMessage(c, resp)
+	if err := rpc.WriteMessage(c, resp); errors.Is(err, rpc.ErrTooLarge) {
+		_ = rpc.WriteMessage(c, rpc.Response{
+			ID: req.ID,
+			OK: false,
+			Error: &rpc.Error{
+				Code:    rpc.CodeInternal,
+				Message: "response exceeded RPC size limit",
+			},
+		})
+	}
 }

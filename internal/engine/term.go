@@ -76,6 +76,7 @@ type Term struct {
 // InputEvent is a single recorded input action for diagnostics.
 type InputEvent struct {
 	When time.Time
+	Kind string
 	Desc string
 }
 
@@ -374,12 +375,12 @@ func (t *Term) updateOutputHookLocked() {
 }
 
 // recordInput appends a description to the bounded ring buffer.
-func (t *Term) recordInput(desc string) {
+func (t *Term) recordInput(kind, desc string) {
 	t.inputsMu.Lock()
 	defer t.inputsMu.Unlock()
 	const cap = 64
 	if len(t.inputs) >= cap {
 		t.inputs = append(t.inputs[:0], t.inputs[len(t.inputs)-cap+1:]...)
 	}
-	t.inputs = append(t.inputs, InputEvent{When: time.Now(), Desc: desc})
+	t.inputs = append(t.inputs, InputEvent{When: time.Now(), Kind: kind, Desc: desc})
 }

@@ -105,8 +105,11 @@ func colorData(c engine.Color) rpc.ColorData {
 }
 
 func handleCursor(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
-	c := t.CursorPos()
-	return rpc.CursorData{X: c.Col, Y: c.Row, Visible: c.Visible, Shape: cursorShape(c.Style)}, nil
+	return cursorData(t.CursorPos()), nil
+}
+
+func cursorData(c engine.Cursor) rpc.CursorData {
+	return rpc.CursorData{X: c.Col, Y: c.Row, Visible: c.Visible, Shape: cursorShape(c.Style)}
 }
 
 func cursorShape(style vt.CursorStyle) string {
@@ -156,21 +159,25 @@ func handleTitle(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
 }
 
 func handleMode(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
-	snap := t.Snapshot()
-	presentation, err := t.Presentation()
-	if err != nil {
-		return nil, engineFailure(err)
+	diagnostic := t.CaptureDiagnostic()
+	if diagnostic.PresentationErr != nil {
+		return nil, internalFailure(diagnostic.PresentationErr)
 	}
-	mouse, err := t.MouseState()
-	if err != nil {
-		return nil, internalFailure(err)
+	if diagnostic.MouseErr != nil {
+		return nil, internalFailure(diagnostic.MouseErr)
 	}
+	return modeData(diagnostic), nil
+}
+
+func modeData(diagnostic engine.Diagnostic) rpc.ModeData {
+	presentation := diagnostic.Presentation
+	mouse := diagnostic.Mouse
 	data := rpc.ModeData{
 		DECCKM:             presentation.Input.ApplicationCursor,
 		BracketedPaste:     presentation.Input.BracketedPaste,
 		KittyKeyboardKnown: presentation.Input.KittyKeyboardKnown,
 		KittyKeyboardFlags: presentation.Input.KittyKeyboardFlags,
-		AltScreen:          snap.AltScreen,
+		AltScreen:          diagnostic.Snapshot.AltScreen,
 		Mouse:              mouse.Enabled,
 
 		MouseTrackingX10:    mouse.Raw.TrackingX10,
@@ -189,7 +196,7 @@ func handleMode(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
 	if mouse.FormatKnown {
 		data.MouseFormat = string(mouse.Format)
 	}
-	return data, nil
+	return data
 }
 
 func handleScrollback(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {

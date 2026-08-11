@@ -51,12 +51,12 @@ func handleWaitText(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 			return nil, invalidArgument(err)
 		}
 		if err := t.WaitForTextRegex(re, engine.WithTimeout(to)); err != nil {
-			return nil, waitErr(t, err)
+			return nil, waitErrDetails(t, err, map[string]any{"target": map[string]any{"text": a.Text, "regex": true}})
 		}
 		return nil, nil
 	}
 	if err := t.WaitForText(a.Text, engine.WithTimeout(to)); err != nil {
-		return nil, waitErr(t, err)
+		return nil, waitErrDetails(t, err, map[string]any{"target": map[string]any{"text": a.Text, "regex": false}})
 	}
 	return nil, nil
 }
@@ -74,7 +74,7 @@ func handleWaitNoText(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 		return nil, invalidArgument(err)
 	}
 	if err := t.WaitForNoText(a.Text, engine.WithTimeout(to)); err != nil {
-		return nil, waitErr(t, err)
+		return nil, waitErrDetails(t, err, map[string]any{"target": map[string]any{"absent_text": a.Text}})
 	}
 	return nil, nil
 }
@@ -101,12 +101,12 @@ func handleWaitStable(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 			exclude[i] = engine.Rect{X: rect.X, Y: rect.Y, W: rect.W, H: rect.H}
 		}
 		if err := t.WaitForStableScreenExcept(quiet, exclude, engine.WithTimeout(to)); err != nil {
-			return nil, waitErr(t, err)
+			return nil, waitErrDetails(t, err, map[string]any{"target": map[string]any{"quiet": quiet.String(), "exclude": a.Exclude}})
 		}
 		return nil, nil
 	}
 	if err := t.WaitForStableScreen(quiet, engine.WithTimeout(to)); err != nil {
-		return nil, waitErr(t, err)
+		return nil, waitErrDetails(t, err, map[string]any{"target": map[string]any{"quiet": quiet.String()}})
 	}
 	return nil, nil
 }
@@ -121,7 +121,7 @@ func handleWaitCursor(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 		return nil, invalidArgument(err)
 	}
 	if err := t.WaitForCursorAt(a.X, a.Y, engine.WithTimeout(to)); err != nil {
-		return nil, waitErr(t, err)
+		return nil, waitErrDetails(t, err, map[string]any{"target": map[string]int{"x": a.X, "y": a.Y}})
 	}
 	return nil, nil
 }
@@ -142,7 +142,7 @@ func handleWaitExit(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	}
 	code, err := t.WaitForExit(engine.WithTimeout(to))
 	if err != nil {
-		return nil, waitErr(t, err)
+		return nil, waitErrDetails(t, err, map[string]any{"target": map[string]string{"exit_within": to.String()}})
 	}
 	// The child is gone; make its artifacts durable before answering so
 	// the caller can rely on the trace bundle existing when this returns.
@@ -165,34 +165,20 @@ func handleSleep(_ *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	return nil, nil
 }
 
-// waitErr builds the failure envelope for a wait that didn't reach its
-// target state. Message carries the full diagnostic dump (see
-// engine.Term.Diagnostic); details.cause is deliberately just the short
-// root cause (e.g. "pump: timeout" or "pump: closed") rather than a
-// second copy of that dump. Every WaitForXxx helper wraps its root cause
-// with %w before appending the dump, so unwrapping once recovers it;
-// wait exit's error isn't wrapped at all (it has no dump to begin with),
-// so it falls back to the full (already short) message unchanged.
-//
-// The code is SESSION_ENDED rather than TIMEOUT when engine.IsSessionEnded
-// reports the wait was cut short by the pump closing (child exited, or
-// `twee stop`) instead of the deadline firing — see that function's doc
-// comment for why WaitForStableScreen never triggers this branch, and why
-// wait exit (which doesn't route through waitErr's pump-closed case at
-// all: session-ending is its success path) is unaffected.
-func waitErr(t *engine.Term, err error) *rpc.Error {
-	return waitErrDetails(t, err, nil)
-}
-
+// waitErrDetails builds a wait failure from its retained engine diagnostic.
+// details.cause remains the short root cause while message contains the human
+// readable dump. SESSION_ENDED distinguishes pump closure from timeout.
 func waitErrDetails(t *engine.Term, err error, extra map[string]any) *rpc.Error {
 	cause := err.Error()
 	if unwrapped := errors.Unwrap(err); unwrapped != nil {
 		cause = unwrapped.Error()
 	}
-	detailValues := map[string]any{
-		"cause":       cause,
-		"last_screen": t.VisibleText(),
+	diagnostic, ok := engine.DiagnosticFromError(err)
+	if !ok {
+		diagnostic = t.CaptureDiagnostic()
 	}
+	detailValues := commonFailureDetails(diagnostic)
+	detailValues["cause"] = cause
 	for key, value := range extra {
 		detailValues[key] = value
 	}

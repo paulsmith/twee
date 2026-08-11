@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +31,28 @@ func startTestTerm(t *testing.T) *engine.Term {
 	}
 	t.Cleanup(func() { _ = te.Close() })
 	return te
+}
+
+func TestServerReturnsJSONWhenResponseExceedsLimit(t *testing.T) {
+	te := startTestTerm(t)
+	server := NewServer(te)
+	server.d.Register("huge", func(_ *engine.Term, _ json.RawMessage) (any, *rpc.Error) {
+		return strings.Repeat("x", rpc.MaxMessageBytes), nil
+	})
+	client, daemon := net.Pipe()
+	defer client.Close()
+	go server.handleConn(daemon)
+	const requestID = "oversized-response"
+	if err := rpc.WriteMessage(client, rpc.Request{ID: requestID, Op: "huge"}); err != nil {
+		t.Fatal(err)
+	}
+	var response rpc.Response
+	if err := rpc.ReadMessage(client, &response); err != nil {
+		t.Fatalf("read fallback response: %v", err)
+	}
+	if response.ID != requestID || response.OK || response.Error == nil || response.Error.Code != rpc.CodeInternal {
+		t.Fatalf("response = %+v", response)
+	}
 }
 
 func startTestServer(t *testing.T, te *engine.Term) (string, *Server) {

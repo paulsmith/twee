@@ -45,10 +45,10 @@ func handleAssertCell(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	if errResp != nil {
 		return nil, errResp
 	}
-	snapshot := t.Snapshot()
-	cell, ok := engine.CellAt(snapshot, x, y)
+	diagnostic := t.CaptureDiagnostic()
+	cell, ok := engine.CellAt(diagnostic.Snapshot, x, y)
 	if !ok || !predicate.Matches(cell) {
-		return nil, assertionFailed("cell predicate did not match", cellFailureDetails(snapshot, x, y, a.Predicate))
+		return nil, assertionFailed("cell predicate did not match", diagnostic, cellFailureDetails(diagnostic.Snapshot, x, y, a.Predicate))
 	}
 	return nil, nil
 }
@@ -73,20 +73,20 @@ func handleAssertRegion(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	if mode != engine.RegionMatchAny && mode != engine.RegionMatchAll {
 		return nil, invalidArgumentMessage("match must be any or all")
 	}
-	snapshot := t.Snapshot()
-	if !engine.RegionMatches(snapshot, rect, mode, predicate) {
+	diagnostic := t.CaptureDiagnostic()
+	evaluation := engine.EvaluateRegion(diagnostic.Snapshot, rect, mode, predicate)
+	if !evaluation.Matches {
 		details := map[string]any{
-			"predicate":   a.Predicate,
-			"match":       mode,
-			"viewport":    map[string]int{"cols": snapshot.Cols, "rows": snapshot.Rows},
-			"last_screen": engine.VisibleSnapshotText(snapshot),
+			"predicate":      a.Predicate,
+			"match":          mode,
+			"region_summary": regionSummaryDetails(evaluation.Summary),
 		}
 		if rect == nil {
 			details["region"] = "viewport"
 		} else {
 			details["region"] = map[string]int{"x": rect.X, "y": rect.Y, "w": rect.W, "h": rect.H}
 		}
-		return nil, assertionFailed("region predicate did not match", details)
+		return nil, assertionFailed("region predicate did not match", diagnostic, details)
 	}
 	return nil, nil
 }
@@ -177,8 +177,6 @@ func regionFromRPC(x, y, w, h *int) (*engine.Rect, *rpc.Error) {
 func cellFailureDetails(snapshot engine.Snapshot, x, y int, predicate rpc.CellPredicate) map[string]any {
 	details := map[string]any{
 		"x": x, "y": y, "predicate": predicate,
-		"viewport":    map[string]int{"cols": snapshot.Cols, "rows": snapshot.Rows},
-		"last_screen": engine.VisibleSnapshotText(snapshot),
 	}
 	if cell, ok := engine.CellAt(snapshot, x, y); ok {
 		details["actual"] = cellData(cell)
@@ -188,7 +186,37 @@ func cellFailureDetails(snapshot engine.Snapshot, x, y int, predicate rpc.CellPr
 	return details
 }
 
-func assertionFailed(message string, detailValues map[string]any) *rpc.Error {
+func regionSummaryDetails(summary engine.RegionSummary) map[string]any {
+	details := map[string]any{
+		"total_cells":        summary.TotalCells,
+		"matching_cells":     summary.MatchingCells,
+		"empty_intersection": summary.TotalCells == 0,
+	}
+	if summary.Requested != nil {
+		details["requested"] = map[string]int{"x": summary.Requested.X, "y": summary.Requested.Y, "w": summary.Requested.W, "h": summary.Requested.H}
+	} else {
+		details["requested"] = "viewport"
+	}
+	if summary.Clipped != nil {
+		details["clipped"] = map[string]int{"x": summary.Clipped.X, "y": summary.Clipped.Y, "w": summary.Clipped.W, "h": summary.Clipped.H}
+	} else {
+		details["clipped"] = nil
+	}
+	if summary.FirstMismatch != nil {
+		details["first_mismatch"] = map[string]any{
+			"x":      summary.FirstMismatch.X,
+			"y":      summary.FirstMismatch.Y,
+			"actual": cellData(summary.FirstMismatch.Cell),
+		}
+	}
+	return details
+}
+
+func assertionFailed(message string, diagnostic engine.Diagnostic, extra map[string]any) *rpc.Error {
+	detailValues := commonFailureDetails(diagnostic)
+	for key, value := range extra {
+		detailValues[key] = value
+	}
 	details, _ := json.Marshal(detailValues)
 	return &rpc.Error{Code: rpc.CodeAssertionFailed, Message: message, Details: details}
 }

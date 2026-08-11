@@ -33,9 +33,10 @@ func (te *Term) ExpectNoText(s string, opts ...WaitOption) {
 // ExpectCursorAt fails if the cursor is not at (col, row).
 func (te *Term) ExpectCursorAt(col, row int) {
 	t := te.requireTestingTB("ExpectCursorAt")
-	c := te.Cursor()
+	diagnostic := te.CaptureDiagnostic()
+	c := diagnostic.Snapshot.Cursor
 	if c.Col != col || c.Row != row {
 		t.Fatalf("cursor at (%d,%d), want (%d,%d)\n%s",
-			c.Col, c.Row, col, row, te.Diagnostic())
+			c.Col, c.Row, col, row, diagnostic.String())
 	}
 }
