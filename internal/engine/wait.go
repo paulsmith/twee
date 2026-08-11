@@ -158,6 +158,33 @@ func (t *Term) WaitUntil(fn func(Snapshot) bool, opts ...WaitOption) error {
 	return nil
 }
 
+// WaitForCellAt waits until the physical cell at (x, y) satisfies predicate.
+// Coordinates outside the current viewport remain pending so a later resize can
+// make them observable.
+func (t *Term) WaitForCellAt(x, y int, predicate CellPredicate, opts ...WaitOption) error {
+	_, err := t.WaitForCellAtSnapshot(x, y, predicate, opts...)
+	return err
+}
+
+// WaitForCellAtSnapshot waits like WaitForCellAt and returns the last snapshot
+// evaluated. An empty predicate is rejected before evaluation begins.
+func (t *Term) WaitForCellAtSnapshot(x, y int, predicate CellPredicate, opts ...WaitOption) (Snapshot, error) {
+	if predicate.Empty() {
+		return Snapshot{}, invalidRequest("cell predicate must not be empty", nil, nil)
+	}
+	o := t.waitOpts(opts)
+	var last Snapshot
+	err := t.pump.Wait(o.Ctx, o.Timeout, func(snap vt.Snapshot) bool {
+		last = FromVT(snap)
+		cell, ok := CellAt(last, x, y)
+		return ok && predicate.Matches(cell)
+	})
+	if err != nil {
+		return last, fmt.Errorf("WaitForCellAt(%d,%d): %w\n%s", x, y, err, t.diagnostic(last))
+	}
+	return last, nil
+}
+
 // WaitForCursorAt waits until the cursor is at (col, row).
 func (t *Term) WaitForCursorAt(col, row int, opts ...WaitOption) error {
 	o := t.waitOpts(opts)

@@ -10,9 +10,10 @@ const (
 	CodeChildExited        = "CHILD_EXITED"
 	CodeInvalidArgument    = "INVALID_ARGUMENT"
 	CodeFailedPrecondition = "FAILED_PRECONDITION"
+	CodeAssertionFailed    = "ASSERTION_FAILED"
 	CodeIO                 = "IO"
 	CodeInternal           = "INTERNAL"
-	// CodeSessionEnded marks a wait (text / no-text / cursor) that was
+	// CodeSessionEnded marks a wait (text / no-text / cell / cursor) that was
 	// still pending when the session ended — child exited, or `twee
 	// stop` — rather than its deadline firing. It carries the same
 	// details.cause/details.last_screen as CodeTimeout. `wait exit` never

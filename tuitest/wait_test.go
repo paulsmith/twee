@@ -5,6 +5,22 @@ import (
 	"time"
 )
 
+func TestWaitForCellRejectsEmptyPredicate(t *testing.T) {
+	term := Run(t, "/bin/sh", Args("-c", "sleep 30"))
+	if err := term.WaitForCellAt(0, 0, CellPredicate{}); err == nil {
+		t.Fatal("WaitForCellAt accepted an empty predicate")
+	}
+}
+
+func TestWaitForCell(t *testing.T) {
+	term := Run(t, "/bin/sh", Args("-c", "sleep 0.05; printf '\\033[32;1mX'; sleep 30"))
+	text, bold := "X", true
+	fg := Color{Kind: ColorPalette, Index: 2}
+	if err := term.WaitForCellAt(0, 0, CellPredicate{Text: &text, Fg: &fg, Bold: &bold}, WithTimeout(2*time.Second)); err != nil {
+		t.Fatalf("WaitForCellAt: %v", err)
+	}
+}
+
 func TestWaitForText(t *testing.T) {
 	// sh that prints "ready" after 50ms, then "done" after 100ms.
 	term := Run(t, "/bin/sh",

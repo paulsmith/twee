@@ -147,6 +147,41 @@ sleep 30`
 	}
 }
 
+func TestCellPredicateCommandsViaCLI(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+	const name = "cell-predicates"
+	defer func() {
+		cmd := exec.Command(bin, "stop", "--name", name)
+		cmd.Env = append(os.Environ(), env...)
+		_ = cmd.Run()
+	}()
+
+	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 0.05; printf '\\033[31;1mX'; sleep 30")
+	mustOK(t, bin, env, "wait", "cell", "--name", name, "--x", "0", "--y", "0", "--text", "X", "--fg", "palette:1", "--bold", "--timeout", "1s")
+	mustOK(t, bin, env, "assert", "cell", "--name", name, "--x", "0", "--y", "0", "--width", "1", "--bold=true")
+	mustOK(t, bin, env, "assert", "region", "--name", name, "--contains-style", "fg=palette:1")
+
+	cmd := exec.Command(bin, "assert", "cell", "--name", name, "--x", "0", "--y", "0", "--bold=false")
+	cmd.Env = append(os.Environ(), env...)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("mismatched assertion succeeded: %s", out)
+	}
+	var response struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if jsonErr := json.Unmarshal(out, &response); jsonErr != nil {
+		t.Fatalf("decode assertion error %s: %v", out, jsonErr)
+	}
+	if response.OK || response.Error.Code != "ASSERTION_FAILED" {
+		t.Fatalf("assertion response = %+v, want ASSERTION_FAILED", response)
+	}
+}
+
 func mustOK(t *testing.T, bin string, env []string, args ...string) {
 	t.Helper()
 	cmd := exec.Command(bin, args...)

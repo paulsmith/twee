@@ -20,12 +20,13 @@ Subverbs:
   wait text --pattern TEXT [--regex] [--timeout <dur>] [--name <name>]
   wait no-text --pattern TEXT [--timeout <dur>] [--name <name>]
   wait stable [--quiet <dur>] [--exclude x,y,w,h]... [--timeout <dur>] [--name <name>]
+  wait cell --x <n> --y <n> <predicate flags> [--timeout <dur>] [--name <name>]
   wait cursor --x <n> --y <n> [--timeout <dur>] [--name <name>]
   wait exit [--timeout <dur>] [--name <name>]
 
-Default --timeout is 5s for text/no-text/stable/cursor, 30s for exit.
+Default --timeout is 5s for text/no-text/stable/cell/cursor, 30s for exit.
 On timeout the verb exits non-zero with code TIMEOUT. If the session
-ends first (child exits, or "twee stop") — text/no-text/cursor exit
+ends first (child exits, or "twee stop") — text/no-text/cell/cursor exit
 non-zero with code SESSION_ENDED instead, so scripts can tell "the app
 is slow" from "the app is gone" without string-matching the message.
 "wait stable" is the exception: it reports success either way (see
@@ -76,7 +77,7 @@ its path as {"trace_path": ...}.`)
 
 func runWait(args []string) {
 	if len(args) == 0 {
-		fatalUsage("wait: missing subverb (text|no-text|stable|cursor|exit)")
+		fatalUsage("wait: missing subverb (text|no-text|stable|cell|cursor|exit)")
 	}
 	sub := args[0]
 	rest := args[1:]
@@ -87,6 +88,8 @@ func runWait(args []string) {
 		runWaitNoText(rest)
 	case "stable":
 		runWaitStable(rest)
+	case "cell":
+		runWaitCell(rest)
 	case "cursor":
 		runWaitCursor(rest)
 	case "exit":

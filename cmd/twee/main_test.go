@@ -77,7 +77,7 @@ func TestHelp(t *testing.T) {
 		t.Errorf("help output still advertises removed bundle command:\n%s", out)
 	}
 	last := -1
-	for _, verb := range []string{"cell", "click", "completion", "cursor", "diff", "drag", "export", "find", "help", "hover", "inspect", "key", "keys", "lines", "ls", "mode", "paste", "play", "region", "resize", "run", "screenshot", "scroll", "scrollback", "signal", "size", "sleep", "snapshot", "start", "status", "stop", "text", "title", "trace", "type", "version", "wait", "wrap"} {
+	for _, verb := range []string{"assert", "cell", "click", "completion", "cursor", "diff", "drag", "export", "find", "help", "hover", "inspect", "key", "keys", "lines", "ls", "mode", "paste", "play", "region", "resize", "run", "screenshot", "scroll", "scrollback", "signal", "size", "sleep", "snapshot", "start", "status", "stop", "text", "title", "trace", "type", "version", "wait", "wrap"} {
 		needle := []byte("  " + verb + "  ")
 		idx := bytes.Index(out, needle)
 		if idx < 0 {

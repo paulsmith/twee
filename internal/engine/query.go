@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/paulsmith/twee/internal/vt"
 )
@@ -15,6 +16,31 @@ func (t *Term) Snapshot() Snapshot {
 // spaces stripped, lines joined with "\n".
 func (t *Term) VisibleText() string {
 	return vt.VisibleText(t.pump.Snapshot())
+}
+
+// VisibleSnapshotText returns a retained snapshot's visible viewport as plain
+// text, using the same continuation-cell and trailing-space rules as VisibleText.
+func VisibleSnapshotText(snapshot Snapshot) string {
+	return strings.Join(visibleSnapshotLines(snapshot), "\n")
+}
+
+func visibleSnapshotLines(snapshot Snapshot) []string {
+	lines := make([]string, len(snapshot.Lines))
+	for y, line := range snapshot.Lines {
+		var text strings.Builder
+		for _, cell := range line.Cells {
+			if cell.Width == 0 {
+				continue
+			}
+			if cell.Text == "" {
+				text.WriteByte(' ')
+			} else {
+				text.WriteString(cell.Text)
+			}
+		}
+		lines[y] = strings.TrimRight(text.String(), " ")
+	}
+	return lines
 }
 
 // Lines returns one string per row, trailing spaces stripped.
@@ -72,11 +98,14 @@ func (t *Term) RecentInputs() []InputEvent {
 
 // Diagnostic returns a multi-line failure block describing current state.
 func (t *Term) Diagnostic() string {
-	snap := t.pump.Snapshot()
-	lines := vt.VisibleLines(snap)
+	return t.diagnostic(FromVT(t.pump.Snapshot()))
+}
+
+func (t *Term) diagnostic(snap Snapshot) string {
+	lines := visibleSnapshotLines(snap)
 	var sb diagBuf
 	sb.printf("command: %v\n", t.cfg.Cmd)
-	sb.printf("size: %dx%d\n", snap.Size.Cols, snap.Size.Rows)
+	sb.printf("size: %dx%d\n", snap.Cols, snap.Rows)
 	sb.printf("cursor: (%d,%d)\n", snap.Cursor.Col, snap.Cursor.Row)
 	sb.printf("alt screen: %v\n", snap.AltScreen)
 	select {

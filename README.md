@@ -279,6 +279,7 @@ The commands are grouped below by purpose:
 | Mouse | `click`, `hover`, `scroll`, `drag` | Send cell-based mouse gestures. |
 | Screen | `text`, `lines`, `cell`, `region`, `snapshot`, `screenshot` | Read or render terminal content. |
 | State | `cursor`, `size`, `title`, `mode`, `scrollback` | Read terminal state. |
+| Assertions | `assert cell`, `assert region` | Check cell content and styles without `jq`. |
 | Search | `find`, `diff` | Search the viewport or compare a text snapshot. |
 | Control | `resize`, `sleep`, `wait` | Change size, delay locally, or wait for state. |
 | Traces | `trace`, `inspect`, `play`, `export` | Record, validate, replay, or export `.twee` bundles. |
@@ -357,6 +358,7 @@ Common error codes are:
 | `CHILD_EXITED` | The child exited during session startup. |
 | `INVALID_ARGUMENT` | An operation argument is invalid. |
 | `FAILED_PRECONDITION` | The current terminal state cannot perform the operation. |
+| `ASSERTION_FAILED` | A cell or region did not satisfy an assertion predicate. |
 | `IO` | A socket, PTY, or file operation failed. |
 | `INTERNAL` | Twee encountered an internal error. |
 | `SESSION_ENDED` | A pending wait ended because the session ended. |
@@ -399,6 +401,7 @@ Waits synchronize automation with the application. Prefer a state wait to a fixe
 | `wait text` | Text or a regular expression appears. | 5 seconds |
 | `wait no-text` | Text disappears. | 5 seconds |
 | `wait stable` | The screen stops changing. | 5 seconds |
+| `wait cell` | A physical cell matches text, width, color, and style predicates. | 5 seconds |
 | `wait cursor` | The cursor reaches a cell. | 5 seconds |
 | `wait exit` | The child exits and artifacts are durable. | 30 seconds |
 
@@ -406,7 +409,21 @@ Use `--timeout` to change a timeout. Use `wait stable --quiet` to change the sta
 
 `wait text --regex` matches the complete viewport in multiline mode. The `^` and `$` anchors apply to each visible line.
 
-`wait text`, `wait no-text`, and `wait cursor` return `SESSION_ENDED` when the session ends first. This result differs from `TIMEOUT`.
+Cell predicates match exact physical-cell state, including wide-character
+continuation cells. Conditions are ANDed:
+
+```sh
+twee wait cell --x 0 --y 1 --fg palette:1 --bold --timeout 2s
+twee assert cell --x 0 --y 1 --text X --bold=false
+twee assert region --contains-style fg=palette:1
+twee assert region --x 0 --y 0 --w 80 --h 1 --match all --bg default
+```
+
+Colors use `default`, `palette:N`, `#RRGGBB`, or `rgb:R,G,B`. Region assertions
+default to the whole viewport and `--match any`; use `--match all` to require
+every clipped cell to match. Assertion mismatches return `ASSERTION_FAILED`.
+
+`wait text`, `wait no-text`, `wait cell`, and `wait cursor` return `SESSION_ENDED` when the session ends first. This result differs from `TIMEOUT`.
 
 `wait stable` returns success when the session ends because the screen cannot change again. An active spinner can prevent stability.
 

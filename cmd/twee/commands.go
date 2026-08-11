@@ -48,7 +48,7 @@ var commandRegistry = newCommandRegistry()
 
 func newCommandRegistry() map[string]*commandDescriptor {
 	summaries := map[string]string{
-		"cell": "Show one cell at x,y", "click": "Click a viewport cell or visible match",
+		"assert": "Assert terminal cell or region state", "cell": "Show one cell at x,y", "click": "Click a viewport cell or visible match",
 		"completion": "Print shell completion setup", "cursor": "Show cursor state",
 		"diff": "Compare the viewport to a saved text snapshot", "do": "Run an op script against a running session",
 		"drag": "Drag between viewport cells", "export": "Export a .twee trace bundle to GIF, self-contained HTML, MP4, or WebM",

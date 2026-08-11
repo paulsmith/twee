@@ -197,14 +197,14 @@ func TestWaitTimeoutDetailsCauseIsShort(t *testing.T) {
 }
 
 // TestWaitSessionEndedOnPumpClose pins down that wait_text, wait_no_text,
-// and wait_cursor report SESSION_ENDED rather than TIMEOUT when the pump
+// wait_cursor, and wait_cell report SESSION_ENDED rather than TIMEOUT when the pump
 // closes (the child exits) before the wait's target state is reached and
 // before its deadline fires — so scripts can tell "the app is slow" from
 // "the app is gone" without string-matching cause. Each case uses a child
 // that prints "hello" and exits almost immediately, then waits on a
 // condition ("never appears" / "hello" never disappears / a cursor
-// position the child never reaches) that can only resolve via the pump
-// closing, well before the 5s timeout.
+// position the child never reaches / a cell value never painted) that can only
+// resolve via the pump closing, well before the 5s timeout.
 func TestWaitSessionEndedOnPumpClose(t *testing.T) {
 	spawn := func(t *testing.T) *engine.Term {
 		t.Helper()
@@ -234,6 +234,12 @@ func TestWaitSessionEndedOnPumpClose(t *testing.T) {
 		}},
 		{"cursor", func(te *engine.Term) (any, *rpc.Error) {
 			return handleWaitCursor(te, mustJSON(t, rpc.WaitCursorArgs{X: 39, Y: 4, Timeout: "5s"}))
+		}},
+		{"cell", func(te *engine.Term) (any, *rpc.Error) {
+			return handleWaitCell(te, mustJSON(t, rpc.WaitCellArgs{
+				X: intPointer(0), Y: intPointer(0), Timeout: "5s",
+				Predicate: rpc.CellPredicate{Text: stringPointer("never")},
+			}))
 		}},
 	}
 	for _, tt := range tests {

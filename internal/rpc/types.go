@@ -187,6 +187,13 @@ type Rect struct {
 	H int `json:"h"`
 }
 
+type WaitCellArgs struct {
+	X         *int          `json:"x"`
+	Y         *int          `json:"y"`
+	Predicate CellPredicate `json:"predicate"`
+	Timeout   string        `json:"timeout,omitempty"`
+}
+
 type WaitCursorArgs struct {
 	X       int    `json:"x"`
 	Y       int    `json:"y"`
@@ -240,6 +247,47 @@ type ColorData struct {
 	R     uint8  `json:"r,omitempty"`
 	G     uint8  `json:"g,omitempty"`
 	B     uint8  `json:"b,omitempty"`
+}
+
+// ColorPredicate is the strict wire representation accepted by cell
+// predicates. Pointer channels preserve explicit zero values and let handlers
+// reject incomplete or irrelevant fields.
+type ColorPredicate struct {
+	Kind  string `json:"kind"`
+	Index *uint8 `json:"index,omitempty"`
+	R     *uint8 `json:"r,omitempty"`
+	G     *uint8 `json:"g,omitempty"`
+	B     *uint8 `json:"b,omitempty"`
+}
+
+// CellPredicate constrains one physical terminal cell. Every populated field
+// must match; pointer booleans distinguish omitted from explicitly false.
+type CellPredicate struct {
+	Text          *string         `json:"text,omitempty"`
+	Width         *int            `json:"width,omitempty"`
+	Fg            *ColorPredicate `json:"fg,omitempty"`
+	Bg            *ColorPredicate `json:"bg,omitempty"`
+	Bold          *bool           `json:"bold,omitempty"`
+	Dim           *bool           `json:"dim,omitempty"`
+	Italic        *bool           `json:"italic,omitempty"`
+	Underline     *bool           `json:"underline,omitempty"`
+	Inverse       *bool           `json:"inverse,omitempty"`
+	Strikethrough *bool           `json:"strikethrough,omitempty"`
+}
+
+type AssertCellArgs struct {
+	X         *int          `json:"x"`
+	Y         *int          `json:"y"`
+	Predicate CellPredicate `json:"predicate"`
+}
+
+type AssertRegionArgs struct {
+	X         *int          `json:"x,omitempty"`
+	Y         *int          `json:"y,omitempty"`
+	W         *int          `json:"w,omitempty"`
+	H         *int          `json:"h,omitempty"`
+	Match     string        `json:"match,omitempty"`
+	Predicate CellPredicate `json:"predicate"`
 }
 
 // CellData is the wire shape of one terminal cell: the "cell" op's data,

@@ -181,14 +181,22 @@ func handleSleep(_ *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 // wait exit (which doesn't route through waitErr's pump-closed case at
 // all: session-ending is its success path) is unaffected.
 func waitErr(t *engine.Term, err error) *rpc.Error {
+	return waitErrDetails(t, err, nil)
+}
+
+func waitErrDetails(t *engine.Term, err error, extra map[string]any) *rpc.Error {
 	cause := err.Error()
 	if unwrapped := errors.Unwrap(err); unwrapped != nil {
 		cause = unwrapped.Error()
 	}
-	details, _ := json.Marshal(map[string]any{
+	detailValues := map[string]any{
 		"cause":       cause,
 		"last_screen": t.VisibleText(),
-	})
+	}
+	for key, value := range extra {
+		detailValues[key] = value
+	}
+	details, _ := json.Marshal(detailValues)
 	code := rpc.CodeTimeout
 	if engine.IsSessionEnded(err) {
 		code = rpc.CodeSessionEnded

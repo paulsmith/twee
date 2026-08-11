@@ -115,6 +115,7 @@ Commands:`)
 	_ = tw.Flush()
 	fmt.Fprintln(w, `
 Wait commands:
+  wait cell       Wait for a physical cell predicate
   wait cursor     Wait for the cursor to reach a position
   wait exit       Wait for the child process to exit
   wait no-text    Wait for text to disappear

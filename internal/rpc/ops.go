@@ -38,8 +38,13 @@ const (
 	OpWaitText   = "wait_text"
 	OpWaitNoText = "wait_no_text"
 	OpWaitStable = "wait_stable"
+	OpWaitCell   = "wait_cell"
 	OpWaitCursor = "wait_cursor"
 	OpWaitExit   = "wait_exit"
+
+	// Assertions
+	OpAssertCell   = "assert_cell"
+	OpAssertRegion = "assert_region"
 
 	// Misc
 	OpSleep = "sleep"
