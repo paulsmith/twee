@@ -273,16 +273,24 @@ func (r *Runner) captureExitTermios() {
 
 // Resize updates the PTY winsize and sends SIGWINCH to the child.
 func (r *Runner) Resize(cols, rows int) error {
+	select {
+	case <-r.ExitedCh():
+		return os.ErrProcessDone
+	default:
+	}
 	if err := pty.Setsize(r.master, &pty.Winsize{
 		Cols: uint16(cols),
 		Rows: uint16(rows),
 	}); err != nil {
 		return err
 	}
-	if err := r.backend.signal(syscall.SIGWINCH); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return err
+	if backend, ok := r.backend.(*localBackend); ok {
+		return backend.group.resizeSignal()
 	}
-	return nil
+	if backend, ok := r.backend.(*networkBackend); ok {
+		return backend.process.SignalIfLeaderRunning(syscall.SIGWINCH)
+	}
+	return r.backend.signal(syscall.SIGWINCH)
 }
 
 // Signal forwards a signal to the child. Returns an error if the

@@ -148,6 +148,57 @@ func TestRunTraceOutWritesBundle(t *testing.T) {
 	}
 }
 
+func TestRunRejectsOversizedInitialTerminalAsInvalidArgument(t *testing.T) {
+	bin := buildBinary(t)
+	script := filepath.Join(t.TempDir(), "ops.json")
+	if err := os.WriteFile(script, []byte(`[]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "run", "--script", script, "--cols", "65536", "--rows", "1", "--", "/bin/true")
+	cmd.Env = append(os.Environ(), testEnv(t)...)
+	out, err := cmd.Output()
+	if err == nil {
+		t.Fatalf("run unexpectedly succeeded: %s", out)
+	}
+	var resp struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		t.Fatalf("decode %s: %v", out, err)
+	}
+	if resp.Error.Code != "INVALID_ARGUMENT" {
+		t.Fatalf("response = %s, want INVALID_ARGUMENT", out)
+	}
+}
+
+func TestRunInvalidLeadingResizeIsOperationError(t *testing.T) {
+	bin := buildBinary(t)
+	script := filepath.Join(t.TempDir(), "ops.json")
+	if err := os.WriteFile(script, []byte(`[{"op":"resize","args":{"cols":65536,"rows":1}}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "run", "--script", script, "--emit", "results", "--", "/bin/sh", "-c", "sleep 30")
+	cmd.Env = append(os.Environ(), testEnv(t)...)
+	out, err := cmd.Output()
+	if err == nil {
+		t.Fatalf("run unexpectedly succeeded: %s", out)
+	}
+	var resp struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		t.Fatalf("decode %s: %v", out, err)
+	}
+	if resp.OK || resp.Error.Code != "INVALID_ARGUMENT" {
+		t.Fatalf("response = %s, want INVALID_ARGUMENT", out)
+	}
+}
+
 func TestRunScriptFlagOrdersViaCLI(t *testing.T) {
 	bin := buildBinary(t)
 	script := filepath.Join(t.TempDir(), "ops.json")

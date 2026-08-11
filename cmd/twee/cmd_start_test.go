@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"strings"
@@ -8,6 +9,19 @@ import (
 	"testing"
 	"time"
 )
+
+func TestStartRejectsOversizedTerminalAsInvalidArgument(t *testing.T) {
+	bin := buildBinary(t)
+	raw := cliStdout(t, bin, testEnv(t), "start", "--cols", "65536", "--rows", "1", "--", "/bin/true")
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("decode %s: %v", raw, err)
+	}
+	errObj, _ := out["error"].(map[string]any)
+	if errObj["code"] != "INVALID_ARGUMENT" {
+		t.Fatalf("start response = %s, want INVALID_ARGUMENT", raw)
+	}
+}
 
 // TestStartForceReplacesLiveSession pins down "start --force"'s primary
 // case: a live collision is stopped instead of reported as

@@ -31,10 +31,13 @@ type Pump struct {
 	model  vt.Model
 	reader io.Reader
 
-	mu     sync.Mutex
-	cond   *sync.Cond
-	gen    uint64
-	closed bool
+	// eventMu linearizes output admission and resize transactions, preserving
+	// recorder order without making recorder I/O block snapshots.
+	eventMu sync.Mutex
+	mu      sync.Mutex
+	cond    *sync.Cond
+	gen     uint64
+	closed  bool
 
 	// recent holds the last N output bytes for diagnostics.
 	recent []byte
@@ -81,9 +84,11 @@ func New(model vt.Model, r io.Reader) *Pump {
 	return p
 }
 
-// SetOutputHook installs a function called under mu after each Feed.
-// Used by the recorder.
+// SetOutputHook installs the recorder callback. Hook replacement is ordered
+// with output and resize events, while callback execution remains outside mu.
 func (p *Pump) SetOutputHook(fn func([]byte, time.Time)) {
+	p.eventMu.Lock()
+	defer p.eventMu.Unlock()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.onOutput = fn
@@ -96,9 +101,9 @@ func (p *Pump) Run() error {
 	for {
 		n, err := p.reader.Read(buf)
 		if n > 0 {
-			// Copy the chunk before releasing the lock so the hook can
-			// outlive the buffer reuse on the next Read.
+			// Copy the chunk before the next Read reuses the buffer.
 			chunk := append([]byte(nil), buf[:n]...)
+			p.eventMu.Lock()
 			p.mu.Lock()
 			_ = p.model.Feed(chunk)
 			p.appendRecent(chunk)
@@ -110,10 +115,11 @@ func (p *Pump) Run() error {
 			p.cond.Broadcast()
 			p.mu.Unlock()
 			// Hook runs outside mu so a slow recorder cannot stall
-			// snapshots or waiters.
+			// snapshots or waiters. eventMu preserves event order.
 			if hook != nil {
 				hook(chunk, now)
 			}
+			p.eventMu.Unlock()
 		}
 		if err != nil {
 			p.mu.Lock()
@@ -250,12 +256,33 @@ func (p *Pump) RecentBytes() []byte {
 
 // Resize forwards a resize to the model under mu.
 func (p *Pump) Resize(cols, rows int) error {
+	return p.CommitResize(cols, rows, nil, nil)
+}
+
+// CommitResize serializes a PTY resize request, model resize, and optional
+// bookkeeping against output Feed calls. Output caused by apply cannot reach
+// the model until it has the new dimensions.
+func (p *Pump) CommitResize(cols, rows int, apply func() error, committed func()) error {
+	p.eventMu.Lock()
+	defer p.eventMu.Unlock()
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	err := p.model.Resize(cols, rows)
+	if apply != nil {
+		if err := apply(); err != nil {
+			p.mu.Unlock()
+			return err
+		}
+	}
+	if err := p.model.Resize(cols, rows); err != nil {
+		p.mu.Unlock()
+		return err
+	}
 	p.gen++
 	p.cond.Broadcast()
-	return err
+	p.mu.Unlock()
+	if committed != nil {
+		committed()
+	}
+	return nil
 }
 
 // EncodeMouse inspects the current model state and preflights/encodes an

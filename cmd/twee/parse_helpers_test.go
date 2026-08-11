@@ -82,6 +82,8 @@ func TestReadScriptAndLeadingResize(t *testing.T) {
 		{{Op: rpc.OpText}},
 		{{Op: rpc.OpResize, Args: json.RawMessage(`{`)}},
 		{{Op: rpc.OpResize, Args: mustJSONMain(t, rpc.ResizeArgs{Cols: 0, Rows: 30})}},
+		{{Op: rpc.OpResize, Args: mustJSONMain(t, rpc.ResizeArgs{Cols: 65536, Rows: 1})}},
+		{{Op: rpc.OpResize, Args: mustJSONMain(t, rpc.ResizeArgs{Cols: 1001, Rows: 100})}},
 	} {
 		if got, ok := leadingResize(ops); ok {
 			t.Fatalf("leadingResize(%#v) = %+v, true; want false", ops, got)

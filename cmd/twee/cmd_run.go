@@ -66,6 +66,9 @@ func runRun(args []string) {
 			}
 		}
 	}
+	if err := engine.ValidateTerminalSize(opts.cols, opts.rows); err != nil {
+		emitError(rpc.CodeInvalidArgument, err.Error(), nil, 1)
+	}
 
 	var traceConfig *engine.WholeSessionTraceConfig
 	if opts.tracePath != "" {
@@ -223,5 +226,5 @@ func leadingResize(ops []rpc.Request) (rpc.ResizeArgs, bool) {
 	if err := json.Unmarshal(ops[0].Args, &args); err != nil {
 		return rpc.ResizeArgs{}, false
 	}
-	return args, args.Cols > 0 && args.Rows > 0
+	return args, engine.ValidateTerminalSize(args.Cols, args.Rows) == nil
 }

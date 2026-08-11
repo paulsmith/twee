@@ -423,6 +423,11 @@ Colors use `default`, `palette:N`, `#RRGGBB`, or `rgb:R,G,B`. Region assertions
 default to the whole viewport and `--match any`; use `--match all` to require
 every clipped cell to match. Assertion mismatches return `ASSERTION_FAILED`.
 
+`twee resize` returns the acknowledged `{cols, rows}` after the PTY and terminal
+model commit the new geometry. This does not prove that the child handled
+`SIGWINCH` or finished repainting; follow it with `wait text`, `wait cell`, or
+`wait stable` when the next action depends on observable UI state.
+
 Failed waits and assertions include structured diagnostic details captured from
 the evaluated terminal state: viewport text and dimensions, cursor, input and
 mouse modes, recent bounded input/output/resize activity, and an active or

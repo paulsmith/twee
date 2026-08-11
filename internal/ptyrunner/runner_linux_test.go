@@ -67,6 +67,25 @@ func TestNetworkRunnerForwardsSignalsAndResize(t *testing.T) {
 	}
 }
 
+func TestNetworkResizeSignalRejectsExitedLeader(t *testing.T) {
+	r := startNetworkRunner(t, context.Background(), `/bin/true`)
+	backend := r.backend.(*networkBackend)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err := backend.process.SignalIfLeaderRunning(syscall.SIGWINCH)
+		if errors.Is(err, os.ErrProcessDone) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("SignalIfLeaderRunning: %v", err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("resize signal kept succeeding after leader exit")
+		}
+	}
+	waitExited(t, r)
+}
+
 func TestNetworkRunnerCloseUsesCallerGraceAndIsRepeatedlySafe(t *testing.T) {
 	r := startNetworkRunner(t, context.Background(), `trap '' TERM; echo ready; while :; do :; done`)
 	_ = readPTY(t, r, "ready")
@@ -239,6 +258,51 @@ func TestCancellationRacingCloseAndRepeatedOperations(t *testing.T) {
 	_ = r.CloseWithGrace(0)
 	waitExited(t, r)
 	waitProcessGone(t, descendant)
+}
+
+func TestLinuxResizeSignalRejectsExitBeforeTermiosReadback(t *testing.T) {
+	original := readWaitInfo
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	readWaitInfo = func(pid int) (exitInfo, error) {
+		close(entered)
+		<-release
+		return original(pid)
+	}
+	defer func() { readWaitInfo = original }()
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+
+	r, err := Start(context.Background(), Config{Command: []string{"/bin/true"}})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+	<-entered
+	backend := r.backend.(*localBackend)
+	if err := backend.group.resizeSignal(); !errors.Is(err, os.ErrProcessDone) {
+		t.Fatalf("resize signal during exit readback = %v, want os.ErrProcessDone", err)
+	}
+	close(release)
+	waitExited(t, r)
+}
+
+func TestExitedLinuxProcessGroupRejectsResizeSignal(t *testing.T) {
+	r, err := Start(context.Background(), Config{Command: []string{"/bin/true"}})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+	waitExited(t, r)
+	backend := r.backend.(*localBackend)
+	if err := backend.group.resizeSignal(); !errors.Is(err, os.ErrProcessDone) {
+		t.Fatalf("signal after exit = %v, want os.ErrProcessDone", err)
+	}
 }
 
 func processGroupFromProc(t *testing.T, pid int) int {

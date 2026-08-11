@@ -270,13 +270,10 @@ func handleResize(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	if errResp != nil {
 		return nil, errResp
 	}
-	if a.Cols <= 0 || a.Rows <= 0 {
-		return nil, invalidArgumentMessage("cols and rows must be > 0")
-	}
 	if err := t.Resize(a.Cols, a.Rows); err != nil {
-		return nil, ioFailure(err)
+		return nil, engineFailure(err)
 	}
-	return nil, nil
+	return rpc.SizeData{Cols: a.Cols, Rows: a.Rows}, nil
 }
 
 func parseSignal(name string) (os.Signal, error) {

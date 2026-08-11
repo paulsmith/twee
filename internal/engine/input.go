@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -100,24 +101,35 @@ func (t *Term) paste(text string, force bool) error {
 	return nil
 }
 
-// Resize updates the PTY winsize, signals the child with SIGWINCH, and
-// resizes the model.
+// Resize acknowledges the request after the PTY and model dimensions are
+// committed. It does not wait for the child to handle SIGWINCH or repaint.
 func (t *Term) Resize(cols, rows int) error {
 	t.inputMu.Lock()
 	defer t.inputMu.Unlock()
 
-	if err := t.runner.Resize(cols, rows); err != nil {
-		return err
+	if err := ValidateTerminalSize(cols, rows); err != nil {
+		return invalidRequest(err.Error(), map[string]any{
+			"cols": cols, "rows": rows,
+			"max_dimension": maxTerminalDimension, "max_cells": maxTerminalCells,
+		}, err)
 	}
-	if err := t.pump.Resize(cols, rows); err != nil {
-		return err
-	}
-	t.recordInput("resize", fmt.Sprintf("Resize %dx%d", cols, rows))
 	t.cfgMu.Lock()
 	tr := t.tr
 	t.cfgMu.Unlock()
-	if tr != nil {
-		tr.WriteResize(cols, rows)
+	if err := t.pump.CommitResize(cols, rows, func() error {
+		return t.runner.Resize(cols, rows)
+	}, func() {
+		t.recordInput("resize", fmt.Sprintf("Resize %dx%d", cols, rows))
+		if tr != nil {
+			tr.WriteResize(cols, rows)
+		}
+	}); err != nil {
+		if errors.Is(err, os.ErrProcessDone) {
+			return failedPrecondition("cannot resize after the child has exited", map[string]any{
+				"cols": cols, "rows": rows,
+			}, err)
+		}
+		return inputIO(err)
 	}
 	return nil
 }

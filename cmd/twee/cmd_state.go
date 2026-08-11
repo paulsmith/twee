@@ -12,7 +12,9 @@ func init() {
 	register("screenshot", runScreenshot)
 
 	registerUsage("resize", `twee resize --cols <n> --rows <n> [--name <name>]
-TIOCSWINSZ + SIGWINCH + model resize.`)
+Applies the PTY and terminal-model dimensions, signals the child with SIGWINCH,
+and returns the acknowledged {cols, rows}. It does not wait for the child to
+handle SIGWINCH or repaint; use a wait command for observable UI state.`)
 	registerUsage("sleep", `twee sleep <duration>
 Client-side sleep (e.g. "200ms", "1s"). Emits an empty OK envelope.`)
 	registerUsage("screenshot", `twee screenshot [--out <path.png>] [--name <name>]

@@ -4,6 +4,7 @@ package engine
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"sort"
@@ -65,8 +66,27 @@ func (c *Config) applyDefaults() {
 }
 
 func (c Config) validate() error {
+	if err := ValidateTerminalSize(c.Cols, c.Rows); err != nil {
+		return fmt.Errorf("engine.Start: %w", err)
+	}
 	if c.WholeSessionTrace != nil && c.WholeSessionTrace.Path == "" {
 		return errors.New("engine.Start: whole-session trace path is empty")
+	}
+	return nil
+}
+
+const (
+	maxTerminalDimension = 65535
+	maxTerminalCells     = 100_000
+)
+
+// ValidateTerminalSize reports whether dimensions fit the PTY and VT model.
+func ValidateTerminalSize(cols, rows int) error {
+	if cols < 1 || cols > maxTerminalDimension || rows < 1 || rows > maxTerminalDimension {
+		return fmt.Errorf("terminal size %dx%d is outside 1..%d", cols, rows, maxTerminalDimension)
+	}
+	if cols > maxTerminalCells/rows {
+		return fmt.Errorf("terminal size %dx%d exceeds %d cells", cols, rows, maxTerminalCells)
 	}
 	return nil
 }

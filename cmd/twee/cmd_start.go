@@ -47,6 +47,9 @@ func runStart(args []string) {
 	if err != nil {
 		fatalUsage("start: %v", err)
 	}
+	if err := engine.ValidateTerminalSize(opts.cols, opts.rows); err != nil {
+		emitError(rpc.CodeInvalidArgument, err.Error(), nil, 1)
+	}
 	var replaced bool
 	if opts.force {
 		replaced = forceStopExisting(opts.name)

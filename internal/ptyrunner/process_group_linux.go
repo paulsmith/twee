@@ -22,6 +22,7 @@ import (
 type processGroup struct {
 	mu          sync.Mutex
 	pgid        int
+	exited      bool
 	releaseCh   chan struct{}
 	releaseOnce sync.Once
 	exitedCh    chan struct{}
@@ -30,6 +31,7 @@ type processGroup struct {
 }
 
 var waitid = unix.Waitid
+var readWaitInfo = waitInfoFromProc
 
 func newProcessGroup() *processGroup {
 	return &processGroup{
@@ -59,6 +61,16 @@ func (g *processGroup) signal(sig syscall.Signal) error {
 	return killProcessGroup(pgid, sig)
 }
 
+func (g *processGroup) resizeSignal() error {
+	<-g.startedCh
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.pgid == 0 || g.exited {
+		return os.ErrProcessDone
+	}
+	return killProcessGroup(g.pgid, syscall.SIGWINCH)
+}
+
 func (g *processGroup) wait(cmd *exec.Cmd, notify func(exitInfo)) {
 	pid := cmd.Process.Pid
 	var si unix.Siginfo
@@ -73,6 +85,7 @@ func (g *processGroup) wait(cmd *exec.Cmd, notify func(exitInfo)) {
 		// Reaping releases the numeric PID. Disable future group signaling
 		// before reaping so a reused PGID can never be targeted.
 		g.mu.Lock()
+		g.exited = true
 		g.pgid = 0
 		g.mu.Unlock()
 		err := cmd.Wait()
@@ -80,7 +93,10 @@ func (g *processGroup) wait(cmd *exec.Cmd, notify func(exitInfo)) {
 		notify(exitInfoFromProcessState(err, cmd.ProcessState))
 		return
 	}
-	info, err := waitInfoFromProc(pid)
+	g.mu.Lock()
+	g.exited = true
+	g.mu.Unlock()
+	info, err := readWaitInfo(pid)
 	if err != nil {
 		info.err = fmt.Errorf("read waitable child status: %w", err)
 	}

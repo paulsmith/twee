@@ -50,6 +50,49 @@ func TestCursorCLIResponseMatchesDocumentedShape(t *testing.T) {
 	}
 }
 
+func TestResizeCLIResponseAcknowledgesCommittedDimensions(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+	name := "resize-contract"
+	defer stopContractSession(bin, env, name)
+
+	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
+	result := runContractCLI(t, bin, env, "resize", "--name", name, "--cols", "100", "--rows", "30")
+	if result.exitCode != 0 {
+		t.Fatalf("resize exit code = %d, want 0\nstdout: %s\nstderr: %s", result.exitCode, result.stdout, result.stderr)
+	}
+	envelope := decodeContractEnvelope(t, result.stdout)
+	if !envelope.OK {
+		t.Fatalf("resize response = %s, want ok response", result.stdout)
+	}
+	assertJSONKeys(t, envelope.Data, "cols", "rows")
+	var ack rpc.SizeData
+	if err := json.Unmarshal(envelope.Data, &ack); err != nil {
+		t.Fatalf("decode resize acknowledgement: %v\n%s", err, envelope.Data)
+	}
+	if ack.Cols != 100 || ack.Rows != 30 {
+		t.Fatalf("resize acknowledgement = %+v, want 100x30", ack)
+	}
+}
+
+func TestResizeHelpDefinesAcknowledgementBoundary(t *testing.T) {
+	bin := buildBinary(t)
+	out, err := exec.Command(bin, "help", "resize").Output()
+	if err != nil {
+		t.Fatalf("help resize: %v", err)
+	}
+	help := string(out)
+	for _, phrase := range []string{
+		"returns the acknowledged {cols, rows}",
+		"does not wait for the child to",
+		"use a wait command for observable UI state",
+	} {
+		if !strings.Contains(help, phrase) {
+			t.Errorf("resize help missing %q:\n%s", phrase, help)
+		}
+	}
+}
+
 func TestDiffCLIResponseAndExitContract(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)

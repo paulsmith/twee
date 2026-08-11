@@ -10,10 +10,11 @@ import (
 
 type unsupportedProcess struct{}
 
-func (*unsupportedProcess) pid() int                           { return 0 }
-func (*unsupportedProcess) wait() (Result, error)              { return Result{}, ErrUnsupported }
-func (*unsupportedProcess) signal(os.Signal) error             { return ErrUnsupported }
-func (*unsupportedProcess) closeWithGrace(time.Duration) error { return ErrUnsupported }
+func (*unsupportedProcess) pid() int                              { return 0 }
+func (*unsupportedProcess) wait() (Result, error)                 { return Result{}, ErrUnsupported }
+func (*unsupportedProcess) signal(os.Signal) error                { return ErrUnsupported }
+func (*unsupportedProcess) signalIfLeaderRunning(os.Signal) error { return ErrUnsupported }
+func (*unsupportedProcess) closeWithGrace(time.Duration) error    { return ErrUnsupported }
 
 // Preflight reports whether this host can provide the required isolation.
 func Preflight() error {

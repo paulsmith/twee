@@ -66,10 +66,11 @@ func Run(ctx context.Context, config Config) (Result, error) {
 }
 
 type processRequest struct {
-	signal syscall.Signal
-	grace  time.Duration
-	close  bool
-	reply  chan error
+	signal        syscall.Signal
+	grace         time.Duration
+	close         bool
+	requireLeader bool
+	reply         chan error
 }
 
 type leaderExit struct {
@@ -443,11 +444,19 @@ func (p *linuxProcess) wait() (Result, error) {
 }
 
 func (p *linuxProcess) signal(sig os.Signal) error {
+	return p.requestSignal(sig, false)
+}
+
+func (p *linuxProcess) signalIfLeaderRunning(sig os.Signal) error {
+	return p.requestSignal(sig, true)
+}
+
+func (p *linuxProcess) requestSignal(sig os.Signal, requireLeader bool) error {
 	sysSig, ok := sig.(syscall.Signal)
 	if !ok {
 		return fmt.Errorf("netwrap: unsupported signal %v", sig)
 	}
-	request := processRequest{signal: sysSig, reply: make(chan error, 1)}
+	request := processRequest{signal: sysSig, requireLeader: requireLeader, reply: make(chan error, 1)}
 	select {
 	case p.requests <- request:
 		return <-request.reply
@@ -565,6 +574,17 @@ func (p *linuxProcess) supervise() {
 				request.reply <- nil
 				continue
 			}
+			if request.requireLeader {
+				exited, err := leaderExited(p.pid())
+				if err != nil {
+					request.reply <- err
+					continue
+				}
+				if exited {
+					request.reply <- os.ErrProcessDone
+					continue
+				}
+			}
 			request.reply <- signalProcessGroup(p.pid(), request.signal)
 		case <-ctxDone:
 			// A cancelled context's Done channel remains readable forever. Disable
@@ -613,6 +633,23 @@ func drainNetworkError(errs <-chan error) error {
 		return err
 	default:
 		return nil
+	}
+}
+
+func leaderExited(pid int) (bool, error) {
+	var info unix.Siginfo
+	for {
+		err := unix.Waitid(unix.P_PID, pid, &info, syscall.WEXITED|syscall.WNOHANG|syscall.WNOWAIT, nil)
+		if errors.Is(err, syscall.EINTR) {
+			continue
+		}
+		if errors.Is(err, syscall.ECHILD) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return info.Signo != 0, nil
 	}
 }
 

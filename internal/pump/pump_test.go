@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -148,6 +149,90 @@ func TestRecentBytesAreCappedAndCopied(t *testing.T) {
 	p.appendRecent([]byte("tail"))
 	if !bytes.HasSuffix(p.RecentBytes(), []byte("tail")) {
 		t.Fatalf("RecentBytes missing appended tail")
+	}
+}
+
+type resizeOrderModel struct {
+	cols, rows int
+	events     []string
+}
+
+func (m *resizeOrderModel) Feed([]byte) error {
+	m.events = append(m.events, fmt.Sprintf("feed@%dx%d", m.cols, m.rows))
+	return nil
+}
+
+func (m *resizeOrderModel) Resize(cols, rows int) error {
+	m.cols, m.rows = cols, rows
+	m.events = append(m.events, "model")
+	return nil
+}
+
+func (m *resizeOrderModel) Snapshot() vt.Snapshot { return vt.Snapshot{} }
+
+func TestCommitResizeOrdersSignalOutputAfterModelCommit(t *testing.T) {
+	chunks := make(chan []byte)
+	model := &resizeOrderModel{cols: 5, rows: 2}
+	p := New(model, chunkReader{chunks: chunks})
+	runDone := make(chan error, 1)
+	go func() { runDone <- p.Run() }()
+
+	if err := p.CommitResize(8, 3, func() error {
+		chunks <- []byte("signal output")
+		return nil
+	}, func() {
+		model.events = append(model.events, "committed")
+	}); err != nil {
+		t.Fatalf("CommitResize: %v", err)
+	}
+	close(chunks)
+	if err := <-runDone; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	want := []string{"model", "committed", "feed@8x3"}
+	if !slices.Equal(model.events, want) {
+		t.Fatalf("events = %v, want %v", model.events, want)
+	}
+}
+
+func TestCommitResizeOrdersOutputHookBeforeResizeBookkeeping(t *testing.T) {
+	chunks := make(chan []byte)
+	p := New(vt.New(5, 2), chunkReader{chunks: chunks})
+	hookEntered := make(chan struct{})
+	hookRelease := make(chan struct{})
+	outputDone := make(chan struct{})
+	p.SetOutputHook(func([]byte, time.Time) {
+		close(hookEntered)
+		<-hookRelease
+		close(outputDone)
+	})
+	runDone := make(chan error, 1)
+	go func() { runDone <- p.Run() }()
+
+	chunks <- []byte("before resize")
+	<-hookEntered
+	resizeStarted := make(chan struct{})
+	resizeCommitted := make(chan struct{})
+	resizeDone := make(chan error, 1)
+	go func() {
+		close(resizeStarted)
+		resizeDone <- p.CommitResize(8, 3, nil, func() { close(resizeCommitted) })
+	}()
+	<-resizeStarted
+	select {
+	case <-resizeCommitted:
+		t.Fatal("resize bookkeeping overtook the preceding output hook")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(hookRelease)
+	<-outputDone
+	if err := <-resizeDone; err != nil {
+		t.Fatalf("CommitResize: %v", err)
+	}
+	close(chunks)
+	if err := <-runDone; err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 }
 

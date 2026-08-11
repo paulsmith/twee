@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/paulsmith/twee/internal/engine"
 	tinput "github.com/paulsmith/twee/internal/input"
@@ -39,6 +40,44 @@ func TestInputHandlers(t *testing.T) {
 	}
 }
 
+func TestResizeHandlerAcknowledgesCommittedDimensions(t *testing.T) {
+	te := startTestTerm(t)
+	data, errResp := handleResize(te, mustJSON(t, rpc.ResizeArgs{Cols: 50, Rows: 7}))
+	if errResp != nil {
+		t.Fatalf("handleResize: %+v", errResp)
+	}
+	ack, ok := data.(rpc.SizeData)
+	if !ok || ack.Cols != 50 || ack.Rows != 7 {
+		t.Fatalf("acknowledgement = %#v, want 50x7 SizeData", data)
+	}
+	snap := te.Snapshot()
+	if snap.Cols != ack.Cols || snap.Rows != ack.Rows {
+		t.Fatalf("snapshot = %dx%d, acknowledgement = %dx%d", snap.Cols, snap.Rows, ack.Cols, ack.Rows)
+	}
+}
+
+func TestResizeHandlerRejectsExitedChildWithoutChangingModel(t *testing.T) {
+	te, err := engine.Start(context.Background(), engine.Config{
+		Cmd: []string{"/bin/true"}, Cols: 40, Rows: 5,
+	})
+	if err != nil {
+		t.Fatalf("engine.Start: %v", err)
+	}
+	t.Cleanup(func() { _ = te.Close() })
+	if _, err := te.WaitForExit(engine.WithTimeout(2 * time.Second)); err != nil {
+		t.Fatalf("WaitForExit: %v", err)
+	}
+
+	data, errResp := handleResize(te, mustJSON(t, rpc.ResizeArgs{Cols: 50, Rows: 7}))
+	if data != nil || errResp == nil || errResp.Code != rpc.CodeFailedPrecondition {
+		t.Fatalf("handleResize after exit = (%#v, %+v), want FAILED_PRECONDITION", data, errResp)
+	}
+	snap := te.Snapshot()
+	if snap.Cols != 40 || snap.Rows != 5 {
+		t.Fatalf("snapshot after rejected resize = %dx%d, want 40x5", snap.Cols, snap.Rows)
+	}
+}
+
 func TestInputHandlersRejectInvalidArgs(t *testing.T) {
 	te := startTestTerm(t)
 
@@ -55,6 +94,8 @@ func TestInputHandlersRejectInvalidArgs(t *testing.T) {
 		{"signal unknown", handleSignal, mustJSON(t, rpc.SignalArgs{Name: "SIGNOPE"})},
 		{"resize json", handleResize, json.RawMessage(`{`)},
 		{"resize invalid", handleResize, mustJSON(t, rpc.ResizeArgs{Cols: 0, Rows: 5})},
+		{"resize dimension overflow", handleResize, mustJSON(t, rpc.ResizeArgs{Cols: 65536, Rows: 1})},
+		{"resize cell overflow", handleResize, mustJSON(t, rpc.ResizeArgs{Cols: 1001, Rows: 100})},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

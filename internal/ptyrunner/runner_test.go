@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/paulsmith/twee/internal/termios"
 )
 
@@ -46,6 +47,13 @@ func TestRunnerLifecycle(t *testing.T) {
 	if err := r.Resize(20, 5); err != nil {
 		t.Fatalf("Resize: %v", err)
 	}
+	ws, err := pty.GetsizeFull(r.master)
+	if err != nil {
+		t.Fatalf("GetsizeFull: %v", err)
+	}
+	if ws.Cols != 20 || ws.Rows != 5 {
+		t.Fatalf("PTY size = %dx%d, want 20x5", ws.Cols, ws.Rows)
+	}
 	if err := r.Signal(syscall.SIGWINCH); err != nil {
 		t.Fatalf("Signal: %v", err)
 	}
@@ -70,6 +78,22 @@ func TestRunnerExitCode(t *testing.T) {
 	}
 	if err := r.Err(); err != nil {
 		t.Fatalf("Err = %v, want nil for an ordinary nonzero exit", err)
+	}
+}
+
+func TestResizeAfterExitFails(t *testing.T) {
+	r, err := Start(context.Background(), Config{Command: []string{"/bin/true"}})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+	select {
+	case <-r.ExitedCh():
+	case <-time.After(2 * time.Second):
+		t.Fatal("ExitedCh did not close")
+	}
+	if err := r.Resize(20, 5); !errors.Is(err, os.ErrProcessDone) {
+		t.Fatalf("Resize after exit = %v, want os.ErrProcessDone", err)
 	}
 }
 

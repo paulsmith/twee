@@ -17,6 +17,15 @@ import (
 	"github.com/creack/pty"
 )
 
+func TestRunRejectsOversizedInitialTerminal(t *testing.T) {
+	err := Run(context.Background(), Options{
+		Command: []string{"/bin/true"}, Cols: 65536, Rows: 1, NoStatus: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "terminal size 65536x1") {
+		t.Fatalf("Run error = %v, want terminal size validation", err)
+	}
+}
+
 func TestRunReapsNaturalExit(t *testing.T) {
 	master, slave, err := pty.Open()
 	if err != nil {

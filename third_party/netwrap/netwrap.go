@@ -99,6 +99,7 @@ type process interface {
 	pid() int
 	wait() (Result, error)
 	signal(os.Signal) error
+	signalIfLeaderRunning(os.Signal) error
 	closeWithGrace(time.Duration) error
 }
 
@@ -120,6 +121,11 @@ func (p *Process) Wait() (Result, error) { return p.process.wait() }
 
 // Signal forwards sig to the command's managed process group.
 func (p *Process) Signal(sig os.Signal) error { return p.process.signal(sig) }
+
+// SignalIfLeaderRunning forwards sig only if the managed leader has not exited.
+func (p *Process) SignalIfLeaderRunning(sig os.Signal) error {
+	return p.process.signalIfLeaderRunning(sig)
+}
 
 // CloseWithGrace sends SIGTERM, escalates to SIGKILL after grace, and waits
 // for the command, netstack, and recorder to finish. It is idempotent.

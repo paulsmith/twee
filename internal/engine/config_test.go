@@ -8,6 +8,26 @@ import (
 	"testing"
 )
 
+func TestValidateTerminalSize(t *testing.T) {
+	tests := []struct {
+		cols, rows int
+		valid      bool
+	}{
+		{1, 1, true},
+		{65535, 1, true},
+		{1000, 100, true},
+		{0, 1, false},
+		{65536, 1, false},
+		{1001, 100, false},
+	}
+	for _, test := range tests {
+		err := ValidateTerminalSize(test.cols, test.rows)
+		if (err == nil) != test.valid {
+			t.Errorf("ValidateTerminalSize(%d, %d) = %v, valid=%t", test.cols, test.rows, err, test.valid)
+		}
+	}
+}
+
 func TestBuildEnvInheritsParentAndAppliesOverrides(t *testing.T) {
 	t.Setenv("CODEX_HOME", "/tmp/codex-home")
 	t.Setenv("TWEE_PARENT_ENV_TEST", "parent")

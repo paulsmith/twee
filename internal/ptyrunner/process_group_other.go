@@ -40,6 +40,7 @@ func (g *processGroup) signal(sig syscall.Signal) error {
 	}
 	return killProcessGroup(g.pgid, sig)
 }
+func (g *processGroup) resizeSignal() error { return g.signal(syscall.SIGWINCH) }
 func (g *processGroup) wait(cmd *exec.Cmd, notify func(exitInfo)) {
 	err := cmd.Wait()
 	g.mu.Lock()

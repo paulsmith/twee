@@ -116,6 +116,9 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 	if compositorEnabled && rows > 1 {
 		rows--
 	}
+	if err := engine.ValidateTerminalSize(cols, rows); err != nil {
+		return fmt.Errorf("wrap: %w", err)
+	}
 	ctx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stopSignals()
 
@@ -437,16 +440,35 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 				if ev.cols <= 0 || ev.rows <= 0 {
 					continue
 				}
-				cols, statusRows = ev.cols, ev.rows
-				status.enabled = compositorEnabled && statusRows > 1
-				rows = statusRows
-				if status.enabled && rows > 1 {
-					rows--
+				nextCols, nextStatusRows := ev.cols, ev.rows
+				nextStatusEnabled := compositorEnabled && nextStatusRows > 1
+				nextRows := nextStatusRows
+				if nextStatusEnabled {
+					nextRows--
 				}
-				if err := runner.Resize(cols, rows); err != nil && runErr == nil {
-					runErr = err
+				if err := engine.ValidateTerminalSize(nextCols, nextRows); err != nil {
+					if runErr == nil {
+						runErr = fmt.Errorf("resize: %w", err)
+					}
+					stopChild()
+					continue
 				}
-				_ = model.Resize(cols, rows)
+				if err := runner.Resize(nextCols, nextRows); err != nil {
+					if runErr == nil {
+						runErr = err
+					}
+					stopChild()
+					continue
+				}
+				if err := model.Resize(nextCols, nextRows); err != nil {
+					if runErr == nil {
+						runErr = err
+					}
+					stopChild()
+					continue
+				}
+				cols, statusRows, rows = nextCols, nextStatusRows, nextRows
+				status.enabled = nextStatusEnabled
 				status.cols, status.rows = cols, statusRows
 				host.hostRows, host.status = statusRows, status.enabled
 				if script.state == recorderRecording {
