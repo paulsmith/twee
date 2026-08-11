@@ -62,7 +62,7 @@ func newCommandRegistry() map[string]*commandDescriptor {
 		"scrollback": "Show retained scrollback", "signal": "Send a signal to the child process",
 		"size": "Show terminal dimensions", "sleep": "Sleep client-side", "snapshot": "Show the full terminal snapshot",
 		"start": "Spawn a TUI in a daemon", "status": "Show daemon status", "stop": "Stop the running daemon",
-		"text": "Show visible viewport text", "title": "Show the window title", "trace": "Start or stop .twee trace recording",
+		"text": "Show visible viewport text", "title": "Show the window title", "trace": "Start, stop, or query .twee traces",
 		"type": "Write literal text to the PTY", "version": "Print the twee version",
 		"wait": "Wait for terminal state or process exit", "wrap": "Wrap a terminal command with optional recording",
 	}
@@ -142,6 +142,14 @@ func registerUsage(path, usage string) {
 		d.Artifact = &artifactDescriptor{PathField: "data.out"}
 	case "trace stop":
 		d.Artifact = &artifactDescriptor{PathField: "data.path"}
+	case "trace contains-output":
+		d.Artifact = nil
+		exitStatus := make(map[string]string, len(d.ExitStatus))
+		for code, meaning := range d.ExitStatus {
+			exitStatus[code] = meaning
+		}
+		exitStatus["1"] = "no output match (ASSERTION_FAILED), invalid bundle, or operational failure"
+		d.ExitStatus = exitStatus
 	}
 }
 

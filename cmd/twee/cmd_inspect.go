@@ -51,7 +51,7 @@ func runInspect(args []string) {
 		emitError(rpc.CodeIO, err.Error(), nil, 1)
 	}
 	if !validation.Valid {
-		emitInvalidBundle(validation.Issues)
+		emitInvalidBundle("inspect", validation.Issues)
 	}
 
 	summary := inspect.Summarize(parsed.Path, decoded)
@@ -62,10 +62,10 @@ func runInspect(args []string) {
 	printInspectText(os.Stdout, summary)
 }
 
-func emitInvalidBundle(issues []string) {
+func emitInvalidBundle(operation string, issues []string) {
 	details, _ := json.Marshal(map[string]any{"issues": issues})
 	emitError(rpc.CodeInvalidArgument,
-		fmt.Sprintf("inspect: %d issue(s) found", len(issues)),
+		fmt.Sprintf("%s: %d issue(s) found", operation, len(issues)),
 		details, 1)
 }
 

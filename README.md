@@ -358,7 +358,7 @@ Common error codes are:
 | `CHILD_EXITED` | The child exited during session startup. |
 | `INVALID_ARGUMENT` | An operation argument is invalid. |
 | `FAILED_PRECONDITION` | The current terminal state cannot perform the operation. |
-| `ASSERTION_FAILED` | A cell or region did not satisfy an assertion predicate. |
+| `ASSERTION_FAILED` | A live cell/region assertion or offline trace containment assertion did not match. |
 | `IO` | A socket, PTY, or file operation failed. |
 | `INTERNAL` | Twee encountered an internal error. |
 | `SESSION_ENDED` | A pending wait ended because the session ended. |
@@ -499,6 +499,17 @@ If you omit `--out`, `trace start` creates a temporary path. The JSON response c
 Twee automatically finalizes an active trace when the child exits. `wait exit` and `stop` wait for the trace file to become durable.
 
 Trace events include PTY output, input, terminal resize, and process exit. High-level mouse gestures include their encoded bytes and gesture metadata.
+
+Search recorded raw PTY output directly without unpacking `events.jsonl`:
+
+```sh
+twee trace contains-output session.twee --text 'saved'
+twee trace contains-output session.twee --hex 1b5b3f323030346c
+twee trace contains-output session.twee --regex 'error [0-9]+'
+```
+
+Output events form one byte stream, so matches can cross event boundaries. A match reports the completion timestamp and zero-based inclusive bundle event range. No match exits with `ASSERTION_FAILED`. Use `--hex` for arbitrary bytes; `--text` and the recorded output must be valid UTF-8 for `--regex`, which uses Go/RE2 syntax.
+
 Atomic pattern clicks also record the pattern, regular-expression flag,
 selection decision, match, and target. Treat traces and screenshots as
 sensitive: terminal text can contain credentials, and a pattern only identifies

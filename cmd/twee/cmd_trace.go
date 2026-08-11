@@ -9,7 +9,8 @@ func init() {
 
 	registerUsage("trace", `twee trace start [--out <path.twee>] [--name <name>]
 twee trace stop [--name <name>]
-Start/stop a trace recording on the running session.
+twee trace contains-output <bundle.twee> (--text TEXT | --hex HEX | --regex REGEX)
+Start, stop, or query trace recordings.
 
 Trace bundles are .twee zip files containing:
   manifest.json          session metadata: command, size, pid, host, times
@@ -43,11 +44,29 @@ Stop a trace recording and write the .twee bundle.
 Trace stop closes the trace and returns the saved path as {"path": "..."}.
 It is rejected for a whole-session network trace; stop the session or wait for
 its exit to finalize that bundle.`)
+	registerUsage("trace contains-output", `twee trace contains-output <bundle.twee> (--text TEXT | --hex HEX | --regex REGEX)
+Search the trace's raw PTY output byte stream without a running daemon. Output
+events are concatenated in bundle order, so matches may span event boundaries;
+input, resize, exit, and empty output events do not break the stream.
+
+Exactly one matcher is required:
+  --text TEXT      exact UTF-8 bytes
+  --hex HEX        exact arbitrary bytes as contiguous hexadecimal
+  --regex REGEX    Go/RE2 regular expression over the output byte stream
+
+Empty matchers and regular expressions that can match without consuming output
+are rejected. Regex queries also require the recorded output stream to be valid
+UTF-8; use --hex for arbitrary bytes. On a match, data contains
+{t_ms, event_start, event_end}. t_ms is the timestamp of the output event that
+completed the match; event indexes are zero-based, inclusive indexes into all
+bundle events. Only the first leftmost match is reported. A valid bundle with
+no match exits 1 with ASSERTION_FAILED. Invalid bundles report INVALID_ARGUMENT
+with all validation issues.`)
 }
 
 func runTrace(args []string) {
 	if len(args) == 0 {
-		fatalUsage("trace: missing subverb (start|stop)")
+		fatalUsage("trace: missing subverb (start|stop|contains-output)")
 	}
 	sub := args[0]
 	rest := args[1:]
@@ -86,6 +105,8 @@ func runTrace(args []string) {
 			emitError(resp.Error.Code, resp.Error.Message, resp.Error.Details, 1)
 		}
 		emitOKRaw(resp.Data)
+	case "contains-output":
+		runTraceContainsOutput(rest)
 	default:
 		fatalUsage("trace: unknown subverb %q", sub)
 	}
