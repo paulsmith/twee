@@ -156,6 +156,7 @@
         devShells.default = pkgs.mkShellNoCC {
           packages = [
             pkgs.go
+            pkgs.golangci-lint
             pkgs.goreleaser
             pkgs.gnumake
             pkgs.pkg-config
