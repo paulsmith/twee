@@ -77,6 +77,9 @@ func TestNetworkCaptureIncludesPublishedTCPExchange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := te.Type("done\n"); err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(string(response), "200 OK") || !strings.Contains(string(response), "healthy") {
 		t.Fatalf("response = %q", response)
 	}
@@ -185,4 +188,6 @@ func TestNetworkCaptureGuestHelper(t *testing.T) {
 		t.Fatalf("request = %q, %v", request, err)
 	}
 	_, _ = io.WriteString(conn, "HTTP/1.0 200 OK\r\nContent-Length: 7\r\n\r\nhealthy")
+	_ = conn.Close()
+	_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 }
