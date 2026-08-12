@@ -131,6 +131,8 @@ type Trace struct {
 	evEnc      *json.Encoder
 
 	start       time.Time
+	lastTMS     int64
+	hasLastTMS  bool
 	closed      bool
 	err         error
 	removeAll   func(string) error
@@ -347,7 +349,12 @@ func (tr *Trace) ms(ts time.Time) int64 {
 	if ts.IsZero() {
 		ts = time.Now()
 	}
-	return ts.Sub(tr.start).Milliseconds()
+	tms := max(ts.Sub(tr.start).Milliseconds(), 0)
+	if tr.hasLastTMS && tms < tr.lastTMS {
+		tms = tr.lastTMS
+	}
+	tr.lastTMS, tr.hasLastTMS = tms, true
+	return tms
 }
 
 // WriteOutput records raw PTY output bytes.

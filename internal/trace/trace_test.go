@@ -582,6 +582,68 @@ func TestTraceNewRejectsPredeclaredNetworkCapture(t *testing.T) {
 	}
 }
 
+func TestTraceTimestampsNeverDecreaseAcrossEventTypes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.twee")
+	tr, err := New(path, Manifest{Command: []string{"echo"}, Cols: 10, Rows: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr.WriteInput(InputKindKey, "x", []byte("x"))
+	tr.WriteOutput([]byte("data"), tr.start.Add(-time.Second))
+	tr.WriteMouseInput(MouseInput{}, []byte("mouse"))
+	tr.WriteResize(20, 4)
+	tr.WriteExit(0)
+	if err := tr.Close(); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	ef, err := zr.Open("events.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ef.Close()
+	var last int64
+	first := true
+	scanner := bufio.NewScanner(ef)
+	for scanner.Scan() {
+		var event EventRecord
+		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+			t.Fatal(err)
+		}
+		if !first && event.TMS < last {
+			t.Fatalf("event timestamp decreased from %d to %d", last, event.TMS)
+		}
+		if event.TMS < 0 {
+			t.Fatalf("event timestamp is negative: %d", event.TMS)
+		}
+		last, first = event.TMS, false
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTraceMSClampsPreStartAndMillisecondTruncation(t *testing.T) {
+	tr, err := New(filepath.Join(t.TempDir(), "session.twee"), Manifest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tr.ms(tr.start.Add(-time.Second)); got != 0 {
+		t.Fatalf("pre-start timestamp = %d, want 0", got)
+	}
+	if got := tr.ms(tr.start.Add(1500 * time.Microsecond)); got != 1 {
+		t.Fatalf("sub-millisecond timestamp = %d, want 1", got)
+	}
+	if got := tr.ms(tr.start.Add(2*time.Millisecond + 500*time.Microsecond)); got != 2 {
+		t.Fatalf("millisecond timestamp = %d, want 2", got)
+	}
+	_ = tr.Abort(nil)
+}
+
 func TestTraceConcurrentWrites(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "session.twee")
