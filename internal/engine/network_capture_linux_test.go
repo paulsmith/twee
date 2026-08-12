@@ -81,7 +81,7 @@ func TestNetworkCaptureIncludesPublishedTCPExchange(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(response), "200 OK") || !strings.Contains(string(response), "healthy") {
-		t.Fatalf("response = %q", response)
+		t.Fatalf("response = %q\n%s", response, te.Diagnostic())
 	}
 	if _, err := te.WaitForExit(engine.WithTimeout(5 * time.Second)); err != nil {
 		t.Fatal(err)

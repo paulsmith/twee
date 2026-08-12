@@ -186,13 +186,25 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 	} else {
 		status.draw(script, traces)
 	}
+	redraws := redrawLifecycle{}
+	defer redraws.cancel()
+	var redrawReady <-chan time.Time
 	redraw := func() {
+		redraws.cancel()
+		redrawReady = nil
 		if compositorEnabled {
 			host.status = status.enabled
 			host.hostRows = statusRows
 			host.render(model.Snapshot(), status.line(script, traces), presentationOf(model))
 		} else {
 			status.draw(script, traces)
+		}
+	}
+	scheduleRedraw := func() {
+		if compositorEnabled {
+			redrawReady = redraws.request()
+		} else {
+			redraw()
 		}
 	}
 	var toastTimer *time.Timer
@@ -417,6 +429,12 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 				}
 				traces.recordOutput(ev.bytes, ev.ts)
 				_ = model.Feed(ev.bytes)
+				if compositorEnabled {
+					presentation := presentationOf(model)
+					// Input-producing modes affect bytes the host generates, so mirror
+					// them immediately even though visual painting is frame-coalesced.
+					host.mirrorInputModes(presentation.Input)
+				}
 				if replies, ok := model.(vt.PTYReplySource); ok {
 					for _, reply := range replies.DrainPTYReplies() {
 						if compositorEnabled {
@@ -427,7 +445,7 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 						}
 					}
 				}
-				redraw()
+				scheduleRedraw()
 				if waitingForQuiet {
 					outputSinceAction = true
 					resetQuiet()
@@ -487,8 +505,15 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 				}
 				stopChild()
 			case ptyDoneEvent:
+				if redrawReady != nil {
+					redraw()
+				}
 				ptyDone = true
 			}
+		case <-redrawReady:
+			redraws.fired()
+			redrawReady = nil
+			redraw()
 		case <-quiet:
 			if waitingForQuiet && outputSinceAction && script.state == recorderRecording {
 				if err := script.rec.WaitStable(); err != nil && runErr == nil {
@@ -527,6 +552,9 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 		handleInput(in, false)
 	}
 	flushPendingWait()
+	if redrawReady != nil {
+		redraw()
+	}
 	traces.recordExit(runner.ExitCode())
 	if snapshot, ok := runner.ExitTermios(); ok {
 		traces.recordChildPTYTermiosExit(snapshot)

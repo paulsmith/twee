@@ -375,6 +375,52 @@ func TestWrapCompositorMirrorsCommonInputModes(t *testing.T) {
 	}
 }
 
+func TestWrapCompositorCoalescesBurstRedraws(t *testing.T) {
+	bin := buildBinary(t)
+	child := `for i in {1..30}; do printf '\033[H\033[2Jframe-%02d' "$i"; sleep 0.001; done`
+	cmd := exec.Command(bin, "wrap", "--", "/bin/bash", "-c", child)
+	cmd.Env = withTERM(append(os.Environ(), testEnv(t)...), "xterm-256color")
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: compositorCols, Rows: compositorRows})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ptmx.Close() }()
+	makePTYRaw(t, ptmx)
+	out, err := waitCodegenPTY(cmd, ptmx, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := visibleTextFromHostBytes(out, compositorCols, compositorRows); !strings.Contains(got, "frame-30") {
+		t.Fatalf("final frame missing:\n%s", got)
+	}
+	if frames := bytes.Count(out, []byte("\x1b[?2026h")); frames > 8 {
+		t.Fatalf("burst produced %d host redraw transactions, want coalesced output", frames)
+	}
+}
+
+func TestWrapCompositorFlushesPendingFrameAtPTYEOF(t *testing.T) {
+	bin := buildBinary(t)
+	child := `printf 'FINAL-FRAME'; exec 0>&- 1>&- 2>&-; sleep 1`
+	cmd := exec.Command(bin, "wrap", "--", "/bin/bash", "-c", child)
+	cmd.Env = withTERM(append(os.Environ(), testEnv(t)...), "xterm-256color")
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: compositorCols, Rows: compositorRows})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ptmx.Close() }()
+	makePTYRaw(t, ptmx)
+	p := watchPTY(cmd, ptmx)
+	p.waitForVisible(t, "FINAL-FRAME", compositorCols, compositorRows, 500*time.Millisecond)
+	select {
+	case err := <-p.done:
+		t.Fatalf("wrap exited before the EOF frame assertion: %v", err)
+	default:
+	}
+	if _, err := p.finish(3 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWrapNoStatusRawPassthrough(t *testing.T) {
 	bin := buildBinary(t)
 	dir := t.TempDir()
