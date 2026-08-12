@@ -76,6 +76,208 @@ func (s *fakeSink) SetTerminalSize(cols, rows int) {
 	s.terminalSizes = append(s.terminalSizes, terminalSize{Cols: cols, Rows: rows})
 }
 
+func TestLoopPreviousMarkerAfterNaturalPlaybackSeeksCurrentMarker(t *testing.T) {
+	tests := []struct {
+		name   string
+		events []Event
+	}{
+		{
+			name: "before later event",
+			events: []Event{
+				{TMS: 100, Type: trace.EventTypeOutput, Bytes: []byte("A")},
+				{TMS: 100, Type: trace.EventTypeMarker, Label: "current"},
+				{TMS: 200, Type: trace.EventTypeOutput, Bytes: []byte("B")},
+			},
+		},
+		{
+			name: "final marker",
+			events: []Event{
+				{TMS: 100, Type: trace.EventTypeOutput, Bytes: []byte("A")},
+				{TMS: 100, Type: trace.EventTypeMarker, Label: "final"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmds := make(chan command, 1)
+			l := testLoop(loopConfig{
+				Events: tt.events,
+				Cmds:   cmds,
+				Sink:   &fakeSink{},
+			})
+			now := time.Unix(0, 0)
+			l.tick(now)
+			l.tick(now.Add(100 * time.Millisecond))
+			if l.cursor != 2 || l.currentMarker != 0 || l.markerPaused {
+				t.Fatalf("natural marker state: cursor=%d current=%d markerPaused=%t", l.cursor, l.currentMarker, l.markerPaused)
+			}
+
+			cmds <- cmdPreviousMarker
+			l.tick(now.Add(101 * time.Millisecond))
+			if got := l.model.(*fakeModel).text; got != "A" {
+				t.Fatalf("previous marker state = %q, want A", got)
+			}
+			if l.cursor != 2 || l.currentMarker != 0 || !l.markerPaused {
+				t.Fatalf("seek state: cursor=%d current=%d markerPaused=%t", l.cursor, l.currentMarker, l.markerPaused)
+			}
+		})
+	}
+}
+
+func TestLoopPreviousMarkerAfterPauseOnMarkerSeeksPrecedingMarker(t *testing.T) {
+	cmds := make(chan command, 2)
+	l := testLoop(loopConfig{
+		Events: []Event{
+			{TMS: 0, Type: trace.EventTypeOutput, Bytes: []byte("A")},
+			{TMS: 0, Type: trace.EventTypeMarker, Label: "first"},
+			{TMS: 100, Type: trace.EventTypeOutput, Bytes: []byte("B")},
+			{TMS: 100, Type: trace.EventTypeMarker, Label: "second"},
+			{TMS: 100, Type: trace.EventTypeOutput, Bytes: []byte("C")},
+		},
+		PauseOnMarker: true,
+		Cmds:          cmds,
+		Sink:          &fakeSink{},
+	})
+	now := time.Unix(0, 0)
+	l.tick(now)
+	cmds <- cmdPause
+	l.tick(now.Add(time.Millisecond))
+	l.tick(now.Add(101 * time.Millisecond))
+	if got := l.model.(*fakeModel).text; got != "AB" {
+		t.Fatalf("second marker state = %q, want AB", got)
+	}
+	if l.cursor != 4 || l.currentMarker != 1 || !l.markerPaused {
+		t.Fatalf("second marker cursor=%d current=%d markerPaused=%t", l.cursor, l.currentMarker, l.markerPaused)
+	}
+
+	cmds <- cmdPreviousMarker
+	l.tick(now.Add(102 * time.Millisecond))
+	if got := l.model.(*fakeModel).text; got != "A" {
+		t.Fatalf("previous marker state = %q, want A", got)
+	}
+	if l.cursor != 2 || l.currentMarker != 0 {
+		t.Fatalf("previous marker cursor=%d current=%d", l.cursor, l.currentMarker)
+	}
+}
+
+func TestLoopMarkerNavigationPreservesSameTimestampOrder(t *testing.T) {
+	cmds := make(chan command, 4)
+	l := testLoop(loopConfig{
+		Events: []Event{
+			{TMS: 100, Type: trace.EventTypeOutput, Bytes: []byte("A")},
+			{TMS: 100, Type: trace.EventTypeMarker, Label: "first"},
+			{TMS: 100, Type: trace.EventTypeOutput, Bytes: []byte("B")},
+			{TMS: 100, Type: trace.EventTypeMarker, Label: "second"},
+			{TMS: 100, Type: trace.EventTypeOutput, Bytes: []byte("C")},
+		},
+		Cmds: cmds,
+		Sink: &fakeSink{},
+	})
+	now := time.Unix(0, 0)
+	l.tick(now)
+	cmds <- cmdNextMarker
+	l.tick(now.Add(time.Millisecond))
+	if got := l.model.(*fakeModel).text; got != "A" {
+		t.Fatalf("first marker state = %q, want A", got)
+	}
+	if l.cursor != 2 || l.currentMarker != 0 || !l.paused {
+		t.Fatalf("first marker cursor=%d current=%d paused=%t", l.cursor, l.currentMarker, l.paused)
+	}
+	cmds <- cmdNextMarker
+	l.tick(now.Add(2 * time.Millisecond))
+	if got := l.model.(*fakeModel).text; got != "AB" {
+		t.Fatalf("second marker state = %q, want AB", got)
+	}
+	cmds <- cmdPreviousMarker
+	l.tick(now.Add(3 * time.Millisecond))
+	if got := l.model.(*fakeModel).text; got != "A" {
+		t.Fatalf("previous marker state = %q, want A", got)
+	}
+}
+
+func TestLoopSeekMarkerDropsTransientReconstructionState(t *testing.T) {
+	cmds := make(chan command, 1)
+	l := testLoop(loopConfig{
+		Events: []Event{
+			{TMS: 0, Type: trace.EventTypeInput, Kind: trace.InputKindMouse, Mouse: testMouseClick(1, 1, "left")},
+			{TMS: 0, Type: trace.EventTypeResize, Cols: 12, Rows: 4},
+			{TMS: 0, Type: trace.EventTypeMarker, Label: "ready"},
+		},
+		Step: true,
+		Cmds: cmds,
+		Sink: &fakeSink{},
+	})
+	now := time.Unix(0, 0)
+	l.tick(now)
+	cmds <- cmdNextMarker
+	l.tick(now.Add(time.Millisecond))
+	if l.mouse != nil {
+		t.Fatal("marker reconstruction retained mouse annotation")
+	}
+	if strings.Contains(l.toast.text, "resize") || strings.Contains(l.toast.text, "click") {
+		t.Fatalf("marker reconstruction retained transient toast: %q", l.toast.text)
+	}
+	if !strings.Contains(l.toast.text, "marker ready") {
+		t.Fatalf("marker toast = %q", l.toast.text)
+	}
+	if l.cols != 12 || l.rows != 4 {
+		t.Fatalf("reconstructed size = %dx%d, want 12x4", l.cols, l.rows)
+	}
+}
+
+func TestLoopFinalMarkerStaysPausedWithoutEndScreen(t *testing.T) {
+	cmds := make(chan command, 2)
+	sink := &fakeSink{}
+	l := testLoop(loopConfig{
+		Events: []Event{
+			{TMS: 0, Type: trace.EventTypeOutput, Bytes: []byte("A")},
+			{TMS: 0, Type: trace.EventTypeMarker, Label: "final"},
+		},
+		PauseOnMarker: true,
+		Cmds:          cmds,
+		Sink:          sink,
+	})
+	now := time.Unix(0, 0)
+	l.tick(now)
+	if !l.paused || !l.markerPaused || l.atEnd {
+		t.Fatalf("final marker state: paused=%t markerPaused=%t atEnd=%t", l.paused, l.markerPaused, l.atEnd)
+	}
+	if !bytes.Equal(renderedFrame(t, l, false).Pix, lastFrame(t, sink).img.Pix) {
+		t.Fatal("final marker rendered end screen while marker-paused")
+	}
+	cmds <- cmdPause
+	l.tick(now.Add(time.Millisecond))
+	if !l.atEnd || l.markerPaused {
+		t.Fatalf("resume past final marker: markerPaused=%t atEnd=%t", l.markerPaused, l.atEnd)
+	}
+	if !bytes.Equal(renderedFrame(t, l, true).Pix, lastFrame(t, sink).img.Pix) {
+		t.Fatal("resuming past final marker did not render end screen")
+	}
+}
+
+func TestLoopPauseOnMarkerStopsBeforeEqualTimestampFollower(t *testing.T) {
+	l := testLoop(loopConfig{
+		Events: []Event{
+			{TMS: 100, Type: trace.EventTypeOutput, Bytes: []byte("A")},
+			{TMS: 100, Type: trace.EventTypeMarker, Label: "stop"},
+			{TMS: 100, Type: trace.EventTypeOutput, Bytes: []byte("B")},
+		},
+		PauseOnMarker: true,
+		Cmds:          make(chan command),
+		Sink:          &fakeSink{},
+	})
+	now := time.Unix(0, 0)
+	l.tick(now)
+	l.tick(now.Add(100 * time.Millisecond))
+	if got := l.model.(*fakeModel).text; got != "A" {
+		t.Fatalf("text = %q, want A", got)
+	}
+	if !l.paused || l.cursor != 2 || l.currentMarker != 0 {
+		t.Fatalf("paused=%t cursor=%d marker=%d", l.paused, l.cursor, l.currentMarker)
+	}
+}
+
 func TestLoopStepAdvancesExactlyOneEvent(t *testing.T) {
 	cmds := make(chan command, 4)
 	sink := &fakeSink{}

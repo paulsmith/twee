@@ -65,6 +65,13 @@ func ExportWithResult(path, outPath string, opts Options) (Result, error) {
 		return Result{}, fmt.Errorf("twee export: %w", err)
 	}
 	defer snk.abort()
+	if html, ok := snk.(*htmlSink); ok {
+		markers, err := htmlMarkers(b.Events, b.Manifest.Cols, b.Manifest.Rows, opts, cv)
+		if err != nil {
+			return Result{}, fmt.Errorf("twee export: marker checkpoints: %w", err)
+		}
+		html.setMarkers(markers)
+	}
 	err = replay(b.Events, b.Manifest.Cols, b.Manifest.Rows, opts, vt.New,
 		func(s vt.Snapshot, overlay string, d time.Duration) error {
 			img, err := cv.compose(s, overlay)

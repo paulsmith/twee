@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"image"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/paulsmith/twee/internal/engine"
@@ -20,6 +22,9 @@ const (
 	cmdPause command = iota
 	cmdStep
 	cmdFwd1s
+	cmdPreviousMarker
+	cmdNextMarker
+	cmdListMarkers
 	cmdRestart
 	cmdToggleStatus
 	cmdSlower
@@ -58,8 +63,12 @@ type loop struct {
 	maxIdle                 time.Duration
 	paused                  bool
 	stepMode                bool
+	pauseOnMarker           bool
+	markerPaused            bool
 	atEnd                   bool
 	statusVisible           bool
+	markers                 []int
+	currentMarker           int
 	toast                   toast
 	mouse                   *activeMouseAnnotation
 	mouseGeneration         uint64
@@ -95,6 +104,7 @@ type loopConfig struct {
 	Speed                   float64
 	MaxIdle                 time.Duration
 	Step                    bool
+	PauseOnMarker           bool
 	HideStatus              bool
 	Cmds                    <-chan command
 	Sink                    frameSink
@@ -118,6 +128,12 @@ func newLoop(cfg loopConfig) *loop {
 	if cfg.NewModel == nil {
 		cfg.NewModel = vt.New
 	}
+	var markers []int
+	for eventIndex, event := range cfg.Events {
+		if event.Type == trace.EventTypeMarker {
+			markers = append(markers, eventIndex)
+		}
+	}
 	return &loop{
 		events:                  append([]Event(nil), cfg.Events...),
 		model:                   cfg.NewModel(cfg.Cols, cfg.Rows),
@@ -125,7 +141,10 @@ func newLoop(cfg loopConfig) *loop {
 		maxIdle:                 cfg.MaxIdle,
 		paused:                  cfg.Step,
 		stepMode:                cfg.Step,
+		pauseOnMarker:           cfg.PauseOnMarker,
 		statusVisible:           !cfg.HideStatus,
+		markers:                 markers,
+		currentMarker:           -1,
 		cmds:                    cfg.Cmds,
 		sink:                    cfg.Sink,
 		cols:                    cfg.Cols,
@@ -171,7 +190,7 @@ func (l *loop) tick(now time.Time) (done bool) {
 	if dispatchReady {
 		l.dispatchReady(now)
 	}
-	if l.cursor == len(l.events) {
+	if l.cursor == len(l.events) && !l.markerPaused {
 		l.atEnd = true
 	}
 	l.emitFrame(now)
@@ -191,8 +210,12 @@ func (l *loop) drainCommands(now time.Time) (skipAdvance, dispatchReady, done bo
 			case cmdPause:
 				l.paused = !l.paused
 				l.stepMode = false
+				if !l.paused {
+					l.markerPaused = false
+				}
 				l.wallPrev = now
 			case cmdStep:
+				l.markerPaused = false
 				l.paused = true
 				l.stepMode = true
 				if l.cursor < len(l.events) {
@@ -203,9 +226,22 @@ func (l *loop) drainCommands(now time.Time) (skipAdvance, dispatchReady, done bo
 				}
 			case cmdFwd1s:
 				if !l.atEnd {
+					l.markerPaused = false
 					l.playT += time.Second
 					dispatchReady = true
 				}
+			case cmdPreviousMarker:
+				if marker := l.previousMarker(); marker >= 0 {
+					l.seekMarker(marker, now)
+					skipAdvance = true
+				}
+			case cmdNextMarker:
+				if marker := l.nextMarker(); marker >= 0 {
+					l.seekMarker(marker, now)
+					skipAdvance = true
+				}
+			case cmdListMarkers:
+				l.showMarkerList()
 			case cmdRestart:
 				l.model = l.newModel(l.initCols, l.initRows)
 				l.cursor = 0
@@ -213,7 +249,9 @@ func (l *loop) drainCommands(now time.Time) (skipAdvance, dispatchReady, done bo
 				l.wallPrev = now
 				l.paused = l.initStep
 				l.stepMode = l.initStep
+				l.markerPaused = false
 				l.atEnd = false
+				l.currentMarker = -1
 				l.toast = toast{}
 				l.snapHash = nil
 				l.mouse = nil
@@ -232,7 +270,7 @@ func (l *loop) drainCommands(now time.Time) (skipAdvance, dispatchReady, done bo
 			case cmdQuit:
 				return skipAdvance, dispatchReady, true
 			}
-			if l.cursor == len(l.events) {
+			if l.cursor == len(l.events) && !l.markerPaused {
 				l.atEnd = true
 			}
 		default:
@@ -243,8 +281,18 @@ func (l *loop) drainCommands(now time.Time) (skipAdvance, dispatchReady, done bo
 
 func (l *loop) dispatchReady(now time.Time) {
 	for l.cursor < len(l.events) && l.events[l.cursor].TraceTime() <= l.playT {
-		l.dispatch(l.events[l.cursor], now)
+		ev := l.events[l.cursor]
+		l.dispatch(ev, now)
 		l.cursor++
+		if ev.Type == trace.EventTypeMarker && l.pauseOnMarker {
+			l.paused = true
+			l.stepMode = false
+			l.markerPaused = true
+			l.atEnd = false
+			l.playT = ev.TraceTime()
+			l.wallPrev = now
+			break
+		}
 	}
 }
 
@@ -269,9 +317,81 @@ func (l *loop) dispatch(ev Event, now time.Time) {
 			l.mouse = &activeMouseAnnotation{mouse: cloneMouseInput(ev.Mouse), started: now}
 			l.mouseGeneration++
 		}
+	case trace.EventTypeMarker:
+		l.currentMarker++
+		l.setToast(ev)
 	case trace.EventTypeExit:
-		// Exit records are metadata in playback v0.
+		// Exit records are metadata in playback.
 	}
+}
+
+func (l *loop) nextMarker() int {
+	for i, eventIndex := range l.markers {
+		if eventIndex >= l.cursor {
+			return i
+		}
+	}
+	return -1
+}
+
+func (l *loop) previousMarker() int {
+	for i := len(l.markers) - 1; i >= 0; i-- {
+		eventIndex := l.markers[i]
+		if eventIndex+1 < l.cursor {
+			return i
+		}
+		if eventIndex+1 == l.cursor {
+			if l.markerPaused && i == l.currentMarker {
+				return i - 1
+			}
+			return i
+		}
+	}
+	return -1
+}
+
+func (l *loop) seekMarker(markerIndex int, now time.Time) {
+	if markerIndex < 0 || markerIndex >= len(l.markers) {
+		return
+	}
+	target := l.markers[markerIndex]
+	marker := l.events[target]
+	l.model = l.newModel(l.initCols, l.initRows)
+	l.cols, l.rows = l.initCols, l.initRows
+	l.cursor = 0
+	for l.cursor <= target {
+		ev := l.events[l.cursor]
+		if screenEvent, err := ApplyScreenEvent(l.model, ev); err != nil && l.err == nil {
+			l.err = err
+		} else if screenEvent && ev.Type == trace.EventTypeResize {
+			l.cols, l.rows = ev.Cols, ev.Rows
+		}
+		l.cursor++
+	}
+	l.currentMarker = markerIndex
+	l.toast = toast{text: FormatEventToast(marker)}
+	l.mouse = nil
+	l.mouseGeneration++
+	l.emittedMouseFrame = -2
+	l.playT = marker.TraceTime()
+	l.wallPrev = now
+	l.paused = true
+	l.stepMode = false
+	l.markerPaused = true
+	l.atEnd = false
+	l.snapHash = nil
+}
+
+func (l *loop) showMarkerList() {
+	if len(l.markers) == 0 {
+		l.toast = toast{text: "no markers"}
+		return
+	}
+	parts := make([]string, len(l.markers))
+	for i, eventIndex := range l.markers {
+		parts[i] = fmt.Sprintf("%d:%s", i+1, l.events[eventIndex].Label)
+	}
+	l.toast = toast{text: "markers " + strings.Join(parts, " | ")}
 }
 
 func (l *loop) setToast(ev Event) {
@@ -450,7 +570,12 @@ func (l *loop) status() string {
 	case l.paused:
 		mode = "paused"
 	}
-	return formatStatus(mode, l.speed, l.cursor, len(l.events))
+	marker, label := 0, ""
+	if l.currentMarker >= 0 && l.currentMarker < len(l.markers) {
+		marker = l.currentMarker + 1
+		label = l.events[l.markers[l.currentMarker]].Label
+	}
+	return formatStatus(mode, l.speed, l.cursor, len(l.events), marker, len(l.markers), label)
 }
 
 func hashSnapshot(s vt.Snapshot) []byte {

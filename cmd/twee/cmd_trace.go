@@ -2,19 +2,21 @@ package main
 
 import (
 	"github.com/paulsmith/twee/internal/rpc"
+	"unicode/utf8"
 )
 
 func init() {
 	register("trace", runTrace)
 
 	registerUsage("trace", `twee trace start [--out <path.twee>] [--name <name>]
+twee trace mark --label <label> [--name <name>]
 twee trace stop [--name <name>]
 twee trace contains-output <bundle.twee> (--text TEXT | --hex HEX | --regex REGEX)
-Start, stop, or query trace recordings.
+Start, mark, stop, or query trace recordings.
 
 Trace bundles are .twee zip files containing:
   manifest.json          session metadata: command, size, pid, host, times
-  events.jsonl           timestamped PTY output, input, resize, and exit events
+  events.jsonl           timestamped PTY output, input, resize, marker, and exit events
 
 If --out is omitted, trace start writes to a temporary path and prints it in the
 JSON response. Trace stop finalizes the bundle and prints the saved path.
@@ -26,8 +28,8 @@ entire session from spawn to teardown, use "twee start --trace <path.twee>".`)
 	registerUsage("trace start", `twee trace start [--out <path.twee>] [--name <name>]
 Start a trace recording on the running session.
 
-While tracing is active, twee records PTY output bytes, input events, resize
-events, and the process exit. If --out is omitted, twee creates a temporary
+While tracing is active, twee records PTY output bytes, input events, resize,
+marker events, and the process exit. If --out is omitted, twee creates a temporary
 .twee path and returns it as {"out": "..."}. New trace files are created with
 owner-only permissions.
 
@@ -38,6 +40,11 @@ Example:
 
 Sessions started with --network-capture already have a non-reconfigurable
 whole-session trace; trace start is rejected for those sessions.`)
+	registerUsage("trace mark", `twee trace mark --label <label> [--name <name>]
+Append a labeled marker to the active trace on a running session.
+
+Markers are trace metadata: they do not write bytes to the PTY or change the
+terminal model. The label must be non-empty valid UTF-8.`)
 	registerUsage("trace stop", `twee trace stop [--name <name>]
 Stop a trace recording and write the .twee bundle.
 
@@ -66,7 +73,7 @@ with all validation issues.`)
 
 func runTrace(args []string) {
 	if len(args) == 0 {
-		fatalUsage("trace: missing subverb (start|stop|contains-output)")
+		fatalUsage("trace: missing subverb (start|mark|stop|contains-output)")
 	}
 	sub := args[0]
 	rest := args[1:]
@@ -84,6 +91,18 @@ func runTrace(args []string) {
 			fatalUsage("trace start: %v", err)
 		}
 		callSessionAndEmit("trace start", opts.Name, rpc.OpTraceStart, rpc.TraceStartArgs{Out: out})
+	case "mark":
+		var opts struct {
+			Name  *string `arg:"--name"`
+			Label string  `arg:"--label,required"`
+		}
+		if err := parseArg("trace mark", &opts, rest); err != nil {
+			fatalUsage("trace mark: %v", err)
+		}
+		if !utf8.ValidString(opts.Label) {
+			fatalUsage("trace mark: --label must be valid UTF-8")
+		}
+		callSessionAndEmit("trace mark", opts.Name, rpc.OpTraceMark, rpc.TraceMarkArgs{Label: opts.Label})
 	case "stop":
 		var opts struct {
 			Name *string `arg:"--name"`

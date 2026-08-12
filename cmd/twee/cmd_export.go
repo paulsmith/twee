@@ -18,8 +18,8 @@ Export a .twee trace bundle to a replay artifact. The format is chosen by the
 output extension. GIF and self-contained HTML are encoded in pure Go; MP4 and
 WebM require ffmpeg. HTML replays work offline and include playback controls.
 Cast output is asciicast v2 NDJSON with recorded timing and terminal dimensions;
-it includes output and resize events. Use --input to include type, key, and
-paste input events. Terminal replies and unsupported event kinds are omitted;
+it includes output, resize, and marker events. Use --input to include type, key,
+and paste input events. Terminal replies and unsupported event kinds are omitted;
 --machine reports their count as omitted_events.
 New output files are created with owner-only permissions. Replacing an existing
 output preserves its permissions.

@@ -99,6 +99,34 @@ func TestVimTraceEndToEnd(t *testing.T) {
 	}
 }
 
+func TestTraceMarkNamedSessionEndToEnd(t *testing.T) {
+	bin := buildBinary(t)
+	env := testEnv(t)
+	tracePath := filepath.Join(t.TempDir(), "markers.twee")
+	const sessionName = "trace-marker"
+	defer func() {
+		cmd := exec.Command(bin, "stop", "--name", sessionName)
+		cmd.Env = append(os.Environ(), env...)
+		_ = cmd.Run()
+	}()
+
+	mustOK(t, bin, env, "start", "--name", sessionName, "--", "/bin/sh", "-c", "sleep 30")
+	mustOK(t, bin, env, "trace", "start", "--name", sessionName, "--out", tracePath)
+	mustOK(t, bin, env, "trace", "mark", "--name", sessionName, "--label", "ready ✓")
+	mustOK(t, bin, env, "trace", "stop", "--name", sessionName)
+	mustOK(t, bin, env, "stop", "--name", sessionName)
+
+	zr, err := zip.OpenReader(tracePath)
+	if err != nil {
+		t.Fatalf("open trace zip: %v", err)
+	}
+	defer func() { _ = zr.Close() }()
+	labels := scanMarkerLabels(t, &zr.Reader)
+	if strings.Join(labels, ",") != "ready ✓" {
+		t.Fatalf("marker labels = %#v, want [ready ✓]", labels)
+	}
+}
+
 // TestTraceFinalizedWhenChildExits records a session whose child exits on
 // its own, without an explicit `trace stop`. The bundle must be durable by
 // the moment `wait exit` returns.
@@ -276,6 +304,19 @@ func TestTraceStopAfterDaemonGone(t *testing.T) {
 	}
 }
 
+func TestTraceHelpListsMark(t *testing.T) {
+	bin := buildBinary(t)
+	out, err := exec.Command(bin, "help", "trace").Output()
+	if err != nil {
+		t.Fatalf("help trace: %v", err)
+	}
+	for _, want := range []string{"twee trace mark --label <label>", "Start, mark, stop, or query trace recordings."} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("trace help missing %q:\n%s", want, out)
+		}
+	}
+}
+
 // cliStdout runs the CLI expecting a non-zero exit and returns its stdout,
 // where twee prints its JSON error envelope.
 func cliStdout(t *testing.T, bin string, env []string, args ...string) []byte {
@@ -328,6 +369,33 @@ func assertNoScreenshotEntries(t *testing.T, zr *zip.Reader) {
 			t.Fatalf("unexpected screenshot entry %q", f.Name)
 		}
 	}
+}
+
+func scanMarkerLabels(t *testing.T, zr *zip.Reader) []string {
+	t.Helper()
+	ef, err := zr.Open("events.jsonl")
+	if err != nil {
+		t.Fatalf("events.jsonl missing: %v", err)
+	}
+	defer func() { _ = ef.Close() }()
+	var labels []string
+	sc := bufio.NewScanner(ef)
+	for sc.Scan() {
+		var ev struct {
+			Type  string `json:"type"`
+			Label string `json:"label"`
+		}
+		if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
+			t.Fatalf("decode event: %v\n%s", err, sc.Bytes())
+		}
+		if ev.Type == "marker" {
+			labels = append(labels, ev.Label)
+		}
+	}
+	if err := sc.Err(); err != nil {
+		t.Fatalf("scan events: %v", err)
+	}
+	return labels
 }
 
 // scanEvents tallies output / input events and reassembles the bytes

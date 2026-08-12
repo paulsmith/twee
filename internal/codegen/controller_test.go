@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,6 +38,15 @@ func TestStatusUsesOneSpinnerPhase(t *testing.T) {
 	}
 }
 
+func TestStatusLineHonorsDisabledStatus(t *testing.T) {
+	var out bytes.Buffer
+	status := statusBar{w: &out, enabled: false, rows: 24, cols: 80}
+	status.drawLine(status.markerPrompt("secret"))
+	if out.Len() != 0 {
+		t.Fatalf("disabled status line wrote %q", out.String())
+	}
+}
+
 func TestSanitizeStatusPreventsControlsAndASCII(t *testing.T) {
 	got := sanitizeStatus("x\x1b[2J\n界", true)
 	if got != "x [2J ?" {
@@ -69,7 +79,7 @@ func TestStatusKeepsHintsAheadOfLongPaths(t *testing.T) {
 	script := &scriptController{state: recorderRecording, partial: true, path: "bad\x1b[2J" + strings.Repeat("x", 200)}
 	trace := &traceController{state: recorderRecording, path: strings.Repeat("y", 200)}
 	line := truncateStatus(s.line(script, trace), 80)
-	for _, hint := range []string{"^]q", "^]s", "^]t", "partial"} {
+	for _, hint := range []string{"^]q", "^]s", "^]t", "^]m", "partial"} {
 		if !strings.Contains(line, hint) {
 			t.Fatalf("status missing %q: %q", hint, line)
 		}

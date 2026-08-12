@@ -16,6 +16,7 @@ Wrap <cmd> in a PTY. Script and trace recording are independently optional.
 
 Controls:
   Ctrl+] q        finalize active recorders and terminate the child
+  Ctrl+] m        prompt for a label and add a marker to the active trace
   Ctrl+] s        start/stop JSON script capture (one-shot)
   Ctrl+] t        start/stop trace recording (one-shot; network traces run until exit)
 

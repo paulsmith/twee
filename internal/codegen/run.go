@@ -177,14 +177,21 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 		}
 	}
 	status := statusBar{w: opts.Stdout, enabled: compositorEnabled && statusRows > 1, rows: statusRows, cols: cols, ascii: statusASCII(os.Getenv("TERM")), composited: compositorEnabled}
+	marker := markerPrompt{}
+	statusLine := func() string {
+		if marker.active {
+			return status.markerPrompt(marker.label)
+		}
+		return status.line(script, traces)
+	}
 	var spinner spinnerLifecycle
 	defer spinner.close()
 	host := hostRenderer{w: opts.Stdout, active: false, hostRows: statusRows, status: status.enabled, preserve: nativeHostStateSaveCapable(os.Getenv("TERM"))}
 	if compositorEnabled {
 		host.enter()
-		host.render(model.Snapshot(), status.line(script, traces), presentationOf(model))
+		host.render(model.Snapshot(), statusLine(), presentationOf(model))
 	} else {
-		status.draw(script, traces)
+		status.drawLine(statusLine())
 	}
 	redraws := redrawLifecycle{}
 	defer redraws.cancel()
@@ -195,9 +202,9 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 		if compositorEnabled {
 			host.status = status.enabled
 			host.hostRows = statusRows
-			host.render(model.Snapshot(), status.line(script, traces), presentationOf(model))
+			host.render(model.Snapshot(), statusLine(), presentationOf(model))
 		} else {
-			status.draw(script, traces)
+			status.drawLine(statusLine())
 		}
 	}
 	scheduleRedraw := func() {
@@ -209,6 +216,26 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 	}
 	var toastTimer *time.Timer
 	var toast <-chan time.Time
+	var escapeTimer *time.Timer
+	var escape <-chan time.Time
+	cancelEscape := func() {
+		if escapeTimer != nil && !escapeTimer.Stop() {
+			select {
+			case <-escapeTimer.C:
+			default:
+			}
+		}
+		escape = nil
+	}
+	armEscape := func() {
+		cancelEscape()
+		if escapeTimer == nil {
+			escapeTimer = time.NewTimer(200 * time.Millisecond)
+		} else {
+			escapeTimer.Reset(200 * time.Millisecond)
+		}
+		escape = escapeTimer.C
+	}
 	setToast := func(message string) {
 		status.toast = message
 		if toastTimer == nil {
@@ -227,6 +254,9 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 	defer func() {
 		if toastTimer != nil {
 			toastTimer.Stop()
+		}
+		if escapeTimer != nil {
+			escapeTimer.Stop()
 		}
 	}()
 	spinnerActive := func() <-chan time.Time {
@@ -303,6 +333,24 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 		go func() { _ = runner.Close() }()
 	}
 	handleInput := func(in inputEvent, forward bool) {
+		if marker.active {
+			result := marker.handle(in)
+			switch result {
+			case markerPromptCancel:
+				marker.clear()
+				setToast("marker cancelled")
+			case markerPromptCommit:
+				label := marker.label
+				marker.clear()
+				if err := traces.recordMarker(label); err != nil {
+					setToast("marker failed: " + err.Error())
+				} else {
+					setToast("marker added")
+				}
+			}
+			redraw()
+			return
+		}
 		writeInput := func(b []byte) {
 			if !forward || len(b) == 0 {
 				return
@@ -320,6 +368,14 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 				// output is represented; finalization happens after EOF below.
 				redraw()
 				stopChild()
+			case 'm':
+				if traces.state != recorderRecording {
+					setToast("no active trace")
+				} else {
+					marker.start()
+					status.toast = ""
+				}
+				redraw()
 			case 't':
 				if traces.wholeSession {
 					setToast("network trace runs until exit")
@@ -450,10 +506,14 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 					outputSinceAction = true
 					resetQuiet()
 				}
-				status.draw(script, traces)
+				status.drawLine(statusLine())
 			case inputBytesEvent:
+				cancelEscape()
 				for _, in := range dec.Decode(mouseFilter.Feed(ev.bytes, rows, status.enabled)) {
 					handleInput(in, true)
+				}
+				if marker.active && dec.PendingEscape() {
+					armEscape()
 				}
 			case resizeEvent:
 				hadSessionActivity = true
@@ -530,6 +590,13 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 			status.toast = ""
 			toast = nil
 			redraw()
+		case <-escape:
+			escape = nil
+			if marker.active {
+				for _, in := range dec.FlushEscape() {
+					handleInput(in, false)
+				}
+			}
 		case <-runner.ExitedCh():
 			// The PTY reader will observe EOF/EIO after buffered output drains.
 		case <-ctx.Done():

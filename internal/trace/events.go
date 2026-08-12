@@ -7,13 +7,14 @@ const (
 	EventTypeOutput EventType = "output"
 	EventTypeInput  EventType = "input"
 	EventTypeResize EventType = "resize"
+	EventTypeMarker EventType = "marker"
 	EventTypeExit   EventType = "exit"
 )
 
 // IsKnown reports whether t is an event type written by twee.
 func (t EventType) IsKnown() bool {
 	switch t {
-	case EventTypeOutput, EventTypeInput, EventTypeResize, EventTypeExit:
+	case EventTypeOutput, EventTypeInput, EventTypeResize, EventTypeMarker, EventTypeExit:
 		return true
 	default:
 		return false
@@ -43,5 +44,6 @@ type EventRecord struct {
 	Cols  int         `json:"cols,omitempty"`
 	Rows  int         `json:"rows,omitempty"`
 	Code  int         `json:"code,omitempty"`
+	Label string      `json:"label,omitempty"`
 	Mouse *MouseInput `json:"mouse,omitempty"`
 }

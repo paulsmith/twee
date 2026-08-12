@@ -20,6 +20,7 @@ func TestOpenRoundTrip(t *testing.T) {
 			`{"t_ms":0,"type":"output","bytes_b64":"` + base64.StdEncoding.EncodeToString([]byte("hi")) + `"}`,
 			`{"t_ms":10,"type":"input","kind":"key","key":"Enter","bytes_b64":"DQ=="}`,
 			`{"t_ms":20,"type":"resize","cols":100,"rows":40}`,
+			`{"t_ms":20,"type":"marker","label":"ready"}`,
 			`{"t_ms":30,"type":"exit","code":0}`,
 		}, "\n"),
 	})
@@ -31,11 +32,14 @@ func TestOpenRoundTrip(t *testing.T) {
 	if b.Manifest.Version != 1 || b.Manifest.Cols != 80 || b.Manifest.Rows != 24 {
 		t.Fatalf("manifest = %+v", b.Manifest)
 	}
-	if len(b.Events) != 4 {
-		t.Fatalf("events = %d, want 4", len(b.Events))
+	if len(b.Events) != 5 {
+		t.Fatalf("events = %d, want 5", len(b.Events))
 	}
 	if got := string(b.Events[0].Bytes); got != "hi" {
 		t.Fatalf("decoded bytes = %q", got)
+	}
+	if b.Events[3].Label != "ready" {
+		t.Fatalf("marker label = %q, want ready", b.Events[3].Label)
 	}
 	if b.MaxCols != 100 || b.MaxRows != 40 {
 		t.Fatalf("max size = %dx%d, want 100x40", b.MaxCols, b.MaxRows)
@@ -106,6 +110,46 @@ func TestOpenValidatesChildPTYTermios(t *testing.T) {
 				t.Fatalf("validation = %+v, want %q", validation, test.want)
 			}
 		})
+	}
+}
+
+func TestOpenRejectsInvalidMarkers(t *testing.T) {
+	tests := []struct {
+		name, event, want string
+	}{
+		{"empty label", `{"t_ms":0,"type":"marker"}`, "marker label is empty"},
+		{"invalid UTF-8", string(append([]byte(`{"t_ms":0,"type":"marker","label":"`), append([]byte{0xff}, []byte(`"}`)...)...)), "JSON is not valid UTF-8"},
+		{"unpaired high surrogate", `{"t_ms":0,"type":"marker","label":"\ud800"}`, "malformed Unicode escape"},
+		{"unpaired low surrogate", `{"t_ms":0,"type":"marker","label":"\udc00"}`, "malformed Unicode escape"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := writeTestBundle(t, map[string]string{
+				"manifest.json": `{"version":1,"cols":10,"rows":3}`,
+				"events.jsonl":  test.event,
+			})
+			_, validation, err := OpenValidated(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if validation.Valid || !containsIssue(validation.Issues, test.want) {
+				t.Fatalf("validation = %+v, want %q", validation, test.want)
+			}
+		})
+	}
+}
+
+func TestOpenAcceptsMarkerFutureFieldsAndValidSurrogatePair(t *testing.T) {
+	path := writeTestBundle(t, map[string]string{
+		"manifest.json": `{"version":1,"cols":10,"rows":3}`,
+		"events.jsonl":  `{"t_ms":0,"type":"marker","label":"\ud83d\ude00","future":{"nested":true}}`,
+	})
+	bundle, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Events) != 1 || bundle.Events[0].Label != "😀" {
+		t.Fatalf("events = %+v, want one emoji marker", bundle.Events)
 	}
 }
 

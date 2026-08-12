@@ -40,7 +40,8 @@ The script is a JSON array of RPC bodies (op + args). Use the wire
 op names (e.g. "wait_text", not "wait text").
 Relative paths in operation arguments (screenshot.out, trace_start.out,
 and diff.against) are resolved from the twee run client's working directory,
-not --dir or the managed program's working directory.
+not --dir or the managed program's working directory. Scripts may append a
+marker to an active trace with {"op":"trace_mark","args":{"label":"..."}}.
 
 To run the same script format against an already-running named
 session instead of an ephemeral one, see "twee help do".`)

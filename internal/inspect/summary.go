@@ -21,6 +21,7 @@ type Summary struct {
 	StoppedAt       *time.Time             `json:"stopped_at"`
 	Terminal        Terminal               `json:"terminal"`
 	Events          EventSummary           `json:"events"`
+	Markers         []MarkerSummary        `json:"markers"`
 	Exit            ExitSummary            `json:"exit"`
 	Network         NetworkSummary         `json:"network_capture"`
 	ChildPTYTermios ChildPTYTermiosSummary `json:"child_pty_termios"`
@@ -40,6 +41,13 @@ type EventSummary struct {
 	Total       int            `json:"total"`
 	ByType      map[string]int `json:"by_type"`
 	InputByKind map[string]int `json:"input_by_kind"`
+}
+
+// MarkerSummary identifies one marker in recording order.
+type MarkerSummary struct {
+	EventIndex int    `json:"event_index"`
+	TMS        int64  `json:"t_ms"`
+	Label      string `json:"label"`
 }
 
 // ExitSummary reports whether an exit event was recorded.
@@ -97,12 +105,16 @@ func Summarize(path string, bundle tracebundle.Bundle) Summary {
 			ByType:      map[string]int{},
 			InputByKind: map[string]int{},
 		},
+		Markers: []MarkerSummary{},
 	}
 
-	for _, ev := range bundle.Events {
+	for eventIndex, ev := range bundle.Events {
 		s.Events.ByType[string(ev.Type)]++
 		if ev.Type == trace.EventTypeInput && ev.Kind != "" {
 			s.Events.InputByKind[string(ev.Kind)]++
+		}
+		if ev.Type == trace.EventTypeMarker {
+			s.Markers = append(s.Markers, MarkerSummary{EventIndex: eventIndex, TMS: ev.TMS, Label: ev.Label})
 		}
 		if ev.Type == trace.EventTypeExit {
 			code := ev.Code

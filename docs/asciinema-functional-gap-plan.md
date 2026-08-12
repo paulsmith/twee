@@ -111,10 +111,11 @@ allows deterministic CI and demo scenarios to label their own traces.
 1. Extend the trace schema, bundle validation, and inspection output with a
    marker event containing timestamp and non-empty UTF-8 label.
 2. Add daemon/RPC/script support for appending a marker to an active trace.
-3. Add playback navigation: next/previous marker, marker list in the status
+3. Add a marker keystroke to `twee wrap` - ^]m
+4. Add playback navigation: next/previous marker, marker list in the status
    UI, and an optional pause-on-marker flag.
-4. Add marker seeking and display to the self-contained HTML viewer.
-5. Include markers in `.cast` export where compatible.
+5. Add marker seeking and display to the self-contained HTML viewer.
+6. Include markers in `.cast` export where compatible.
 
 **Acceptance:**
 

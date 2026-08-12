@@ -90,6 +90,16 @@ func TestNormalizeScriptPathsAllowsOmittedOptionalArgs(t *testing.T) {
 	}
 }
 
+func TestNormalizeScriptPathsRejectsMalformedMarkerSurrogate(t *testing.T) {
+	ops, err := decodeScript([]byte(`[{"op":"trace_mark","args":{"label":"\ud800"}}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := normalizeScriptPaths(ops, t.TempDir()); err == nil || !strings.Contains(err.Error(), "malformed Unicode escape") {
+		t.Fatalf("normalizeScriptPaths error = %v, want malformed Unicode escape", err)
+	}
+}
+
 func TestNormalizeScriptPathsRejectsUnknownPathArg(t *testing.T) {
 	for _, op := range []string{rpc.OpScreenshot, rpc.OpTraceStart, rpc.OpDiff} {
 		t.Run(op, func(t *testing.T) {

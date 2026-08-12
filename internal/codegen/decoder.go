@@ -54,6 +54,18 @@ func (d *Decoder) Decode(b []byte) []inputEvent {
 	return events
 }
 
+func (d *Decoder) FlushEscape() []inputEvent {
+	if !d.PendingEscape() {
+		return nil
+	}
+	d.pending = nil
+	return []inputEvent{keyEvent(input.Name(input.KeyEscape), []byte{0x1b})}
+}
+
+func (d *Decoder) PendingEscape() bool {
+	return len(d.pending) == 1 && d.pending[0] == 0x1b
+}
+
 func (d *Decoder) Flush() []inputEvent {
 	if len(d.pending) == 0 {
 		return nil

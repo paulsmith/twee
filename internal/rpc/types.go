@@ -154,6 +154,10 @@ type TraceStartArgs struct {
 	Out string `json:"out,omitempty"`
 }
 
+type TraceMarkArgs struct {
+	Label string `json:"label"`
+}
+
 type DiffArgs struct {
 	Against string `json:"against"`
 }

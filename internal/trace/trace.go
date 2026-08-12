@@ -16,6 +16,7 @@ import (
 	"slices"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/paulsmith/twee/internal/termios"
 	"github.com/paulsmith/twee/internal/tracearchive"
@@ -427,6 +428,60 @@ func (tr *Trace) WriteResize(cols, rows int) {
 	}); err != nil && tr.err == nil {
 		tr.err = err
 	}
+}
+
+// MarkerValidationError reports a caller-correctable marker label failure.
+type MarkerValidationError struct {
+	Message string
+}
+
+func (e *MarkerValidationError) Error() string { return e.Message }
+
+// IsMarkerValidationError reports whether err is a marker label validation
+// failure rather than an encoder or filesystem failure.
+func IsMarkerValidationError(err error) bool {
+	var validationErr *MarkerValidationError
+	return errors.As(err, &validationErr)
+}
+
+// WriteMarker records a labeled navigation marker. Markers are metadata and
+// do not affect terminal replay.
+func (tr *Trace) WriteMarker(label string) error {
+	if label == "" {
+		return &MarkerValidationError{Message: "trace: marker label is empty"}
+	}
+	if !utf8.ValidString(label) {
+		return &MarkerValidationError{Message: "trace: marker label is not valid UTF-8"}
+	}
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	if tr.closed {
+		return errors.New("trace: already closed")
+	}
+	now := max(time.Since(tr.start).Milliseconds(), 0)
+	if tr.hasLastTMS && now < tr.lastTMS {
+		now = tr.lastTMS
+	}
+	record := EventRecord{
+		TMS:   now,
+		Type:  EventTypeMarker,
+		Label: label,
+	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	if len(encoded)+1 >= tracepolicy.MaxEventLineBytes {
+		return &MarkerValidationError{Message: fmt.Sprintf("trace: encoded marker event must be smaller than %d bytes", tracepolicy.MaxEventLineBytes)}
+	}
+	tr.lastTMS, tr.hasLastTMS = now, true
+	if err := tr.evEnc.Encode(record); err != nil {
+		if tr.err == nil {
+			tr.err = err
+		}
+		return err
+	}
+	return nil
 }
 
 // WriteExit records the process exit code.

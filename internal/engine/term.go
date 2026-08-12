@@ -368,6 +368,33 @@ func (t *Term) attachNetworkCaptureLocked() error {
 	return t.tr.AttachNetworkCapture(t.network.PCAPPath(), capture)
 }
 
+// MarkTrace appends a marker to the active trace without writing to the PTY or
+// changing terminal state.
+func (t *Term) MarkTrace(label string) error {
+	t.inputMu.Lock()
+	defer t.inputMu.Unlock()
+
+	t.cfgMu.Lock()
+	tr := t.tr
+	path := t.tracePath
+	t.cfgMu.Unlock()
+	if tr == nil {
+		return failedPrecondition("no active trace", nil, nil)
+	}
+	var markErr error
+	t.pump.Ordered(func() {
+		if err := tr.WriteMarker(label); err != nil {
+			details := map[string]any{"path": path}
+			if trace.IsMarkerValidationError(err) {
+				markErr = invalidRequest(err.Error(), details, err)
+			} else {
+				markErr = &RequestError{Kind: RequestErrorIO, Message: err.Error(), Details: details, Err: err}
+			}
+		}
+	})
+	return markErr
+}
+
 // DisableTrace stops tracing and writes the zip bundle.
 func (t *Term) DisableTrace() error {
 	t.inputMu.Lock()

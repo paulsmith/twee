@@ -15,6 +15,12 @@ func readCommands(r io.Reader, out chan<- command) {
 				out <- cmdStep
 			case '>':
 				out <- cmdFwd1s
+			case '[':
+				out <- cmdPreviousMarker
+			case ']':
+				out <- cmdNextMarker
+			case 'm':
+				out <- cmdListMarkers
 			case 'r':
 				out <- cmdRestart
 			case 'h':

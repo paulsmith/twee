@@ -78,6 +78,47 @@ func keyInput(tms int64, key string) play.Event {
 	return play.Event{TMS: tms, Type: "input", Kind: "key", Key: key}
 }
 
+func TestReplayMarkerDoesNotEmitVisualFrameOrOverlay(t *testing.T) {
+	frames := collect(t, []play.Event{
+		out(0, "x"),
+		{TMS: 500, Type: trace.EventTypeMarker, Label: "ready"},
+		out(1000, "x"),
+	}, Options{InputOverlay: true})
+	if len(frames) != 2 {
+		t.Fatalf("frames = %d, want 2", len(frames))
+	}
+	for _, frame := range frames {
+		if strings.Contains(frame.overlay, "ready") {
+			t.Fatalf("marker leaked into visual overlay: %q", frame.overlay)
+		}
+	}
+}
+
+func TestHTMLMarkersUseAdjustedTimelineAndPreserveOrder(t *testing.T) {
+	events := []play.Event{
+		out(0, "x"),
+		{TMS: 10_000, Type: trace.EventTypeMarker, Label: "first"},
+		{TMS: 10_000, Type: trace.EventTypeMarker, Label: "second"},
+	}
+	cv, err := newCanvas(80, 24, 14, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers, err := htmlMarkers(events, 80, 24, Options{Speed: 2, MaxIdle: 2 * time.Second}, cv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(markers) != 2 || markers[0].Label != "first" || markers[1].Label != "second" {
+		t.Fatalf("markers = %+v", markers)
+	}
+	if markers[0].PositionMS != 1000 || markers[1].PositionMS != 1000 || markers[0].EventIndex != 1 || markers[1].EventIndex != 2 {
+		t.Fatalf("adjusted markers = %+v", markers)
+	}
+	if markers[0].Src == "" || markers[1].Src == "" {
+		t.Fatalf("marker checkpoints missing: %+v", markers)
+	}
+}
+
 func TestReplayEmitsFrameOnChange(t *testing.T) {
 	frames := collect(t, []play.Event{out(1000, "x"), out(3000, "x")}, Options{})
 	// blank frame [0,1s), frame A [1s,3s), trailing frame B

@@ -46,6 +46,21 @@ func exportCast(path, outPath string, includeInput bool) (castResult, error) {
 	var result castResult
 	var output []byte
 	outputTMS := int64(0)
+	type pendingRecord struct {
+		tms  int64
+		kind string
+		data string
+	}
+	var pendingMarkers []pendingRecord
+	flushPendingMarkers := func() error {
+		for _, record := range pendingMarkers {
+			if err := enc.Encode([]any{float64(record.tms) / 1000, record.kind, record.data}); err != nil {
+				return err
+			}
+		}
+		pendingMarkers = nil
+		return nil
+	}
 	flushOutput := func(final bool) error {
 		data, rest, invalid := castUTF8(output, final)
 		if data != "" {
@@ -59,6 +74,9 @@ func exportCast(path, outPath string, includeInput bool) (castResult, error) {
 		output = rest
 		if len(output) == 0 {
 			outputTMS = 0
+			if err := flushPendingMarkers(); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -68,8 +86,46 @@ func exportCast(path, outPath string, includeInput bool) (castResult, error) {
 			if len(output) == 0 {
 				outputTMS = event.TMS
 			}
-			output = append(output, event.Bytes...)
-			return flushOutput(false)
+			if len(pendingMarkers) == 0 {
+				output = append(output, event.Bytes...)
+				return flushOutput(false)
+			}
+
+			combined := make([]byte, 0, len(output)+len(event.Bytes))
+			combined = append(combined, output...)
+			combined = append(combined, event.Bytes...)
+			_, size := utf8.DecodeRune(combined)
+			if size == 1 {
+				if !utf8.FullRune(combined) {
+					output = append(output, event.Bytes...)
+					return nil
+				}
+				result.OmittedEvents++
+				output = nil
+				outputTMS = 0
+				if err := flushPendingMarkers(); err != nil {
+					return err
+				}
+				outputTMS = event.TMS
+				output = append(output, event.Bytes...)
+				return flushOutput(false)
+			}
+
+			consumed := size - len(output)
+			output = append(output, event.Bytes[:consumed]...)
+			if err := flushOutput(false); err != nil {
+				return err
+			}
+			if consumed < len(event.Bytes) {
+				outputTMS = event.TMS
+				output = append(output, event.Bytes[consumed:]...)
+				return flushOutput(false)
+			}
+			return nil
+		}
+		if event.Type == trace.EventTypeMarker && len(output) != 0 {
+			pendingMarkers = append(pendingMarkers, pendingRecord{tms: event.TMS, kind: "m", data: event.Label})
+			return nil
 		}
 		if err := flushOutput(true); err != nil {
 			return err
@@ -122,6 +178,8 @@ func castEvent(event tracebundle.Event, includeInput bool) (kind, data string, o
 	switch event.Type {
 	case trace.EventTypeResize:
 		return "r", fmt.Sprintf("%dx%d", event.Cols, event.Rows), true
+	case trace.EventTypeMarker:
+		return "m", event.Label, true
 	case trace.EventTypeInput:
 		if includeInput && (event.Kind == trace.InputKindType || event.Kind == trace.InputKindKey || event.Kind == trace.InputKindPaste) && utf8.Valid(event.Bytes) {
 			return "i", string(event.Bytes), true

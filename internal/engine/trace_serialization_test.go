@@ -1,11 +1,115 @@
 package engine
 
 import (
+	"archive/zip"
+	"bufio"
 	"context"
+	"encoding/json"
+	"errors"
+	"io"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/paulsmith/twee/internal/pump"
+	"github.com/paulsmith/twee/internal/trace"
+	"github.com/paulsmith/twee/internal/tracepolicy"
+	"github.com/paulsmith/twee/internal/vt"
 )
+
+func TestMarkTraceWaitsForAdmittedOutput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.twee")
+	tr, err := trace.New(path, trace.Manifest{Cols: 20, Rows: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, writer := io.Pipe()
+	p := pump.New(vt.New(20, 4), reader)
+	hookEntered := make(chan struct{})
+	hookRelease := make(chan struct{})
+	p.SetOutputHook(func(b []byte, ts time.Time) {
+		close(hookEntered)
+		<-hookRelease
+		tr.WriteOutput(b, ts)
+	})
+	term := &Term{pump: p, tr: tr, tracePath: path}
+	runDone := make(chan error, 1)
+	go func() { runDone <- p.Run() }()
+	go func() { _, _ = writer.Write([]byte("before")) }()
+	<-hookEntered
+	markDone := make(chan error, 1)
+	go func() { markDone <- term.MarkTrace("checkpoint") }()
+	select {
+	case err := <-markDone:
+		t.Fatalf("MarkTrace overtook admitted output: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(hookRelease)
+	if err := <-markDone; err != nil {
+		t.Fatal(err)
+	}
+	_ = writer.Close()
+	if err := <-runDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	events := readTraceEvents(t, path)
+	if len(events) < 2 || events[0].Type != trace.EventTypeOutput || events[1].Type != trace.EventTypeMarker {
+		t.Fatalf("events = %+v, want output before marker", events)
+	}
+}
+
+func TestMarkTraceClassifiesValidationAndIO(t *testing.T) {
+	tr, err := trace.New(filepath.Join(t.TempDir(), "session.twee"), trace.Manifest{Cols: 20, Rows: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	term := &Term{pump: pump.New(vt.New(20, 4), strings.NewReader("")), tr: tr, tracePath: "session.twee"}
+	err = term.MarkTrace(strings.Repeat("\x00", tracepolicy.MaxEventLineBytes/6+1))
+	var requestErr *RequestError
+	if !errors.As(err, &requestErr) || requestErr.Kind != RequestErrorInvalidArgument {
+		t.Fatalf("validation error = %v, want INVALID_ARGUMENT", err)
+	}
+	if err := tr.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err = term.MarkTrace("checkpoint")
+	if !errors.As(err, &requestErr) || requestErr.Kind != RequestErrorIO {
+		t.Fatalf("encoder error = %v, want IO", err)
+	}
+	_ = tr.Abort(err)
+}
+
+func readTraceEvents(t *testing.T, path string) []trace.EventRecord {
+	t.Helper()
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = zr.Close() })
+	f, err := zr.Open("events.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	var events []trace.EventRecord
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		var event trace.EventRecord
+		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, event)
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return events
+}
 
 func TestTraceLifecycleWaitsForInputBoundary(t *testing.T) {
 	term, err := Start(context.Background(), Config{

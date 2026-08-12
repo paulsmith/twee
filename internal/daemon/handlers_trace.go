@@ -6,14 +6,17 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"unicode/utf8"
 
 	"github.com/paulsmith/twee/internal/engine"
+	"github.com/paulsmith/twee/internal/jsontext"
 	"github.com/paulsmith/twee/internal/rpc"
 )
 
 func init() {
 	optionalRegistrations = append(optionalRegistrations, func(d *Dispatcher) {
 		d.Register(rpc.OpTraceStart, handleTraceStart)
+		d.Register(rpc.OpTraceMark, handleTraceMark)
 		d.Register(rpc.OpTraceStop, handleTraceStop)
 	})
 }
@@ -49,6 +52,26 @@ func handleTraceStart(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 		return nil, ioFailure(err)
 	}
 	return map[string]string{"out": a.Out}, nil
+}
+
+func handleTraceMark(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
+	if !utf8.Valid(raw) {
+		return nil, invalidArgumentMessage("marker label is not valid UTF-8")
+	}
+	if err := jsontext.ValidateObjectStringField(raw, "label"); err != nil {
+		return nil, invalidArgumentMessage("marker label contains malformed Unicode escape: " + err.Error())
+	}
+	a, errResp := decodeArgs[rpc.TraceMarkArgs](raw)
+	if errResp != nil {
+		return nil, errResp
+	}
+	if a.Label == "" {
+		return nil, invalidArgumentMessage("marker label is empty")
+	}
+	if err := t.MarkTrace(a.Label); err != nil {
+		return nil, engineFailure(err)
+	}
+	return map[string]any{"label": a.Label}, nil
 }
 
 func handleTraceStop(t *engine.Term, _ json.RawMessage) (any, *rpc.Error) {

@@ -47,6 +47,7 @@ type traceWriter interface {
 	SetChildPTYTermiosExit(termios.Snapshot)
 	WriteOutput([]byte, time.Time)
 	WriteInput(trace.InputKind, string, []byte)
+	WriteMarker(string) error
 	WriteExit(int)
 	WriteResize(int, int)
 }
@@ -170,6 +171,13 @@ func (c *traceController) recordTerminalReply(b []byte) {
 	if c.tr != nil && len(b) > 0 {
 		c.tr.WriteInput(trace.InputKindTerminalReply, "", b)
 	}
+}
+
+func (c *traceController) recordMarker(label string) error {
+	if c.tr == nil || c.state != recorderRecording {
+		return errors.New("no active trace")
+	}
+	return c.tr.WriteMarker(label)
 }
 
 func (c *traceController) recordChildPTYTermiosExit(snapshot termios.Snapshot) {

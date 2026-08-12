@@ -85,6 +85,17 @@ func TestDecoderHandlesTraceToggleControl(t *testing.T) {
 	}
 }
 
+func TestDecoderFlushEscape(t *testing.T) {
+	var dec Decoder
+	if got := dec.Decode([]byte{0x1b}); len(got) != 0 {
+		t.Fatalf("decode = %#v", got)
+	}
+	got := dec.FlushEscape()
+	if len(got) != 1 || got[0].kind != inputKey || got[0].key != "Escape" {
+		t.Fatalf("FlushEscape = %#v", got)
+	}
+}
+
 func TestDecoderPreservesSplitEscapeSequence(t *testing.T) {
 	var dec Decoder
 	if got := dec.Decode([]byte("\x1b[")); len(got) != 0 {

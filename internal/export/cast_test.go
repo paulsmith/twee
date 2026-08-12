@@ -14,6 +14,7 @@ import (
 func TestExportCast(t *testing.T) {
 	bundle := writeCastBundle(t, []string{
 		castRecord(100, "output", "hello", ""),
+		`{"t_ms":150,"type":"marker","label":"ready"}`,
 		castRecord(200, "resize", "", ""),
 		castRecord(300, "input", "typed", "type"),
 		castRecord(400, "input", "\x1b[?1;2c", "terminal_reply"),
@@ -31,8 +32,21 @@ func TestExportCast(t *testing.T) {
 	}
 	assertCastRecords(t, out, 0.7, [][]any{
 		{0.1, "o", "hello"},
+		{0.15, "m", "ready"},
 		{0.2, "r", "80x24"},
 	})
+}
+
+func TestExportCastPreservesSameTimestampMarkerOrder(t *testing.T) {
+	bundle := writeCastBundle(t, []string{
+		`{"t_ms":100,"type":"marker","label":"first"}`,
+		`{"t_ms":100,"type":"marker","label":"second"}`,
+	})
+	out := filepath.Join(t.TempDir(), "recording.cast")
+	if _, err := ExportWithResult(bundle, out, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	assertCastRecords(t, out, 0.1, [][]any{{0.1, "m", "first"}, {0.1, "m", "second"}})
 }
 
 func TestExportCastIncludesUnambiguousInputOnlyWhenRequested(t *testing.T) {
@@ -71,6 +85,40 @@ func TestExportCastBuffersSplitUTF8Output(t *testing.T) {
 		t.Fatalf("OmittedEvents = %d, want 0", result.OmittedEvents)
 	}
 	assertCastRecords(t, out, 0.2, [][]any{{0.1, "o", "€"}})
+}
+
+func TestExportCastBuffersSplitUTF8OutputAcrossMarker(t *testing.T) {
+	bundle := writeCastBundle(t, []string{
+		castRecord(100, "output", "\xe2\x82", ""),
+		`{"t_ms":150,"type":"marker","label":"between"}`,
+		castRecord(200, "output", "\xacafter", ""),
+	})
+	out := filepath.Join(t.TempDir(), "recording.cast")
+	result, err := ExportWithResult(bundle, out, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OmittedEvents != 0 {
+		t.Fatalf("OmittedEvents = %d, want 0", result.OmittedEvents)
+	}
+	assertCastRecords(t, out, 0.2, [][]any{{0.1, "o", "€"}, {0.15, "m", "between"}, {0.2, "o", "after"}})
+}
+
+func TestExportCastInvalidatedSplitUTF8KeepsLaterOutputAfterMarker(t *testing.T) {
+	bundle := writeCastBundle(t, []string{
+		castRecord(100, "output", "\xe2\x82", ""),
+		`{"t_ms":150,"type":"marker","label":"between"}`,
+		castRecord(200, "output", "after", ""),
+	})
+	out := filepath.Join(t.TempDir(), "recording.cast")
+	result, err := ExportWithResult(bundle, out, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OmittedEvents != 1 {
+		t.Fatalf("OmittedEvents = %d, want 1", result.OmittedEvents)
+	}
+	assertCastRecords(t, out, 0.2, [][]any{{0.15, "m", "between"}, {0.2, "o", "after"}})
 }
 
 func TestExportCastPreservesDurationAfterOmittedEvents(t *testing.T) {

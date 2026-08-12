@@ -23,6 +23,7 @@ func (closeFailingTrace) AttachNetworkCapture(string, trace.NetworkCapture) erro
 func (closeFailingTrace) SetChildPTYTermiosExit(termios.Snapshot)    {}
 func (closeFailingTrace) WriteOutput([]byte, time.Time)              {}
 func (closeFailingTrace) WriteInput(trace.InputKind, string, []byte) {}
+func (closeFailingTrace) WriteMarker(string) error                   { return nil }
 func (closeFailingTrace) WriteExit(int)                              {}
 func (closeFailingTrace) WriteResize(int, int)                       {}
 

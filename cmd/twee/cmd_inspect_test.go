@@ -45,7 +45,8 @@ func TestInspectDefaultJSON(t *testing.T) {
 				ByType      map[string]int `json:"by_type"`
 				InputByKind map[string]int `json:"input_by_kind"`
 			} `json:"events"`
-			Exit struct {
+			Markers []inspect.MarkerSummary `json:"markers"`
+			Exit    struct {
 				Recorded bool `json:"recorded"`
 				Code     *int `json:"code"`
 			} `json:"exit"`
@@ -93,8 +94,11 @@ func TestInspectDefaultJSON(t *testing.T) {
 	if got.Data.Terminal.Cols != 80 || got.Data.Terminal.Rows != 24 || got.Data.Terminal.MaxCols != 100 || got.Data.Terminal.MaxRows != 40 {
 		t.Fatalf("terminal = %+v", got.Data.Terminal)
 	}
-	if got.Data.Events.Total != 5 || got.Data.Events.ByType["output"] != 1 || got.Data.Events.InputByKind["type"] != 1 {
+	if got.Data.Events.Total != 6 || got.Data.Events.ByType["output"] != 1 || got.Data.Events.ByType["marker"] != 1 || got.Data.Events.InputByKind["type"] != 1 {
 		t.Fatalf("events = %+v", got.Data.Events)
+	}
+	if len(got.Data.Markers) != 1 || got.Data.Markers[0].EventIndex != 4 || got.Data.Markers[0].TMS != 30 || got.Data.Markers[0].Label != "ready" {
+		t.Fatalf("markers = %+v", got.Data.Markers)
 	}
 	if !got.Data.Exit.Recorded || got.Data.Exit.Code == nil || *got.Data.Exit.Code != 7 {
 		t.Fatalf("exit = %+v", got.Data.Exit)
@@ -134,8 +138,10 @@ func TestInspectTextOutput(t *testing.T) {
 		"Duration: 1.234s (1234 ms)",
 		"Event span: 1210 ms",
 		"Terminal: 80x24 (max 100x40)",
-		"Events: 5 total",
+		"Events: 6 total",
 		"Input: key=1, type=1",
+		"Markers: 1",
+		"  1. 30 ms event=4: ready",
 		"Exit: code 7",
 		"Child PTY termios (linux): start canonical=true echo=true signals=true; exit canonical=false echo=false signals=false",
 		"Network capture: none",
@@ -325,6 +331,7 @@ func writeInspectBundle(t *testing.T) string {
 			`{"t_ms":10,"type":"input","kind":"key","key":"Enter","bytes_b64":"DQ=="}`,
 			`{"t_ms":20,"type":"input","kind":"type","bytes_b64":"aQ=="}`,
 			`{"t_ms":30,"type":"resize","cols":100,"rows":40}`,
+			`{"t_ms":30,"type":"marker","label":"ready"}`,
 			`{"t_ms":1210,"type":"exit","code":7}`,
 		}, "\n"),
 	})

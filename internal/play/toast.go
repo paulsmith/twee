@@ -44,6 +44,8 @@ func FormatEventToast(ev Event) string {
 		}
 	case trace.EventTypeResize:
 		return fmt.Sprintf("%sresize %dx%d", prefix, ev.Cols, ev.Rows)
+	case trace.EventTypeMarker:
+		return prefix + "marker " + ev.Label
 	default:
 		return ""
 	}
@@ -108,10 +110,14 @@ func printableBytes(b []byte) string {
 	return fmt.Sprintf("% x", b)
 }
 
-func formatStatus(mode string, speed float64, cursor, total int) string {
+func formatStatus(mode string, speed float64, cursor, total, marker, markers int, label string) string {
 	speedText := strconv.FormatFloat(speed, 'f', -1, 64)
 	if !strings.Contains(speedText, ".") {
 		speedText += ".0"
 	}
-	return fmt.Sprintf("%s %s× │ %d/%d events", mode, speedText, cursor, total)
+	status := fmt.Sprintf("%s %s× │ %d/%d events │ marker %d/%d", mode, speedText, cursor, total, marker, markers)
+	if label != "" {
+		status += " " + label
+	}
+	return status
 }

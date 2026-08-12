@@ -13,11 +13,12 @@ import (
 
 // Options controls playback.
 type Options struct {
-	Speed   float64
-	Step    bool
-	MaxIdle time.Duration
-	Verbose bool
-	Backend Backend
+	Speed         float64
+	Step          bool
+	PauseOnMarker bool
+	MaxIdle       time.Duration
+	Verbose       bool
+	Backend       Backend
 
 	// HideStatus starts playback without the bottom status row. It can still
 	// be toggled at runtime with h.
@@ -173,15 +174,16 @@ func Run(path string, opts Options) error {
 	go readCommands(opts.Stdin, cmds)
 
 	l := newLoop(loopConfig{
-		Events:     bundle.Events,
-		Cols:       bundle.Manifest.Cols,
-		Rows:       bundle.Manifest.Rows,
-		Speed:      opts.Speed,
-		MaxIdle:    opts.MaxIdle,
-		Step:       opts.Step,
-		HideStatus: opts.HideStatus,
-		Cmds:       cmds,
-		Sink:       sink,
+		Events:        bundle.Events,
+		Cols:          bundle.Manifest.Cols,
+		Rows:          bundle.Manifest.Rows,
+		Speed:         opts.Speed,
+		MaxIdle:       opts.MaxIdle,
+		Step:          opts.Step,
+		PauseOnMarker: opts.PauseOnMarker,
+		HideStatus:    opts.HideStatus,
+		Cmds:          cmds,
+		Sink:          sink,
 		DisplayPixels: displayPixels{
 			Width:  opts.DisplayPixelWidth,
 			Height: opts.DisplayPixelHeight,

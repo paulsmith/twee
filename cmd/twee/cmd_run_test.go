@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,7 +103,8 @@ func TestRunTraceOutWritesBundle(t *testing.T) {
 	tracePath := filepath.Join(dir, "session.twee")
 	raw := []byte(`[
 		{"op":"type","args":{"text":"abc\n"}},
-		{"op":"wait_text","args":{"text":"abc","timeout":"2s"}}
+		{"op":"wait_text","args":{"text":"abc","timeout":"2s"}},
+		{"op":"trace_mark","args":{"label":"cat echoed input"}}
 	]`)
 	if err := os.WriteFile(script, raw, 0o644); err != nil {
 		t.Fatal(err)
@@ -145,6 +147,15 @@ func TestRunTraceOutWritesBundle(t *testing.T) {
 	}
 	if !eventsContain(bundle.Events, "output", "", "", []byte("abc")) {
 		t.Fatalf("trace missing output containing abc: %#v", bundle.Events)
+	}
+	var markerLabels []string
+	for _, event := range bundle.Events {
+		if event.Type == "marker" {
+			markerLabels = append(markerLabels, event.Label)
+		}
+	}
+	if strings.Join(markerLabels, ",") != "cat echoed input" {
+		t.Fatalf("marker labels = %#v, want [cat echoed input]", markerLabels)
 	}
 }
 

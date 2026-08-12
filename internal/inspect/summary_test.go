@@ -40,6 +40,7 @@ func TestSummarizeUsesManifestDurationAndCountsEvents(t *testing.T) {
 			{TMS: 10, Type: "input", Kind: "key"},
 			{TMS: 20, Type: "input", Kind: "type"},
 			{TMS: 30, Type: "resize", Cols: 100, Rows: 40},
+			{TMS: 30, Type: trace.EventTypeMarker, Label: "ready"},
 			{TMS: 1210, Type: "mystery"},
 			{TMS: 1210, Type: "exit", Code: 7},
 		},
@@ -68,10 +69,10 @@ func TestSummarizeUsesManifestDurationAndCountsEvents(t *testing.T) {
 	if s.Terminal.Cols != 80 || s.Terminal.Rows != 24 || s.Terminal.MaxCols != 100 || s.Terminal.MaxRows != 40 {
 		t.Fatalf("terminal = %+v", s.Terminal)
 	}
-	if s.Events.Total != 6 {
-		t.Fatalf("events total = %d, want 6", s.Events.Total)
+	if s.Events.Total != 7 {
+		t.Fatalf("events total = %d, want 7", s.Events.Total)
 	}
-	for typ, want := range map[string]int{"output": 1, "input": 2, "resize": 1, "mystery": 1, "exit": 1} {
+	for typ, want := range map[string]int{"output": 1, "input": 2, "resize": 1, "marker": 1, "mystery": 1, "exit": 1} {
 		if got := s.Events.ByType[typ]; got != want {
 			t.Fatalf("by_type[%q] = %d, want %d", typ, got, want)
 		}
@@ -80,6 +81,9 @@ func TestSummarizeUsesManifestDurationAndCountsEvents(t *testing.T) {
 		if got := s.Events.InputByKind[kind]; got != want {
 			t.Fatalf("input_by_kind[%q] = %d, want %d", kind, got, want)
 		}
+	}
+	if len(s.Markers) != 1 || s.Markers[0].EventIndex != 4 || s.Markers[0].TMS != 30 || s.Markers[0].Label != "ready" {
+		t.Fatalf("markers = %+v", s.Markers)
 	}
 	if !s.Exit.Recorded || s.Exit.Code == nil || *s.Exit.Code != 7 {
 		t.Fatalf("exit = %+v, want recorded code 7", s.Exit)

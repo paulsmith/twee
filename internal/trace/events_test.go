@@ -6,8 +6,8 @@ import (
 )
 
 func TestEventTypeVocabulary(t *testing.T) {
-	types := []EventType{EventTypeOutput, EventTypeInput, EventTypeResize, EventTypeExit}
-	want := []string{"output", "input", "resize", "exit"}
+	types := []EventType{EventTypeOutput, EventTypeInput, EventTypeResize, EventTypeMarker, EventTypeExit}
+	want := []string{"output", "input", "resize", "marker", "exit"}
 	for i, typ := range types {
 		if string(typ) != want[i] {
 			t.Errorf("event type %d = %q, want %q", i, typ, want[i])
@@ -35,6 +35,17 @@ func TestInputKindVocabulary(t *testing.T) {
 		if string(kind) != want[i] {
 			t.Errorf("input kind %d = %q, want %q", i, kind, want[i])
 		}
+	}
+}
+
+func TestMarkerEventRecordJSONShape(t *testing.T) {
+	b, err := json.Marshal(EventRecord{TMS: 12, Type: EventTypeMarker, Label: "Authentication complete"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"t_ms":12,"type":"marker","label":"Authentication complete"}`
+	if string(b) != want {
+		t.Fatalf("event record = %s, want %s", b, want)
 	}
 }
 

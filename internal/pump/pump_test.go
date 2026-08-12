@@ -236,6 +236,39 @@ func TestCommitResizeOrdersOutputHookBeforeResizeBookkeeping(t *testing.T) {
 	}
 }
 
+func TestOrderedWaitsForAdmittedOutputHook(t *testing.T) {
+	chunks := make(chan []byte)
+	p := New(vt.New(5, 2), chunkReader{chunks: chunks})
+	hookEntered := make(chan struct{})
+	hookRelease := make(chan struct{})
+	p.SetOutputHook(func([]byte, time.Time) {
+		close(hookEntered)
+		<-hookRelease
+	})
+	runDone := make(chan error, 1)
+	go func() { runDone <- p.Run() }()
+
+	chunks <- []byte("before marker")
+	<-hookEntered
+	orderedDone := make(chan struct{})
+	go p.Ordered(func() { close(orderedDone) })
+	select {
+	case <-orderedDone:
+		t.Fatal("ordered callback overtook admitted output hook")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(hookRelease)
+	select {
+	case <-orderedDone:
+	case <-time.After(time.Second):
+		t.Fatal("ordered callback deadlocked after output hook completed")
+	}
+	close(chunks)
+	if err := <-runDone; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
 func TestResizeAndSnapshot(t *testing.T) {
 	p := New(vt.New(5, 2), bytes.NewReader(nil))
 	if err := p.Resize(8, 3); err != nil {

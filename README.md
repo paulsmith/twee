@@ -204,6 +204,7 @@ Use these controls during the session:
 |---|---|
 | `Ctrl+] s` | Start or finalize JSON script capture. |
 | `Ctrl+] t` | Start or finalize trace capture. |
+| `Ctrl+] m` | Prompt for a label and add a marker to the active trace. |
 | `Ctrl+] q` | Finalize active recorders and terminate the child. |
 
 Each recorder is one-shot during one `wrap` session. A finalized recorder cannot start again in that session.
@@ -496,6 +497,7 @@ Start and stop recording during an existing session:
 twee start -- ./myapp
 twee trace start --out session.twee
 twee key Enter
+twee trace mark --label "Login complete"
 twee trace stop
 ```
 
@@ -503,7 +505,7 @@ If you omit `--out`, `trace start` creates a temporary path. The JSON response c
 
 Twee automatically finalizes an active trace when the child exits. `wait exit` and `stop` wait for the trace file to become durable.
 
-Trace events include PTY output, input, terminal resize, and process exit. High-level mouse gestures include their encoded bytes and gesture metadata.
+Trace events include PTY output, input, terminal resize, labeled markers, and process exit. High-level mouse gestures include their encoded bytes and gesture metadata. Markers are metadata: they do not write to the PTY or change terminal state. Operation scripts can add one with `{"op":"trace_mark","args":{"label":"Login complete"}}`.
 
 Search recorded raw PTY output directly without unpacking `events.jsonl`:
 
@@ -522,7 +524,7 @@ rendered text—it does not establish that the application or target is trusted.
 
 ### Inspect traces
 
-`twee inspect` validates a bundle, replays its output and resize events through the terminal model, and reports metadata plus final semantic state. It does not need a daemon or an interactive terminal.
+`twee inspect` validates a bundle, replays its output and resize events through the terminal model, and reports metadata, ordered markers, plus final semantic state. It does not need a daemon or an interactive terminal.
 
 ```sh
 twee inspect session.twee
@@ -557,6 +559,7 @@ An invalid bundle returns `INVALID_ARGUMENT`. The `error.details.issues` array c
 twee play session.twee
 twee play session.twee --speed 2
 twee play session.twee --step
+twee play session.twee --pause-on-marker
 ```
 
 Playback controls are:
@@ -566,6 +569,8 @@ Playback controls are:
 | `space` | Pause or resume. |
 | `.` | Advance one event and remain paused. |
 | `>` | Advance one second of trace time. |
+| `[` / `]` | Seek to the previous or next marker. |
+| `m` | Show the ordered marker list. |
 | `-` / `+` | Halve or double speed, bounded to 0.25×–16×. |
 | `r` | Restart from the beginning. |
 | `q` | Quit. |
@@ -586,9 +591,9 @@ twee export session.twee -o session.cast
 twee export session.twee -o session.cast --input
 ```
 
-GIF and HTML export use pure Go encoders. MP4 and WebM export require `ffmpeg` on `PATH` or through `--ffmpeg`. Cast export writes portable asciicast v2 NDJSON without rendering frames; it preserves output, resize events, terminal dimensions, and timestamps. Input is excluded by default because it can contain credentials; `--input` includes only type, key, and paste events. Exit records, mouse input, terminal replies, unknown input kinds, and non-UTF-8 payloads are intentionally omitted. In `--machine` output, `omitted_events` reports that count.
+GIF and HTML export use pure Go encoders. MP4 and WebM export require `ffmpeg` on `PATH` or through `--ffmpeg`. Cast export writes portable asciicast v2 NDJSON without rendering frames; it preserves output, resize events, markers, terminal dimensions, and timestamps. Input is excluded by default because it can contain credentials; `--input` includes only type, key, and paste events. Exit records, mouse input, terminal replies, unknown input kinds, and non-UTF-8 payloads are intentionally omitted. In `--machine` output, `omitted_events` reports that count.
 
-HTML output works from a local file without a network connection. It includes playback, step, speed, and timeline controls.
+HTML output works from a local file without a network connection. It includes playback, step, speed, timeline, marker selector, and previous/next marker controls. The `[` and `]` shortcuts seek markers in recording order, including markers at the same playback position.
 
 Export keeps recorded timing by default. Use `--max-idle` to limit long idle gaps.
 

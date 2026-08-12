@@ -240,6 +240,97 @@ func TestWrapHotkeyToggleWritesTraceBundle(t *testing.T) {
 	}
 }
 
+func TestWrapMarkerPromptCommitsOnlyToTraceAndCancels(t *testing.T) {
+	bin := buildBinary(t)
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "ops.json")
+	tracePath := filepath.Join(dir, "session.twee")
+	cmd := exec.Command(bin, "wrap", "--script-out", scriptPath, "--trace-out", tracePath, "--no-waits", "--no-status", "--", "/bin/cat")
+	cmd.Env = append(os.Environ(), testEnv(t)...)
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
+	if err != nil {
+		t.Fatal(err)
+	}
+	makePTYRaw(t, ptmx)
+	proc := watchPTY(cmd, ptmx)
+	defer func() { _ = ptmx.Close() }()
+
+	proc.write(t, []byte("before"))
+	proc.waitFor(t, []byte("before"), 5*time.Second)
+	proc.write(t, []byte("\x1dmkept ✓\r"))
+	proc.write(t, []byte("sync1"))
+	proc.waitFor(t, []byte("sync1"), 5*time.Second)
+	proc.write(t, []byte("\x1dmfragmented"))
+	proc.write(t, []byte("\x1b"))
+	proc.write(t, []byte("[A"))
+	proc.write(t, []byte("\x1b[20"))
+	proc.write(t, []byte("0~paste"))
+	proc.write(t, []byte("d\x1b[201~\r"))
+	proc.write(t, []byte("sync2"))
+	proc.waitFor(t, []byte("sync2"), 5*time.Second)
+	proc.write(t, []byte("\x1dmescape\x1b"))
+	time.Sleep(300 * time.Millisecond)
+	proc.write(t, []byte("\x1dmctrlc\x03"))
+	proc.write(t, []byte("sync3"))
+	proc.waitFor(t, []byte("sync3"), 5*time.Second)
+	proc.write(t, []byte("\x1dm\r\x03"))
+	time.Sleep(50 * time.Millisecond)
+	proc.write(t, []byte("after"))
+	proc.waitFor(t, []byte("after"), 5*time.Second)
+	proc.write(t, []byte{0x1d, 'q'})
+	out, err := proc.finish(5 * time.Second)
+	if err != nil {
+		t.Fatalf("wrap: %v\n%s", err, out)
+	}
+	if bytes.Contains(out, []byte("marker label:")) || bytes.Contains(out, []byte("marker added")) || bytes.Contains(out, []byte("\x1b7\x1b[24;1H")) {
+		t.Fatalf("--no-status emitted marker/status display bytes: %q", out)
+	}
+
+	bundle, err := play.OpenBundle(tracePath)
+	if err != nil {
+		t.Fatalf("OpenBundle: %v", err)
+	}
+	var labels []string
+	for _, event := range bundle.Events {
+		if event.Type == "marker" {
+			labels = append(labels, event.Label)
+		}
+	}
+	if strings.Join(labels, ",") != "kept ✓,fragmentedpasted" {
+		t.Fatalf("marker labels = %#v, want [kept ✓ fragmentedpasted]", labels)
+	}
+	for _, forbidden := range []string{"kept", "fragmented", "pasted", "escape", "ctrlc"} {
+		if eventsContain(bundle.Events, "input", "", "", []byte(forbidden)) || eventsContain(bundle.Events, "output", "", "", []byte(forbidden)) {
+			t.Fatalf("prompt text %q leaked into terminal events: %#v", forbidden, bundle.Events)
+		}
+	}
+
+	raw, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ops []rpc.Request
+	if err := json.Unmarshal(raw, &ops); err != nil {
+		t.Fatalf("decode script: %v\n%s", err, raw)
+	}
+	var typed strings.Builder
+	for _, op := range ops {
+		if op.Op == rpc.OpTraceMark {
+			t.Fatalf("script contains trace_mark: %s", raw)
+		}
+		if op.Op == rpc.OpType {
+			var args rpc.TypeArgs
+			if err := json.Unmarshal(op.Args, &args); err != nil {
+				t.Fatal(err)
+			}
+			typed.WriteString(args.Text)
+		}
+	}
+	if got := typed.String(); got != "beforesync1sync2sync3after" {
+		t.Fatalf("script typed text = %q, want beforesync1sync2sync3after; script=%s", got, raw)
+	}
+}
+
 func TestWrapDoesNotHangOnHighVolumeChildExit(t *testing.T) {
 	bin := buildBinary(t)
 	outPath := filepath.Join(t.TempDir(), "ops.json")

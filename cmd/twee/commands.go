@@ -141,6 +141,8 @@ func registerUsage(path, usage string) {
 	switch path {
 	case "trace start":
 		d.Artifact = &artifactDescriptor{PathField: "data.out"}
+	case "trace mark":
+		d.Artifact = nil
 	case "trace stop":
 		d.Artifact = &artifactDescriptor{PathField: "data.path"}
 	case "trace contains-output":

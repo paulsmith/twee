@@ -14,7 +14,9 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/paulsmith/twee/internal/jsontext"
 	"github.com/paulsmith/twee/internal/termios"
 	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/tracearchive"
@@ -49,6 +51,7 @@ type Event struct {
 	Cols  int
 	Rows  int
 	Code  int
+	Label string
 	Mouse *trace.MouseInput
 }
 
@@ -273,6 +276,10 @@ func inspectEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int, coll
 		}
 		lastTMS = header.TMS
 		haveLast = true
+		if !utf8.Valid(line) {
+			issues = append(issues, fmt.Sprintf("events.jsonl line %d: JSON is not valid UTF-8", lineNo))
+			continue
+		}
 		var raw trace.EventRecord
 		if err := json.Unmarshal(line, &raw); err != nil {
 			issues = append(issues, fmt.Sprintf("events.jsonl line %d: %v", lineNo, err))
@@ -287,6 +294,14 @@ func inspectEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int, coll
 			}
 			if raw.Rows > maxRows {
 				maxRows = raw.Rows
+			}
+		}
+		if header.Type == trace.EventTypeMarker {
+			if err := jsontext.ValidateObjectStringField(line, "label"); err != nil {
+				issues = append(issues, fmt.Sprintf("events.jsonl line %d: marker label contains malformed Unicode escape: %v", lineNo, err))
+			}
+			if raw.Label == "" {
+				issues = append(issues, fmt.Sprintf("events.jsonl line %d: marker label is empty", lineNo))
 			}
 		}
 		var decoded []byte
@@ -308,7 +323,7 @@ func inspectEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int, coll
 		}
 		event := Event{
 			TMS: raw.TMS, Type: trace.EventType(strings.TrimSpace(string(raw.Type))), Bytes: decoded,
-			Kind: raw.Kind, Key: raw.Key, Cols: raw.Cols, Rows: raw.Rows, Code: raw.Code,
+			Kind: raw.Kind, Key: raw.Key, Cols: raw.Cols, Rows: raw.Rows, Code: raw.Code, Label: raw.Label,
 			Mouse: raw.Mouse,
 		}
 		if visit != nil {

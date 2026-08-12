@@ -84,6 +84,15 @@ func New(model vt.Model, r io.Reader) *Pump {
 	return p
 }
 
+// Ordered runs fn after every output chunk already admitted to the event stream
+// has completed its output hook, and before later output or resize events.
+// fn must not call a Pump method that acquires eventMu.
+func (p *Pump) Ordered(fn func()) {
+	p.eventMu.Lock()
+	defer p.eventMu.Unlock()
+	fn()
+}
+
 // SetOutputHook installs the recorder callback. Hook replacement is ordered
 // with output and resize events, while callback execution remains outside mu.
 func (p *Pump) SetOutputHook(fn func([]byte, time.Time)) {

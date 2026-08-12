@@ -22,23 +22,39 @@ type htmlFrameRecord struct {
 	DurationNS int64  `json:"duration_ns"`
 }
 
-func readHTMLFrames(t *testing.T, page []byte) []htmlFrameRecord {
+type htmlMarkerRecord struct {
+	PositionMS float64 `json:"position_ms"`
+	TMS        int64   `json:"t_ms"`
+	EventIndex int     `json:"event_index"`
+	Label      string  `json:"label"`
+	Src        string  `json:"src"`
+}
+
+func readHTMLJSON[T any](t *testing.T, page []byte, id string) []T {
 	t.Helper()
-	const marker = `<script type="application/json" id="twee-frames">`
-	start := bytes.Index(page, []byte(marker))
+	marker := []byte(`<script type="application/json" id="` + id + `">`)
+	start := bytes.Index(page, marker)
 	if start < 0 {
-		t.Fatalf("page is missing embedded frame data")
+		t.Fatalf("page is missing embedded %s data", id)
 	}
 	start += len(marker)
 	end := bytes.Index(page[start:], []byte(`</script>`))
 	if end < 0 {
-		t.Fatalf("embedded frame data has no closing script tag")
+		t.Fatalf("embedded %s data has no closing script tag", id)
 	}
-	var frames []htmlFrameRecord
-	if err := json.Unmarshal(page[start:start+end], &frames); err != nil {
-		t.Fatalf("decode embedded frames: %v", err)
+	var values []T
+	if err := json.Unmarshal(page[start:start+end], &values); err != nil {
+		t.Fatalf("decode embedded %s: %v", id, err)
 	}
-	return frames
+	return values
+}
+
+func readHTMLFrames(t *testing.T, page []byte) []htmlFrameRecord {
+	return readHTMLJSON[htmlFrameRecord](t, page, "twee-frames")
+}
+
+func readHTMLMarkers(t *testing.T, page []byte) []htmlMarkerRecord {
+	return readHTMLJSON[htmlMarkerRecord](t, page, "twee-markers")
 }
 
 func TestExportHTMLEndToEnd(t *testing.T) {
@@ -91,6 +107,9 @@ func TestExportHTMLEndToEnd(t *testing.T) {
 	if got, want := len(frames), 3; got != want {
 		t.Fatalf("frame count = %d, want %d", got, want)
 	}
+	if markers := readHTMLMarkers(t, page); len(markers) != 0 {
+		t.Fatalf("markers = %+v, want none in base fixture", markers)
+	}
 	wantDurations := []time.Duration{100 * time.Millisecond, 500 * time.Millisecond, 400 * time.Millisecond}
 	var total time.Duration
 	var bounds string
@@ -120,6 +139,94 @@ func TestExportHTMLEndToEnd(t *testing.T) {
 	}
 	if total != time.Second {
 		t.Errorf("total duration = %v, want 1s", total)
+	}
+}
+
+func TestExportHTMLEmbedsOrderedMarkers(t *testing.T) {
+	bundle := writeCastBundle(t, []string{
+		castRecord(0, "output", "hello", ""),
+		`{"t_ms":100,"type":"marker","label":"first"}`,
+		`{"t_ms":100,"type":"marker","label":"second"}`,
+		castRecord(200, "output", "world", ""),
+	})
+	out := filepath.Join(t.TempDir(), "out.html")
+	if err := Export(bundle, out, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers := readHTMLMarkers(t, page)
+	if len(markers) != 2 || markers[0].Label != "first" || markers[1].Label != "second" || markers[0].PositionMS != 100 || markers[1].PositionMS != 100 || markers[0].EventIndex != 1 || markers[1].EventIndex != 2 {
+		t.Fatalf("markers = %+v", markers)
+	}
+}
+
+func TestExportHTMLClampsTailMarkersToPlaybackDuration(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		opts     Options
+		wantTime time.Duration
+	}{
+		{name: "trailing cap", wantTime: 4 * time.Second},
+		{name: "max idle", opts: Options{MaxIdle: 2 * time.Second}, wantTime: 3 * time.Second},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			bundle := writeCastBundle(t, []string{
+				castRecord(0, "output", "A", ""),
+				castRecord(1000, "output", "B", ""),
+				`{"t_ms":10000,"type":"marker","label":"tail"}`,
+			})
+			out := filepath.Join(t.TempDir(), "out.html")
+			if err := Export(bundle, out, test.opts); err != nil {
+				t.Fatal(err)
+			}
+			page, err := os.ReadFile(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			frames := readHTMLFrames(t, page)
+			var duration time.Duration
+			for _, frame := range frames {
+				duration += time.Duration(frame.DurationNS)
+			}
+			if duration != test.wantTime {
+				t.Fatalf("playback duration = %v, want %v", duration, test.wantTime)
+			}
+			markers := readHTMLMarkers(t, page)
+			if len(markers) != 1 || markers[0].PositionMS != float64(duration)/float64(time.Millisecond) {
+				t.Fatalf("tail markers = %+v, playback duration %v", markers, duration)
+			}
+		})
+	}
+}
+
+func TestExportHTMLEmbedsExactMarkerCheckpointsAtEqualTimestamp(t *testing.T) {
+	bundle := writeCastBundle(t, []string{
+		castRecord(100, "output", "A", ""),
+		`{"t_ms":100,"type":"marker","label":"first"}`,
+		castRecord(100, "output", "B", ""),
+		`{"t_ms":100,"type":"marker","label":"second"}`,
+	})
+	out := filepath.Join(t.TempDir(), "out.html")
+	if err := Export(bundle, out, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markers := readHTMLMarkers(t, page)
+	if len(markers) != 2 || markers[0].Src == "" || markers[1].Src == "" {
+		t.Fatalf("markers = %+v", markers)
+	}
+	if markers[0].Src == markers[1].Src {
+		t.Fatal("equal-timestamp markers embedded the same terminal checkpoint")
+	}
+	frames := readHTMLFrames(t, page)
+	if len(frames) != 2 {
+		t.Fatalf("visual frames = %d, want unchanged replay frame count 2", len(frames))
 	}
 }
 
@@ -333,6 +440,12 @@ const frameData = [
   {src: 'frame-1', duration_ns: 200000000},
   {src: 'frame-2', duration_ns: 300000000},
 ];
+const markerData = [
+  {position_ms: 100, t_ms: 100, event_index: 1, label: 'ready', src: 'marker-0'},
+  {position_ms: 300, t_ms: 300, event_index: 3, label: 'first done', src: 'marker-1'},
+  {position_ms: 300, t_ms: 300, event_index: 4, label: 'second done', src: 'marker-2'},
+  {position_ms: 600, t_ms: 900, event_index: 5, label: 'tail', src: 'marker-3'},
+];
 const drawn = [];
 function makeElement(id) {
   const element = {
@@ -349,14 +462,18 @@ function makeElement(id) {
   return element;
 }
 const elements = {};
-for (const id of ['twee-frames', 'frame', 'play', 'timeline', 'time', 'speed', 'speed-value', 'restart', 'previous', 'next']) {
+for (const id of ['twee-frames', 'twee-markers', 'frame', 'play', 'timeline', 'time', 'speed', 'speed-value', 'restart', 'previous', 'next', 'previous-marker', 'next-marker', 'markers']) {
   elements[id] = makeElement(id);
 }
 elements['twee-frames'].textContent = JSON.stringify(frameData);
+elements['twee-markers'].textContent = JSON.stringify(markerData);
+elements.markers.children = [];
+elements.markers.appendChild = option => elements.markers.children.push(option);
 elements.frame.getContext = () => ({drawImage(picture) { drawn.push(picture.src); }});
 const documentListeners = {};
 globalThis.document = {
   getElementById(id) { return elements[id]; },
+  createElement(id) { return makeElement(id); },
   addEventListener(type, listener) { documentListeners[type] = listener; },
 };
 globalThis.Image = class {
@@ -396,6 +513,9 @@ function key(value, target = {}) {
   return prevented;
 }
 assert(elements.timeline.max === '600', 'total duration');
+assert(elements.markers.children.length === 4, 'marker option count');
+assert(elements.markers.children[0].textContent === '1. ready', 'first marker option');
+assert(elements.markers.children[2].textContent === '3. second done', 'equal-position marker option order');
 assert(elements.time.textContent === '0:00.000 / 0:00.600', 'initial clock');
 assert(lastDrawn() === 'frame-0', 'initial frame');
 scrub(99.999);
@@ -415,6 +535,34 @@ elements.next.click();
 assert(elements.timeline.value === '300' && lastDrawn() === 'frame-2', 'next frame');
 elements.restart.click();
 assert(elements.timeline.value === '0' && lastDrawn() === 'frame-0', 'restart');
+assert(key(']'), 'next marker shortcut prevents default');
+assert(elements.timeline.value === '100' && elements.markers.value === '0', 'next marker reaches first');
+assert(lastDrawn() === 'marker-0', 'first marker paints exact checkpoint');
+elements.next.click();
+assert(elements.timeline.value === '300' && lastDrawn() === 'frame-2', 'next frame is relative to marker frame');
+elements.markers.value = '0';
+elements.markers.dispatch('change');
+elements.previous.click();
+assert(elements.timeline.value === '0' && lastDrawn() === 'frame-0', 'previous frame is relative to marker frame');
+elements.markers.value = '0';
+elements.markers.dispatch('change');
+elements['next-marker'].click();
+assert(elements.timeline.value === '300' && elements.markers.value === '1', 'next marker reaches first equal-position marker');
+assert(lastDrawn() === 'marker-1', 'first equal-position marker paints exact checkpoint');
+assert(key(']'), 'next equal-position marker shortcut prevents default');
+assert(elements.timeline.value === '300' && elements.markers.value === '2', 'next marker reaches later equal-position marker');
+assert(lastDrawn() === 'marker-2', 'later equal-position marker paints distinct checkpoint');
+assert(key('['), 'previous marker shortcut prevents default');
+assert(elements.timeline.value === '300' && elements.markers.value === '1', 'previous marker traverses equal-position order');
+elements['previous-marker'].click();
+assert(elements.timeline.value === '100' && elements.markers.value === '0', 'previous marker reaches earlier position');
+elements.markers.value = '2';
+elements.markers.dispatch('change');
+assert(elements.timeline.value === '300' && elements.markers.value === '2', 'marker selector seeks exact equal-position marker');
+elements.markers.value = '3';
+elements.markers.dispatch('change');
+assert(elements.timeline.value === '600' && elements.markers.value === '3' && lastDrawn() === 'marker-3', 'tail marker remains selected at playback end');
+elements.restart.click();
 elements.play.click();
 assert(elements.play.textContent === 'Pause', 'play transition');
 let tick = animationCallback;

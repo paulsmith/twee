@@ -3,6 +3,7 @@ package daemon
 import (
 	"archive/zip"
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -13,7 +14,114 @@ import (
 
 	"github.com/paulsmith/twee/internal/engine"
 	"github.com/paulsmith/twee/internal/rpc"
+	"github.com/paulsmith/twee/internal/tracepolicy"
 )
+
+func TestTraceMarkOp(t *testing.T) {
+	te := startTestTerm(t)
+	sock, _ := startTestServer(t, te)
+	tracePath := filepath.Join(t.TempDir(), "session.twee")
+	start := dialAndCall(t, sock, rpc.Request{ID: "1", Op: rpc.OpTraceStart, Args: mustJSON(t, rpc.TraceStartArgs{Out: tracePath})})
+	if !start.OK {
+		t.Fatalf("trace_start: %+v", start.Error)
+	}
+	for i, label := range []string{"first", "second"} {
+		resp := dialAndCall(t, sock, rpc.Request{ID: string(rune('2' + i)), Op: rpc.OpTraceMark, Args: mustJSON(t, rpc.TraceMarkArgs{Label: label})})
+		if !resp.OK {
+			t.Fatalf("trace_mark %q: %+v", label, resp.Error)
+		}
+	}
+	if resp := dialAndCall(t, sock, rpc.Request{ID: "4", Op: rpc.OpTraceStop}); !resp.OK {
+		t.Fatalf("trace_stop: %+v", resp.Error)
+	}
+	zr, err := zip.OpenReader(tracePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = zr.Close() })
+	f, err := zr.Open("events.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	var labels []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		var event struct {
+			Type  string `json:"type"`
+			Label string `json:"label"`
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+			t.Fatal(err)
+		}
+		if event.Type == "marker" {
+			labels = append(labels, event.Label)
+		}
+	}
+	if strings.Join(labels, ",") != "first,second" {
+		t.Fatalf("marker labels = %#v", labels)
+	}
+}
+
+func TestTraceMarkValidationAndInactiveTrace(t *testing.T) {
+	te := startTestTerm(t)
+	for _, test := range []struct {
+		raw  json.RawMessage
+		code string
+	}{
+		{mustJSON(t, rpc.TraceMarkArgs{Label: "ready"}), rpc.CodeFailedPrecondition},
+		{mustJSON(t, rpc.TraceMarkArgs{}), rpc.CodeInvalidArgument},
+		{json.RawMessage(`{"label":"\ud800"}`), rpc.CodeInvalidArgument},
+		{json.RawMessage(`{"Label":"\ud800"}`), rpc.CodeInvalidArgument},
+		{json.RawMessage(`{"LABEL":"\ud800"}`), rpc.CodeInvalidArgument},
+		{json.RawMessage(`{"label":"x","extra":true}`), rpc.CodeInvalidArgument},
+	} {
+		_, errResp := handleTraceMark(te, test.raw)
+		if errResp == nil || errResp.Code != test.code {
+			t.Fatalf("handleTraceMark(%s) = %+v, want %s", test.raw, errResp, test.code)
+		}
+	}
+}
+
+func TestTraceMarkOversizedLabelReturnsConciseInvalidArgument(t *testing.T) {
+	te := startTestTerm(t)
+	tracePath := filepath.Join(t.TempDir(), "session.twee")
+	if err := te.EnableTrace(tracePath); err != nil {
+		t.Fatal(err)
+	}
+	label := strings.Repeat("oversize-secret-", tracepolicy.MaxEventLineBytes/len("oversize-secret-")+1)
+	_, errResp := handleTraceMark(te, mustJSON(t, rpc.TraceMarkArgs{Label: label}))
+	if errResp == nil || errResp.Code != rpc.CodeInvalidArgument {
+		t.Fatalf("handleTraceMark oversized label = %+v, want INVALID_ARGUMENT", errResp)
+	}
+	encoded, err := json.Marshal(errResp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) > 1024 {
+		t.Fatalf("oversized marker error response is %d bytes: %.200s", len(encoded), encoded)
+	}
+	if bytes.Contains(encoded, []byte("oversize-secret-")) {
+		t.Fatal("oversized marker error echoed the label")
+	}
+}
+
+func TestHandleTraceMarkAcceptsValidUnicodeForms(t *testing.T) {
+	te := startTestTerm(t)
+	tracePath := filepath.Join(t.TempDir(), "session.twee")
+	if err := te.EnableTrace(tracePath); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = te.DisableTrace() }()
+	for _, raw := range []json.RawMessage{
+		json.RawMessage(`{"label":"literal �"}`),
+		json.RawMessage(`{"label":"\ud83d\ude00"}`),
+	} {
+		if _, errResp := handleTraceMark(te, raw); errResp != nil {
+			t.Fatalf("handleTraceMark(%s): %+v", raw, errResp)
+		}
+	}
+}
 
 func TestTraceStartStopOps(t *testing.T) {
 	te := startTestTerm(t)

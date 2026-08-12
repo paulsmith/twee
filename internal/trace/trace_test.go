@@ -582,6 +582,69 @@ func TestTraceNewRejectsPredeclaredNetworkCapture(t *testing.T) {
 	}
 }
 
+func TestTraceMarkerValidation(t *testing.T) {
+	tr, err := New(filepath.Join(t.TempDir(), "session.twee"), Manifest{Cols: 10, Rows: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.WriteMarker(""); err == nil {
+		t.Fatal("empty marker label succeeded")
+	}
+	if err := tr.WriteMarker(string([]byte{0xff})); err == nil {
+		t.Fatal("invalid UTF-8 marker label succeeded")
+	}
+	if err := tr.WriteMarker("ready"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTraceMarkerEncodedLineLimit(t *testing.T) {
+	tr, err := New(filepath.Join(t.TempDir(), "session.twee"), Manifest{Cols: 10, Rows: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tr.Abort(nil) })
+
+	fits := strings.Repeat("\x00", (tracepolicy.MaxEventLineBytes-64)/6)
+	for len(fits) > 0 {
+		record, err := json.Marshal(EventRecord{TMS: 0, Type: EventTypeMarker, Label: fits})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(record)+1 < tracepolicy.MaxEventLineBytes {
+			break
+		}
+		fits = fits[:len(fits)-1]
+	}
+	if err := tr.WriteMarker(fits); err != nil {
+		t.Fatalf("largest fitting escaped marker: %v", err)
+	}
+
+	tooLarge := strings.Repeat("\x00", tracepolicy.MaxEventLineBytes/6+1)
+	err = tr.WriteMarker(tooLarge)
+	if err == nil || !IsMarkerValidationError(err) {
+		t.Fatalf("oversized marker error = %v, want validation error", err)
+	}
+}
+
+func TestTraceMarkerEncoderFailureIsNotValidation(t *testing.T) {
+	tr, err := New(filepath.Join(t.TempDir(), "session.twee"), Manifest{Cols: 10, Rows: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.eventsFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err = tr.WriteMarker("checkpoint")
+	if err == nil || IsMarkerValidationError(err) {
+		t.Fatalf("encoder error = %v, want non-validation failure", err)
+	}
+	_ = tr.Abort(err)
+}
+
 func TestTraceTimestampsNeverDecreaseAcrossEventTypes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "session.twee")
 	tr, err := New(path, Manifest{Command: []string{"echo"}, Cols: 10, Rows: 3})
@@ -590,6 +653,9 @@ func TestTraceTimestampsNeverDecreaseAcrossEventTypes(t *testing.T) {
 	}
 	tr.WriteInput(InputKindKey, "x", []byte("x"))
 	tr.WriteOutput([]byte("data"), tr.start.Add(-time.Second))
+	if err := tr.WriteMarker("checkpoint"); err != nil {
+		t.Fatal(err)
+	}
 	tr.WriteMouseInput(MouseInput{}, []byte("mouse"))
 	tr.WriteResize(20, 4)
 	tr.WriteExit(0)

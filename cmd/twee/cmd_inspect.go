@@ -19,7 +19,7 @@ func init() {
 	register("inspect", runInspect)
 	registerUsage("inspect", `twee inspect [--format json|text] <bundle.twee>
 Validate a .twee trace bundle, replay output and resize events through the
-terminal model, and print metadata plus final semantic state. Replay includes
+terminal model, and print metadata, ordered markers, plus final semantic state. Replay includes
 final dimensions, visible text, cursor, alternate screen, styled cells, modes,
 and control-sequence-granular mode transitions. Validation checks zip integrity,
 the manifest and version, every event record, timestamp order, replay-safe
@@ -93,6 +93,10 @@ func printInspectText(w io.Writer, s inspect.Summary) {
 	_, _ = fmt.Fprintf(w, "Events: %d total\n", s.Events.Total)
 	_, _ = fmt.Fprintf(w, "Types: %s\n", formatCounts(s.Events.ByType))
 	_, _ = fmt.Fprintf(w, "Input: %s\n", formatCounts(s.Events.InputByKind))
+	_, _ = fmt.Fprintf(w, "Markers: %d\n", len(s.Markers))
+	for i, marker := range s.Markers {
+		_, _ = fmt.Fprintf(w, "  %d. %d ms event=%d: %s\n", i+1, marker.TMS, marker.EventIndex, marker.Label)
+	}
 	if s.Exit.Recorded && s.Exit.Code != nil {
 		_, _ = fmt.Fprintf(w, "Exit: code %d\n", *s.Exit.Code)
 	} else {

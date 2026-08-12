@@ -3,11 +3,15 @@
 package export
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"time"
 
 	"github.com/paulsmith/twee/internal/play"
+	"github.com/paulsmith/twee/internal/render"
+	"github.com/paulsmith/twee/internal/trace"
 	"github.com/paulsmith/twee/internal/vt"
 )
 
@@ -137,7 +141,7 @@ func replay(events []play.Event, cols, rows int, opts Options,
 		// being seen, since the emit-on-screen-change rule wouldn't
 		// consider it a reason to checkpoint at all.
 		forceFrame := false
-		if opts.InputOverlay {
+		if opts.InputOverlay && (ev.Type == trace.EventTypeInput || ev.Type == trace.EventTypeResize) {
 			if txt := play.FormatEventToast(ev); txt != "" {
 				overlay = txt
 				forceFrame = true
@@ -192,6 +196,42 @@ func adjustedTimeline(events []play.Event, opts Options) []time.Duration {
 		adjusted[i] = adj
 	}
 	return adjusted
+}
+
+func htmlMarkers(events []play.Event, cols, rows int, opts Options, cv *canvas) ([]htmlMarker, error) {
+	adjusted := adjustedTimeline(events, opts)
+	model := vt.New(cols, rows)
+	markers := make([]htmlMarker, 0)
+	var overlay string
+	for eventIndex, event := range events {
+		if _, err := play.ApplyScreenEvent(model, event); err != nil {
+			return nil, err
+		}
+		if opts.InputOverlay && (event.Type == trace.EventTypeInput || event.Type == trace.EventTypeResize) {
+			if text := play.FormatEventToast(event); text != "" {
+				overlay = text
+			}
+		}
+		if event.Type != trace.EventTypeMarker {
+			continue
+		}
+		img, err := cv.compose(model.Snapshot(), overlay)
+		if err != nil {
+			return nil, err
+		}
+		var png bytes.Buffer
+		if err := render.EncodePNG(&png, img); err != nil {
+			return nil, err
+		}
+		markers = append(markers, htmlMarker{
+			PositionMS: float64(adjusted[eventIndex]) / float64(time.Millisecond),
+			TMS:        event.TMS,
+			EventIndex: eventIndex,
+			Label:      event.Label,
+			Src:        "data:image/png;base64," + base64.StdEncoding.EncodeToString(png.Bytes()),
+		})
+	}
+	return markers, nil
 }
 
 // hashNoCursor hashes the snapshot with the cursor zeroed: the renderer does

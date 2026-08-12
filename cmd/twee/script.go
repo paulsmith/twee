@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/paulsmith/twee/internal/jsontext"
 	"github.com/paulsmith/twee/internal/rpc"
 )
 
@@ -89,6 +90,10 @@ func normalizeScriptPaths(ops []rpc.Request, clientDir string) error {
 			}
 			args.Out = resolveScriptPath(clientDir, args.Out)
 			ops[i].Args, err = json.Marshal(args)
+		case rpc.OpTraceMark:
+			if err := jsontext.ValidateObjectStringField(ops[i].Args, "label"); err != nil {
+				return fmt.Errorf("op %d %s args: marker label contains malformed Unicode escape: %w", i, ops[i].Op, err)
+			}
 		case rpc.OpDiff:
 			var args rpc.DiffArgs
 			if err := decodeScriptArgs(ops[i].Args, &args); err != nil {

@@ -3,6 +3,7 @@ package export
 import (
 	"bufio"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"image"
 	"os"
@@ -11,14 +12,24 @@ import (
 	"github.com/paulsmith/twee/internal/render"
 )
 
+type htmlMarker struct {
+	PositionMS float64 `json:"position_ms"`
+	TMS        int64   `json:"t_ms"`
+	EventIndex int     `json:"event_index"`
+	Label      string  `json:"label"`
+	Src        string  `json:"src"`
+}
+
 // htmlSink streams PNG frames into a self-contained replay page. Keeping the
 // temporary file beside the destination makes the final rename atomic on the
 // filesystems supported by os.Rename.
 type htmlSink struct {
-	output *stagedOutput
-	file   *os.File
-	w      *bufio.Writer
-	frames int
+	output   *stagedOutput
+	file     *os.File
+	w        *bufio.Writer
+	frames   int
+	duration time.Duration
+	markers  []htmlMarker
 }
 
 func newHTMLSink(outPath string) (*htmlSink, error) {
@@ -59,10 +70,29 @@ func (s *htmlSink) add(img *image.RGBA, d time.Duration) error {
 		return err
 	}
 	s.frames++
+	s.duration += d
 	return nil
 }
 
+func (s *htmlSink) setMarkers(markers []htmlMarker) {
+	s.markers = append([]htmlMarker(nil), markers...)
+}
+
 func (s *htmlSink) close() error {
+	if _, err := s.w.WriteString(htmlFramesSuffix); err != nil {
+		return err
+	}
+	maxPositionMS := float64(s.duration) / float64(time.Millisecond)
+	for i := range s.markers {
+		s.markers[i].PositionMS = min(s.markers[i].PositionMS, maxPositionMS)
+	}
+	encoded, err := json.Marshal(s.markers)
+	if err != nil {
+		return err
+	}
+	if _, err := s.w.Write(encoded); err != nil {
+		return err
+	}
 	if _, err := s.w.WriteString(htmlSuffix); err != nil {
 		return err
 	}
@@ -102,8 +132,8 @@ body { margin: 0; min-height: 100vh; display: grid; place-items: center; backgro
 main { width: min(100%, 1100px); padding: 1rem; }
 .screen { display: grid; place-items: center; min-height: 12rem; overflow: auto; background: #000; border: 1px solid #444; }
 #frame { display: block; max-width: 100%; height: auto; image-rendering: auto; }
-.controls { display: grid; grid-template-columns: auto auto auto auto 1fr auto auto; gap: .5rem; align-items: center; padding-top: .75rem; }
-button, input, output { font: inherit; }
+.controls { display: grid; grid-template-columns: auto auto auto auto auto auto 1fr auto auto; gap: .5rem; align-items: center; padding-top: .75rem; }
+button, input, output, select { font: inherit; }
 button { padding: .35rem .55rem; color: inherit; background: #292929; border: 1px solid #666; border-radius: .25rem; }
 button:hover { background: #383838; }
 #timeline { width: 100%; }
@@ -120,19 +150,26 @@ button:hover { background: #383838; }
 <button id="previous" type="button" title="Previous frame (Left arrow)">Previous</button>
 <button id="play" type="button" title="Play or pause (Space)">Play</button>
 <button id="next" type="button" title="Next frame (Right arrow)">Next</button>
+<button id="previous-marker" type="button" title="Previous marker ([)">Prev marker</button>
+<button id="next-marker" type="button" title="Next marker (])">Next marker</button>
 <input id="timeline" type="range" min="0" value="0" step="any" aria-label="Replay position">
+<select id="markers" aria-label="Markers"><option value="">Markers</option></select>
 <span id="time" aria-live="off">0:00.000 / 0:00.000</span>
 <label for="speed">Speed <input id="speed" type="range" min="-2" max="4" step="1" value="0" aria-label="Playback speed"><output id="speed-value" aria-live="polite">1×</output></label>
 </div>
 <script type="application/json" id="twee-frames">[
 `
 
-const htmlSuffix = `
+const htmlFramesSuffix = `
 ]</script>
+<script type="application/json" id="twee-markers">`
+
+const htmlSuffix = `</script>
 <script>
 (() => {
   'use strict';
   const frames = JSON.parse(document.getElementById('twee-frames').textContent);
+  const markers = JSON.parse(document.getElementById('twee-markers').textContent);
   const canvas = document.getElementById('frame');
   const context = canvas.getContext('2d');
   const playButton = document.getElementById('play');
@@ -140,6 +177,7 @@ const htmlSuffix = `
   const timeLabel = document.getElementById('time');
   const speedSlider = document.getElementById('speed');
   const speedValue = document.getElementById('speed-value');
+  const markerSelect = document.getElementById('markers');
   const minSpeedStep = -2;
   const maxSpeedStep = 4;
   const starts = [];
@@ -154,8 +192,16 @@ const htmlSuffix = `
   let lastTick = 0;
   let animation = 0;
   const decoded = new Array(frames.length);
+  const decodedMarkers = new Array(markers.length);
+  let selectedMarker = -1;
 
   timeline.max = String(total);
+  for (let i = 0; i < markers.length; i++) {
+    const option = document.createElement('option');
+    option.value = String(i);
+    option.textContent = (i + 1) + '. ' + markers[i].label;
+    markerSelect.appendChild(option);
+  }
 
   function formatTime(milliseconds) {
     const value = Math.max(0, milliseconds);
@@ -180,13 +226,39 @@ const htmlSuffix = `
 
   function render() {
     position = Math.max(0, Math.min(total, position));
+    if (selectedMarkerAtPosition() < 0) {
+      markerSelect.value = '';
+      selectedMarker = -1;
+    }
     const nextIndex = indexAt(position);
-    if (nextIndex !== frameIndex) {
+    if (selectedMarker >= 0) {
+      frameIndex = nextIndex;
+      drawMarker(selectedMarker);
+    } else if (nextIndex !== frameIndex) {
       frameIndex = nextIndex;
       drawFrame(frameIndex);
     }
     timeline.value = String(position);
     timeLabel.textContent = formatTime(position) + ' / ' + formatTime(total);
+  }
+
+  function drawMarker(index) {
+    let picture = decodedMarkers[index];
+    if (!picture) {
+      picture = new Image();
+      decodedMarkers[index] = picture;
+      picture.addEventListener('load', () => paintMarker(index, picture), { once: true });
+      picture.src = markers[index].src;
+      return;
+    }
+    if (picture.complete) paintMarker(index, picture);
+  }
+
+  function paintMarker(index, picture) {
+    if (index !== selectedMarker) return;
+    canvas.width = picture.naturalWidth;
+    canvas.height = picture.naturalHeight;
+    context.drawImage(picture, 0, 0);
   }
 
   function drawFrame(index) {
@@ -248,9 +320,48 @@ const htmlSuffix = `
     if (frames.length === 0) return;
     const wasPlaying = playing;
     setPlaying(false);
+    selectedMarker = -1;
+    markerSelect.value = '';
     position = starts[Math.max(0, Math.min(frames.length - 1, index))];
     render();
     if (wasPlaying) setPlaying(true);
+  }
+
+  function seekMarker(index) {
+    if (markers.length === 0) return;
+    const markerIndex = Math.max(0, Math.min(markers.length - 1, index));
+    const wasPlaying = playing;
+    setPlaying(false);
+    selectedMarker = markerIndex;
+    position = Number(markers[markerIndex].position_ms);
+    markerSelect.value = String(markerIndex);
+    render();
+    if (wasPlaying) setPlaying(true);
+  }
+
+  function selectedMarkerAtPosition() {
+    if (markerSelect.value === '') return -1;
+    const index = Number(markerSelect.value);
+    if (!Number.isInteger(index) || index < 0 || index >= markers.length) return -1;
+    return Number(markers[index].position_ms) === position ? index : -1;
+  }
+
+  function markerBeforePosition() {
+    const selected = selectedMarkerAtPosition();
+    if (selected >= 0) return selected - 1;
+    for (let i = markers.length - 1; i >= 0; i--) {
+      if (Number(markers[i].position_ms) <= position) return i;
+    }
+    return -1;
+  }
+
+  function markerAfterPosition() {
+    const selected = selectedMarkerAtPosition();
+    if (selected >= 0) return selected + 1 < markers.length ? selected + 1 : -1;
+    for (let i = 0; i < markers.length; i++) {
+      if (Number(markers[i].position_ms) >= position) return i;
+    }
+    return -1;
   }
 
   playButton.addEventListener('click', () => {
@@ -261,15 +372,30 @@ const htmlSuffix = `
   document.getElementById('restart').addEventListener('click', () => {
     const wasPlaying = playing;
     setPlaying(false);
+    selectedMarker = -1;
+    markerSelect.value = '';
     position = 0;
     render();
     if (wasPlaying) setPlaying(true);
   });
   document.getElementById('previous').addEventListener('click', () => seekFrame(frameIndex - 1));
   document.getElementById('next').addEventListener('click', () => seekFrame(frameIndex + 1));
+  document.getElementById('previous-marker').addEventListener('click', () => {
+    const index = markerBeforePosition();
+    if (index >= 0) seekMarker(index);
+  });
+  document.getElementById('next-marker').addEventListener('click', () => {
+    const index = markerAfterPosition();
+    if (index >= 0) seekMarker(index);
+  });
+  markerSelect.addEventListener('change', () => {
+    if (markerSelect.value !== '') seekMarker(Number(markerSelect.value));
+  });
   timeline.addEventListener('input', () => {
     const wasPlaying = playing;
     setPlaying(false);
+    selectedMarker = -1;
+    markerSelect.value = '';
     position = Number(timeline.value);
     render();
     if (wasPlaying) setPlaying(true);
@@ -289,6 +415,12 @@ const htmlSuffix = `
     } else if (event.key === 'ArrowRight') {
       event.preventDefault();
       seekFrame(frameIndex + 1);
+    } else if (event.key === '[') {
+      event.preventDefault();
+      document.getElementById('previous-marker').click();
+    } else if (event.key === ']') {
+      event.preventDefault();
+      document.getElementById('next-marker').click();
     } else if (event.key === '-') {
       event.preventDefault();
       setSpeedStep(Number(speedSlider.value) - 1);

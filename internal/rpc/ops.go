@@ -31,6 +31,7 @@ const (
 	OpResize     = "resize"
 	OpScreenshot = "screenshot"
 	OpTraceStart = "trace_start"
+	OpTraceMark  = "trace_mark"
 	OpTraceStop  = "trace_stop"
 	OpDiff       = "diff"
 
