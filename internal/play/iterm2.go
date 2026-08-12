@@ -13,17 +13,19 @@ import (
 type iterm2Sink struct {
 	w            io.Writer
 	terminalCols int
+	terminalRows int
 }
 
-func newITerm2Sink(w io.Writer, terminalCols int) *iterm2Sink {
-	return &iterm2Sink{w: w, terminalCols: terminalCols}
+func newITerm2Sink(w io.Writer, size terminalSize) *iterm2Sink {
+	return &iterm2Sink{w: w, terminalCols: size.Cols, terminalRows: size.Rows}
 }
 
-func (s *iterm2Sink) SetTerminalSize(cols, _ int) {
+func (s *iterm2Sink) SetTerminalSize(cols, rows int) {
 	s.terminalCols = cols
+	s.terminalRows = rows
 }
 
-func (s *iterm2Sink) Emit(img *image.RGBA, cols, rows int, toast, status string) error {
+func (s *iterm2Sink) Emit(img *image.RGBA, cols, rows int, toast, status string, statusVisible bool) error {
 	// iTerm2 attaches inline images to cells. Clearing the alternate screen
 	// before each frame removes the previous attachment even when a trace
 	// resizes to a smaller frame.
@@ -33,7 +35,10 @@ func (s *iterm2Sink) Emit(img *image.RGBA, cols, rows int, toast, status string)
 	if err := writeITerm2PNG(s.w, img, cols, rows); err != nil {
 		return err
 	}
-	return writeFooter(s.w, s.terminalCols, cols, rows, toast, status)
+	if statusVisible {
+		return writeStatusRow(s.w, s.terminalCols, s.terminalRows, toast, status)
+	}
+	return nil
 }
 
 func (s *iterm2Sink) Close() error { return nil }

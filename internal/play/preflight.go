@@ -91,8 +91,8 @@ func preflightTerminal(opts preflightOptions) (terminalSize, error) {
 	if err != nil {
 		return terminalSize{}, fmt.Errorf("twee play: terminal size: %w", err)
 	}
-	if width < 1 || height < 3 {
-		return terminalSize{}, fmt.Errorf("twee play: terminal is %dx%d; playback needs at least 1x3",
+	if width < 1 || height < 2 {
+		return terminalSize{}, fmt.Errorf("twee play: terminal is %dx%d; playback needs at least 1x2",
 			width, height)
 	}
 	return terminalSize{Cols: width, Rows: height}, nil

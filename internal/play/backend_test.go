@@ -24,7 +24,7 @@ func TestValidBackend(t *testing.T) {
 }
 
 func TestNewFrameSinkRequiresSixelPixelGeometry(t *testing.T) {
-	_, err := newFrameSink(BackendSixel, ioDiscard{}, 80, displayPixels{})
+	_, err := newFrameSink(BackendSixel, ioDiscard{}, terminalSize{Cols: 80, Rows: 24}, displayPixels{})
 	if err == nil || !strings.Contains(err.Error(), "pixel geometry") {
 		t.Fatalf("error = %v, want pixel-geometry diagnostic", err)
 	}
@@ -60,9 +60,9 @@ func (o *pixelResizeTermOps) GetPixelSize(*os.File) (int, int, error) {
 	return o.pixelWidth, o.pixelHeight, nil
 }
 
-func (s *resizeCaptureSink) Emit(img *image.RGBA, cols, rows int, toast, status string) error {
+func (s *resizeCaptureSink) Emit(img *image.RGBA, cols, rows int, toast, status string, statusVisible bool) error {
 	s.frames <- frameRecord{
-		cols: cols, rows: rows, toast: toast, status: status, size: img.Bounds(), img: img,
+		cols: cols, rows: rows, toast: toast, status: status, statusVisible: statusVisible, size: img.Bounds(), img: img,
 	}
 	return nil
 }
@@ -81,7 +81,7 @@ func (s *capturePlaybackSink) Close() error {
 	return nil
 }
 
-func (s *lifecycleSink) Emit(*image.RGBA, int, int, string, string) error {
+func (s *lifecycleSink) Emit(*image.RGBA, int, int, string, string, bool) error {
 	if s.panic {
 		panic("sink panic")
 	}
@@ -163,11 +163,11 @@ func TestRunUsesPreflightTerminalSizeToFitRecording(t *testing.T) {
 		t.Fatal("Run emitted no frames")
 	}
 	frame := sink.frames[len(sink.frames)-1]
-	if frame.cols != 55 || frame.rows != 22 {
-		t.Fatalf("placement = %dx%d, want 55x22", frame.cols, frame.rows)
+	if frame.cols != 57 || frame.rows != 23 {
+		t.Fatalf("placement = %dx%d, want 57x23", frame.cols, frame.rows)
 	}
-	if frame.size.Dx() != 550 || frame.size.Dy() != 440 {
-		t.Fatalf("frame size = %dx%d, want 550x440", frame.size.Dx(), frame.size.Dy())
+	if frame.size.Dx() != 570 || frame.size.Dy() != 460 {
+		t.Fatalf("frame size = %dx%d, want 570x460", frame.size.Dx(), frame.size.Dy())
 	}
 	if !sink.closed {
 		t.Fatal("sink was not closed")
@@ -224,11 +224,11 @@ func TestRunRescalesPlaybackOnSIGWINCH(t *testing.T) {
 		t.Fatal("timed out waiting for sink resize")
 	}
 	frame := receiveFrame(t, sink.frames)
-	if frame.cols != 55 || frame.rows != 22 {
-		t.Fatalf("resized placement = %dx%d, want 55x22", frame.cols, frame.rows)
+	if frame.cols != 57 || frame.rows != 23 {
+		t.Fatalf("resized placement = %dx%d, want 57x23", frame.cols, frame.rows)
 	}
-	if got := frame.size; got.Dx() != 440 || got.Dy() != 330 {
-		t.Fatalf("resized frame = %dx%d, want 440x330", got.Dx(), got.Dy())
+	if got := frame.size; got.Dx() != 456 || got.Dy() != 345 {
+		t.Fatalf("resized frame = %dx%d, want 456x345", got.Dx(), got.Dy())
 	}
 
 	if err := input.Close(); err != nil {

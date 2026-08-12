@@ -83,7 +83,7 @@ func TestPlayFakeKittyHandlesMouseAnnotationsAndOptOut(t *testing.T) {
 }
 
 func TestParsePlayArgsAcceptsFlagsAfterBundle(t *testing.T) {
-	path, opts := parsePlayArgs([]string{"demo.twee", "--backend", "sixel", "--speed", "2.5", "--step", "--max-idle=500ms", "--no-mouse-annotations", "--verbose"})
+	path, opts := parsePlayArgs([]string{"demo.twee", "--backend", "sixel", "--speed", "2.5", "--step", "--no-status", "--max-idle=500ms", "--no-mouse-annotations", "--verbose"})
 	if path != "demo.twee" {
 		t.Fatalf("path = %q, want demo.twee", path)
 	}
@@ -95,6 +95,9 @@ func TestParsePlayArgsAcceptsFlagsAfterBundle(t *testing.T) {
 	}
 	if !opts.Step {
 		t.Fatal("step = false, want true")
+	}
+	if !opts.HideStatus {
+		t.Fatal("HideStatus = false, want true")
 	}
 	if opts.MaxIdle != 500000000 {
 		t.Fatalf("maxIdle = %s, want 500ms", opts.MaxIdle)
@@ -131,7 +134,8 @@ func TestPlayHelpDocumentsBackendConstraints(t *testing.T) {
 	help := commandRegistry["play"].Usage
 	for _, want := range []string{
 		"auto tries Kitty, then iTerm2, then Sixel",
-		"direct terminal", "tmux and screen", "native pixel geometry", "--no-mouse-annotations",
+		"direct terminal", "tmux and screen", "native pixel geometry", "--no-mouse-annotations", "--no-status",
+		"h       hide/show status row",
 	} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("play help missing %q:\n%s", want, help)

@@ -19,6 +19,10 @@ type Options struct {
 	Verbose bool
 	Backend Backend
 
+	// HideStatus starts playback without the bottom status row. It can still
+	// be toggled at runtime with h.
+	HideStatus bool
+
 	// DisableMouseAnnotations suppresses the transient visual feedback drawn
 	// for recorded semantic mouse input. The zero value leaves it enabled.
 	DisableMouseAnnotations bool
@@ -113,12 +117,16 @@ func Run(path string, opts Options) error {
 		terminalCols = max(bundle.MaxCols, 1)
 	}
 	if terminalRows <= 0 {
-		terminalRows = max(bundle.MaxRows+2, 3)
+		reservedRows := 1
+		if opts.HideStatus {
+			reservedRows = 0
+		}
+		terminalRows = max(bundle.MaxRows+reservedRows, 1+reservedRows)
 	}
 
 	sink := opts.sink
 	if sink == nil {
-		sink, err = newFrameSink(backend, opts.Stdout, terminalCols, displayPixels{
+		sink, err = newFrameSink(backend, opts.Stdout, terminalSize{Cols: terminalCols, Rows: terminalRows}, displayPixels{
 			Width: opts.DisplayPixelWidth, Height: opts.DisplayPixelHeight,
 		})
 		if err != nil {
@@ -165,14 +173,15 @@ func Run(path string, opts Options) error {
 	go readCommands(opts.Stdin, cmds)
 
 	l := newLoop(loopConfig{
-		Events:  bundle.Events,
-		Cols:    bundle.Manifest.Cols,
-		Rows:    bundle.Manifest.Rows,
-		Speed:   opts.Speed,
-		MaxIdle: opts.MaxIdle,
-		Step:    opts.Step,
-		Cmds:    cmds,
-		Sink:    sink,
+		Events:     bundle.Events,
+		Cols:       bundle.Manifest.Cols,
+		Rows:       bundle.Manifest.Rows,
+		Speed:      opts.Speed,
+		MaxIdle:    opts.MaxIdle,
+		Step:       opts.Step,
+		HideStatus: opts.HideStatus,
+		Cmds:       cmds,
+		Sink:       sink,
 		DisplayPixels: displayPixels{
 			Width:  opts.DisplayPixelWidth,
 			Height: opts.DisplayPixelHeight,

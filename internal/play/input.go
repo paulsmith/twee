@@ -17,6 +17,8 @@ func readCommands(r io.Reader, out chan<- command) {
 				out <- cmdFwd1s
 			case 'r':
 				out <- cmdRestart
+			case 'h':
+				out <- cmdToggleStatus
 			case 'q', 0x03:
 				out <- cmdQuit
 				return

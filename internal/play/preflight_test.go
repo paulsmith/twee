@@ -66,13 +66,13 @@ func TestPreflightAcceptsTerminalSmallerThanRecording(t *testing.T) {
 }
 
 func TestPreflightAcceptsMinimumTerminal(t *testing.T) {
-	termOps := &fakeTermOps{isTTY: true, width: 1, height: 3}
+	termOps := &fakeTermOps{isTTY: true, width: 1, height: 2}
 	size, err := preflightTerminal(preflightOptions{Term: termOps})
 	if err != nil {
 		t.Fatalf("preflightTerminal: %v", err)
 	}
-	if size != (terminalSize{Cols: 1, Rows: 3}) {
-		t.Fatalf("terminal size = %+v, want 1x3", size)
+	if size != (terminalSize{Cols: 1, Rows: 2}) {
+		t.Fatalf("terminal size = %+v, want 1x2", size)
 	}
 	if termOps.sizeCalls != 1 {
 		t.Fatalf("terminal size calls = %d, want 1", termOps.sizeCalls)
@@ -85,12 +85,12 @@ func TestPreflightRejectsUnusableTerminal(t *testing.T) {
 		width, height int
 	}{
 		{name: "no columns", width: 0, height: 24},
-		{name: "no frame row", width: 80, height: 2},
+		{name: "no frame row", width: 80, height: 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			termOps := &fakeTermOps{isTTY: true, width: tt.width, height: tt.height}
 			_, err := preflightTerminal(preflightOptions{Term: termOps})
-			if err == nil || !strings.Contains(err.Error(), "playback needs at least 1x3") {
+			if err == nil || !strings.Contains(err.Error(), "playback needs at least 1x2") {
 				t.Fatalf("error = %v, want minimum-terminal diagnostic", err)
 			}
 			if termOps.raws != 0 {

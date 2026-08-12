@@ -18,6 +18,7 @@ Controls:
   .       step one event
   >       jump forward 1s
   r       restart
+  h       hide/show status row
   q       quit
 
 Flags:
@@ -25,6 +26,7 @@ Flags:
                       iterm2 and sixel are experimental)
   --speed <float>      playback speed multiplier (default 1.0)
   --step               start paused; use . to advance one event
+  --no-status          start with the status row hidden; press h to show it
   --max-idle <duration>
                        cap long gaps between events (default 2s; 0 disables)
   --no-mouse-annotations
@@ -75,6 +77,7 @@ func parsePlayArgs(args []string) (string, play.Options) {
 		Backend            string   `arg:"--backend"`
 		Speed              *float64 `arg:"--speed"`
 		Step               bool     `arg:"--step"`
+		NoStatus           bool     `arg:"--no-status"`
 		MaxIdle            string   `arg:"--max-idle"`
 		NoMouseAnnotations bool     `arg:"--no-mouse-annotations"`
 		Verbose            bool     `arg:"--verbose"`
@@ -102,6 +105,7 @@ func parsePlayArgs(args []string) (string, play.Options) {
 		opts.MaxIdle = parsePlayDuration(parsed.MaxIdle)
 	}
 	opts.Step = parsed.Step
+	opts.HideStatus = parsed.NoStatus
 	opts.Verbose = parsed.Verbose
 	opts.DisableMouseAnnotations = parsed.NoMouseAnnotations
 	return parsed.Path, opts

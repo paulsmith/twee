@@ -108,6 +108,5 @@ func printableBytes(b []byte) string {
 }
 
 func formatStatus(mode string, speed float64, cursor, total int) string {
-	return fmt.Sprintf("%s %.1f\u00d7 \u2022 %d/%d events \u2022 space=pause .=step >=+1s r=restart q=quit",
-		mode, speed, cursor, total)
+	return fmt.Sprintf("%s %.1f× │ %d/%d events", mode, speed, cursor, total)
 }

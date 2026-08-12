@@ -30,17 +30,17 @@ type playbackSink interface {
 	io.Closer
 }
 
-func newFrameSink(backend Backend, w io.Writer, terminalCols int, pixels displayPixels) (playbackSink, error) {
+func newFrameSink(backend Backend, w io.Writer, size terminalSize, pixels displayPixels) (playbackSink, error) {
 	switch backend {
 	case BackendKitty:
-		return newKittySink(w, terminalCols), nil
+		return newKittySink(w, size), nil
 	case BackendITerm2:
-		return newITerm2Sink(w, terminalCols), nil
+		return newITerm2Sink(w, size), nil
 	case BackendSixel:
 		if pixels.Width <= 0 || pixels.Height <= 0 {
 			return nil, fmt.Errorf("twee play: sixel backend requires reliable terminal pixel geometry")
 		}
-		return newSixelSink(w, terminalCols), nil
+		return newSixelSink(w, size), nil
 	default:
 		return nil, fmt.Errorf("twee play: unsupported backend %q", backend)
 	}

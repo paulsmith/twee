@@ -51,12 +51,13 @@ func (m *fakeModel) Snapshot() vt.Snapshot {
 }
 
 type frameRecord struct {
-	cols   int
-	rows   int
-	toast  string
-	status string
-	size   image.Rectangle
-	img    *image.RGBA
+	cols          int
+	rows          int
+	toast         string
+	status        string
+	statusVisible bool
+	size          image.Rectangle
+	img           *image.RGBA
 }
 
 type fakeSink struct {
@@ -64,9 +65,9 @@ type fakeSink struct {
 	terminalSizes []terminalSize
 }
 
-func (s *fakeSink) Emit(img *image.RGBA, cols, rows int, toast, status string) error {
+func (s *fakeSink) Emit(img *image.RGBA, cols, rows int, toast, status string, statusVisible bool) error {
 	s.frames = append(s.frames, frameRecord{
-		cols: cols, rows: rows, toast: toast, status: status, size: img.Bounds(), img: img,
+		cols: cols, rows: rows, toast: toast, status: status, statusVisible: statusVisible, size: img.Bounds(), img: img,
 	})
 	return nil
 }
@@ -610,6 +611,56 @@ func TestLoopExpandsWideFrameToAvailableWidth(t *testing.T) {
 	}
 }
 
+func TestLoopToggleStatusUsesFullTerminalHeight(t *testing.T) {
+	cmds := make(chan command, 1)
+	sink := &fakeSink{}
+	l := testLoop(loopConfig{
+		Events: []Event{{TMS: 0, Type: "resize", Cols: 10, Rows: 20}},
+		Cmds:   cmds,
+		Sink:   sink,
+		DisplayPixels: displayPixels{
+			Width:  1000,
+			Height: 500,
+		},
+		TerminalSize: terminalSize{
+			Cols: 100,
+			Rows: 25,
+		},
+	})
+	now := time.Unix(0, 0)
+	l.tick(now)
+	visible := lastFrame(t, sink)
+	if visible.rows != 24 || !visible.statusVisible {
+		t.Fatalf("visible frame rows/status = %d/%t, want 24/true", visible.rows, visible.statusVisible)
+	}
+
+	cmds <- cmdToggleStatus
+	l.tick(now)
+	hidden := lastFrame(t, sink)
+	if hidden.rows != 25 || hidden.statusVisible {
+		t.Fatalf("hidden frame rows/status = %d/%t, want 25/false", hidden.rows, hidden.statusVisible)
+	}
+	if hidden.size.Dy() != 500 {
+		t.Fatalf("hidden frame height = %d, want full 500 pixels", hidden.size.Dy())
+	}
+}
+
+func TestLoopStartsWithStatusHidden(t *testing.T) {
+	sink := &fakeSink{}
+	l := testLoop(loopConfig{
+		Sink:       sink,
+		HideStatus: true,
+		TerminalSize: terminalSize{
+			Cols: 10,
+			Rows: 3,
+		},
+	})
+	l.tick(time.Unix(0, 0))
+	if lastFrame(t, sink).statusVisible {
+		t.Fatal("status visible, want hidden")
+	}
+}
+
 func TestLoopExpandsTallFrameToAvailableHeight(t *testing.T) {
 	sink := &fakeSink{}
 	l := testLoop(loopConfig{
@@ -627,11 +678,11 @@ func TestLoopExpandsTallFrameToAvailableHeight(t *testing.T) {
 	l.tick(time.Unix(0, 0))
 
 	frame := lastFrame(t, sink)
-	if frame.cols != 12 || frame.rows != 23 {
-		t.Fatalf("placement = %dx%d, want 12x23", frame.cols, frame.rows)
+	if frame.cols != 12 || frame.rows != 24 {
+		t.Fatalf("placement = %dx%d, want 12x24", frame.cols, frame.rows)
 	}
-	if got := frame.size; got.Dx() != 120 || got.Dy() != 460 {
-		t.Fatalf("frame size = %dx%d, want 120x460", got.Dx(), got.Dy())
+	if got := frame.size; got.Dx() != 120 || got.Dy() != 480 {
+		t.Fatalf("frame size = %dx%d, want 120x480", got.Dx(), got.Dy())
 	}
 }
 
@@ -655,10 +706,10 @@ func TestLoopDownscalesFrameToAvailableTerminal(t *testing.T) {
 			name:       "height constrained",
 			cols:       100,
 			rows:       40,
-			wantCols:   55,
-			wantRows:   22,
-			wantWidth:  550,
-			wantHeight: 440,
+			wantCols:   57,
+			wantRows:   23,
+			wantWidth:  570,
+			wantHeight: 460,
 		},
 	}
 	for _, tt := range tests {
@@ -706,8 +757,8 @@ func TestLoopRescalesUnchangedFrameAfterTerminalResize(t *testing.T) {
 	now := time.Unix(0, 0)
 	l.tick(now)
 	initial := lastFrame(t, sink)
-	if initial.cols != 55 || initial.rows != 22 {
-		t.Fatalf("initial placement = %dx%d, want 55x22", initial.cols, initial.rows)
+	if initial.cols != 57 || initial.rows != 23 {
+		t.Fatalf("initial placement = %dx%d, want 57x23", initial.cols, initial.rows)
 	}
 
 	l.resizeViewport(
@@ -720,11 +771,11 @@ func TestLoopRescalesUnchangedFrameAfterTerminalResize(t *testing.T) {
 		t.Fatalf("emitted frames = %d, want redraw after resize", len(sink.frames))
 	}
 	frame := lastFrame(t, sink)
-	if frame.cols != 100 || frame.rows != 40 {
-		t.Fatalf("resized placement = %dx%d, want 100x40", frame.cols, frame.rows)
+	if frame.cols != 102 || frame.rows != 41 {
+		t.Fatalf("resized placement = %dx%d, want 102x41", frame.cols, frame.rows)
 	}
-	if got := frame.size; got.Dx() != 1000 || got.Dy() != 800 {
-		t.Fatalf("resized frame = %dx%d, want 1000x800", got.Dx(), got.Dy())
+	if got := frame.size; got.Dx() != 1020 || got.Dy() != 820 {
+		t.Fatalf("resized frame = %dx%d, want 1020x820", got.Dx(), got.Dy())
 	}
 	if len(sink.terminalSizes) != 1 || sink.terminalSizes[0] != (terminalSize{Cols: 120, Rows: 42}) {
 		t.Fatalf("sink terminal sizes = %+v, want 120x42", sink.terminalSizes)

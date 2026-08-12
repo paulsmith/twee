@@ -12,17 +12,19 @@ import (
 type sixelSink struct {
 	w            io.Writer
 	terminalCols int
+	terminalRows int
 }
 
-func newSixelSink(w io.Writer, terminalCols int) *sixelSink {
-	return &sixelSink{w: w, terminalCols: terminalCols}
+func newSixelSink(w io.Writer, size terminalSize) *sixelSink {
+	return &sixelSink{w: w, terminalCols: size.Cols, terminalRows: size.Rows}
 }
 
-func (s *sixelSink) SetTerminalSize(cols, _ int) {
+func (s *sixelSink) SetTerminalSize(cols, rows int) {
 	s.terminalCols = cols
+	s.terminalRows = rows
 }
 
-func (s *sixelSink) Emit(img *image.RGBA, cols, rows int, toast, status string) error {
+func (s *sixelSink) Emit(img *image.RGBA, cols, rows int, toast, status string, statusVisible bool) error {
 	// Sixel has no portable placement identifier. Erasing the alternate screen
 	// makes every opaque frame overwrite-safe, including after a resize.
 	if _, err := io.WriteString(s.w, "\x1b[H\x1b[2J"); err != nil {
@@ -31,7 +33,10 @@ func (s *sixelSink) Emit(img *image.RGBA, cols, rows int, toast, status string) 
 	if err := encodeSixel(s.w, img); err != nil {
 		return err
 	}
-	return writeFooter(s.w, s.terminalCols, cols, rows, toast, status)
+	if statusVisible {
+		return writeStatusRow(s.w, s.terminalCols, s.terminalRows, toast, status)
+	}
+	return nil
 }
 
 func (s *sixelSink) Close() error { return nil }

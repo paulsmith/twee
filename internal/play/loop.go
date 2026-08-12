@@ -21,11 +21,12 @@ const (
 	cmdStep
 	cmdFwd1s
 	cmdRestart
+	cmdToggleStatus
 	cmdQuit
 )
 
 type frameSink interface {
-	Emit(img *image.RGBA, cols, rows int, toast, status string) error
+	Emit(img *image.RGBA, cols, rows int, toast, status string, statusVisible bool) error
 }
 
 type terminalResizeSink interface {
@@ -40,6 +41,7 @@ type loop struct {
 	snapHash               []byte
 	emittedToast           string
 	emittedStatus          string
+	emittedStatusVisible   bool
 	emittedMouseFrame      int
 	emittedMouseGeneration uint64
 
@@ -50,6 +52,7 @@ type loop struct {
 	paused                  bool
 	stepMode                bool
 	atEnd                   bool
+	statusVisible           bool
 	toast                   toast
 	mouse                   *activeMouseAnnotation
 	mouseGeneration         uint64
@@ -85,6 +88,7 @@ type loopConfig struct {
 	Speed                   float64
 	MaxIdle                 time.Duration
 	Step                    bool
+	HideStatus              bool
 	Cmds                    <-chan command
 	Sink                    frameSink
 	NewModel                func(int, int) vt.Model
@@ -114,6 +118,7 @@ func newLoop(cfg loopConfig) *loop {
 		maxIdle:                 cfg.MaxIdle,
 		paused:                  cfg.Step,
 		stepMode:                cfg.Step,
+		statusVisible:           !cfg.HideStatus,
 		cmds:                    cfg.Cmds,
 		sink:                    cfg.Sink,
 		cols:                    cfg.Cols,
@@ -208,6 +213,9 @@ func (l *loop) drainCommands(now time.Time) (skipAdvance, dispatchReady, done bo
 				l.emittedMouseFrame = -2
 				l.cols, l.rows = l.initCols, l.initRows
 				skipAdvance = true
+			case cmdToggleStatus:
+				l.statusVisible = !l.statusVisible
+				l.snapHash = nil
 			case cmdQuit:
 				return skipAdvance, dispatchReady, true
 			}
@@ -271,7 +279,8 @@ func (l *loop) emitFrame(now time.Time) {
 	status := l.status()
 	mouse, phase, mouseFrame, mouseGeneration := l.mouseFrame(now)
 	if bytes.Equal(hash, l.snapHash) && toastText == l.emittedToast && status == l.emittedStatus &&
-		mouseFrame == l.emittedMouseFrame && mouseGeneration == l.emittedMouseGeneration {
+		l.statusVisible == l.emittedStatusVisible && mouseFrame == l.emittedMouseFrame &&
+		mouseGeneration == l.emittedMouseGeneration {
 		return
 	}
 	placement := l.placementForSnapshot(snap)
@@ -289,19 +298,20 @@ func (l *loop) emitFrame(now time.Time) {
 		// frame emission safe if a future event source bypasses that path.
 		_ = drawMouseAnnotation(img, mouse, snap.Size.Cols, snap.Size.Rows, phase)
 	}
-	if err := l.sink.Emit(img, placement.Cols, placement.Rows, toastText, status); err != nil {
+	if err := l.sink.Emit(img, placement.Cols, placement.Rows, toastText, status, l.statusVisible); err != nil {
 		l.err = err
 		return
 	}
 	l.snapHash = hash
 	l.emittedToast = toastText
 	l.emittedStatus = status
+	l.emittedStatusVisible = l.statusVisible
 	l.emittedMouseFrame = mouseFrame
 	l.emittedMouseGeneration = mouseGeneration
 }
 
 func (l *loop) resizeViewport(size terminalSize, pixels displayPixels) {
-	if size.Cols < 1 || size.Rows < 3 {
+	if size.Cols < 1 || size.Rows < 2 {
 		return
 	}
 	if pixels.Width <= 0 || pixels.Height <= 0 {
@@ -351,12 +361,16 @@ func (l *loop) placementForSnapshot(snap vt.Snapshot) terminalSize {
 		frame.Rows = l.rows
 	}
 	if frame.Cols <= 0 || frame.Rows <= 0 ||
-		l.terminalSize.Cols <= 0 || l.terminalSize.Rows <= 2 {
+		l.terminalSize.Cols <= 0 || l.terminalSize.Rows <= 0 {
 		return frame
+	}
+	availableRows := l.terminalSize.Rows
+	if l.statusVisible {
+		availableRows--
 	}
 	return fitFrameCells(frame, terminalSize{
 		Cols: l.terminalSize.Cols,
-		Rows: l.terminalSize.Rows - 2,
+		Rows: availableRows,
 	})
 }
 

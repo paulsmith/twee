@@ -62,15 +62,15 @@ func TestSixelPalettizeLimitsColors(t *testing.T) {
 	}
 }
 
-func TestSixelSinkClearsAndPlacesFooter(t *testing.T) {
+func TestSixelSinkClearsAndPinsStatusRow(t *testing.T) {
 	var out bytes.Buffer
-	sink := &sixelSink{w: &out, terminalCols: 80}
-	if err := sink.Emit(image.NewRGBA(image.Rect(0, 0, 1, 1)), 2, 3, "toast", "status"); err != nil {
+	sink := &sixelSink{w: &out, terminalCols: 80, terminalRows: 24}
+	if err := sink.Emit(image.NewRGBA(image.Rect(0, 0, 1, 1)), 2, 3, "toast", "status", true); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"\x1b[H\x1b[2J\x1bP0;1;0q", "\x1b[4;1H\x1b[2Ktoast",
-		"\x1b[5;1H\x1b[2Kstatus", "\x1b[H",
+		"\x1b[H\x1b[2J\x1bP0;1;0q",
+		"\x1b[24;1H\x1b[0m\x1b[2K\x1b[7mstatus │ toast", "\x1b[H",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("output missing %q in %q", want, out.String())

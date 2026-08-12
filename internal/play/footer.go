@@ -3,19 +3,31 @@ package play
 import (
 	"fmt"
 	"io"
+	"strings"
 )
 
-// writeFooter places the two playback footer lines below a frame. It keeps
-// footer text from changing terminal control state and limits it to the
-// available terminal width.
-func writeFooter(w io.Writer, terminalCols, frameCols, rows int, toast, status string) error {
-	width := terminalCols
-	if width <= 0 {
-		width = frameCols
+// writeStatusRow paints one parent-owned, tmux-like row at the bottom of the
+// terminal. Playback frames never include this row while it is visible.
+func writeStatusRow(w io.Writer, terminalCols, terminalRows int, toast, status string) error {
+	if terminalCols <= 0 || terminalRows <= 0 {
+		return nil
 	}
-	toast = sanitizeFooterLine(toast, width)
-	status = sanitizeFooterLine(status, width)
-	_, err := fmt.Fprintf(w, "\x1b[%d;1H\x1b[2K%s\x1b[%d;1H\x1b[2K%s\x1b[H",
-		rows+1, toast, rows+2, status)
+	line := status
+	if toast != "" {
+		line += " │ " + toast
+	}
+	line += " │ twee play │ space pause  . step  > +1s  r restart  h status  q quit"
+	line = sanitizeFooterLine(line, terminalCols)
+	padding := max(terminalCols-footerLineWidth(line), 0)
+	_, err := fmt.Fprintf(w, "\x1b[%d;1H\x1b[0m\x1b[2K\x1b[7m%s%s\x1b[0m\x1b[H",
+		terminalRows, line, strings.Repeat(" ", padding))
+	return err
+}
+
+func clearStatusRow(w io.Writer, row int) error {
+	if row <= 0 {
+		return nil
+	}
+	_, err := fmt.Fprintf(w, "\x1b[%d;1H\x1b[0m\x1b[2K\x1b[H", row)
 	return err
 }
