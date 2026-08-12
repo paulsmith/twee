@@ -11,11 +11,6 @@ import (
 	"github.com/paulsmith/twee/internal/rpc"
 )
 
-func intPointer(v int) *int          { return &v }
-func boolPointer(v bool) *bool       { return &v }
-func stringPointer(v string) *string { return &v }
-func bytePointer(v uint8) *uint8     { return &v }
-
 func TestPredicateHandlersWaitAndAssert(t *testing.T) {
 	te, err := engine.Start(context.Background(), engine.Config{
 		Cmd:  []string{"/bin/sh", "-c", "sleep 0.05; printf '\033[31;1mX'; sleep 30"},
@@ -26,15 +21,15 @@ func TestPredicateHandlersWaitAndAssert(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = te.Close() })
 
-	red := &rpc.ColorPredicate{Kind: rpc.ColorKindPalette, Index: bytePointer(1)}
-	predicate := rpc.CellPredicate{Text: stringPointer("X"), Fg: red, Bold: boolPointer(true)}
+	red := &rpc.ColorPredicate{Kind: rpc.ColorKindPalette, Index: new(uint8(1))}
+	predicate := rpc.CellPredicate{Text: new("X"), Fg: red, Bold: new(true)}
 	if _, rpcErr := handleWaitCell(te, mustJSON(t, rpc.WaitCellArgs{
-		X: intPointer(0), Y: intPointer(0), Predicate: predicate, Timeout: "1s",
+		X: new(0), Y: new(0), Predicate: predicate, Timeout: "1s",
 	})); rpcErr != nil {
 		t.Fatalf("wait cell: %+v", rpcErr)
 	}
 	if _, rpcErr := handleAssertCell(te, mustJSON(t, rpc.AssertCellArgs{
-		X: intPointer(0), Y: intPointer(0), Predicate: predicate,
+		X: new(0), Y: new(0), Predicate: predicate,
 	})); rpcErr != nil {
 		t.Fatalf("assert cell: %+v", rpcErr)
 	}
@@ -48,7 +43,7 @@ func TestPredicateHandlersWaitAndAssert(t *testing.T) {
 func TestAssertPredicateMismatchHasDedicatedCodeAndActualCell(t *testing.T) {
 	te := startTestTerm(t)
 	_, rpcErr := handleAssertCell(te, mustJSON(t, rpc.AssertCellArgs{
-		X: intPointer(0), Y: intPointer(0), Predicate: rpc.CellPredicate{Bold: boolPointer(true)},
+		X: new(0), Y: new(0), Predicate: rpc.CellPredicate{Bold: new(true)},
 	}))
 	if rpcErr == nil || rpcErr.Code != rpc.CodeAssertionFailed {
 		t.Fatalf("assert cell error = %+v, want %s", rpcErr, rpc.CodeAssertionFailed)
@@ -62,8 +57,8 @@ func TestAssertPredicateMismatchHasDedicatedCodeAndActualCell(t *testing.T) {
 	}
 
 	_, rpcErr = handleAssertRegion(te, mustJSON(t, rpc.AssertRegionArgs{
-		X: intPointer(100), Y: intPointer(0), W: intPointer(1), H: intPointer(1),
-		Predicate: rpc.CellPredicate{Text: stringPointer("x")},
+		X: new(100), Y: new(0), W: new(1), H: new(1),
+		Predicate: rpc.CellPredicate{Text: new("x")},
 	}))
 	if rpcErr == nil || rpcErr.Code != rpc.CodeAssertionFailed {
 		t.Fatalf("off-screen assert region error = %+v, want %s", rpcErr, rpc.CodeAssertionFailed)
@@ -95,8 +90,8 @@ func TestWaitCellTimeoutIncludesPredicateAndActualCell(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, rpcErr := handleWaitCell(te, mustJSON(t, rpc.WaitCellArgs{
-		X: intPointer(0), Y: intPointer(0), Timeout: "1ms",
-		Predicate: rpc.CellPredicate{Bold: boolPointer(true)},
+		X: new(0), Y: new(0), Timeout: "1ms",
+		Predicate: rpc.CellPredicate{Bold: new(true)},
 	}))
 	if rpcErr == nil || rpcErr.Code != rpc.CodeTimeout {
 		t.Fatalf("wait cell error = %+v, want %s", rpcErr, rpc.CodeTimeout)
@@ -147,7 +142,7 @@ func TestAssertionFailureIncludesActiveTrace(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, rpcErr := handleAssertCell(te, mustJSON(t, rpc.AssertCellArgs{
-		X: intPointer(0), Y: intPointer(0), Predicate: rpc.CellPredicate{Text: stringPointer("Y")},
+		X: new(0), Y: new(0), Predicate: rpc.CellPredicate{Text: new("Y")},
 	}))
 	if rpcErr == nil {
 		t.Fatal("assertion unexpectedly succeeded")
@@ -173,12 +168,12 @@ func TestPredicateHandlersRejectInvalidArguments(t *testing.T) {
 		fn   Handler
 		raw  json.RawMessage
 	}{
-		{"missing coordinate", handleAssertCell, mustJSON(t, rpc.AssertCellArgs{Y: intPointer(0), Predicate: rpc.CellPredicate{Bold: boolPointer(true)}})},
-		{"empty predicate", handleAssertCell, mustJSON(t, rpc.AssertCellArgs{X: intPointer(0), Y: intPointer(0)})},
-		{"bad width", handleAssertCell, mustJSON(t, rpc.AssertCellArgs{X: intPointer(0), Y: intPointer(0), Predicate: rpc.CellPredicate{Width: intPointer(3)}})},
-		{"incomplete RGB", handleAssertCell, mustJSON(t, rpc.AssertCellArgs{X: intPointer(0), Y: intPointer(0), Predicate: rpc.CellPredicate{Fg: &rpc.ColorPredicate{Kind: rpc.ColorKindRGB, R: bytePointer(1)}}})},
-		{"partial region", handleAssertRegion, mustJSON(t, rpc.AssertRegionArgs{X: intPointer(0), Predicate: rpc.CellPredicate{Bold: boolPointer(true)}})},
-		{"bad match", handleAssertRegion, mustJSON(t, rpc.AssertRegionArgs{Match: "some", Predicate: rpc.CellPredicate{Bold: boolPointer(true)}})},
+		{"missing coordinate", handleAssertCell, mustJSON(t, rpc.AssertCellArgs{Y: new(0), Predicate: rpc.CellPredicate{Bold: new(true)}})},
+		{"empty predicate", handleAssertCell, mustJSON(t, rpc.AssertCellArgs{X: new(0), Y: new(0)})},
+		{"bad width", handleAssertCell, mustJSON(t, rpc.AssertCellArgs{X: new(0), Y: new(0), Predicate: rpc.CellPredicate{Width: new(3)}})},
+		{"incomplete RGB", handleAssertCell, mustJSON(t, rpc.AssertCellArgs{X: new(0), Y: new(0), Predicate: rpc.CellPredicate{Fg: &rpc.ColorPredicate{Kind: rpc.ColorKindRGB, R: new(uint8(1))}}})},
+		{"partial region", handleAssertRegion, mustJSON(t, rpc.AssertRegionArgs{X: new(0), Predicate: rpc.CellPredicate{Bold: new(true)}})},
+		{"bad match", handleAssertRegion, mustJSON(t, rpc.AssertRegionArgs{Match: "some", Predicate: rpc.CellPredicate{Bold: new(true)}})},
 		{"nested unknown", handleAssertCell, json.RawMessage(`{"x":0,"y":0,"predicate":{"blink":true}}`)},
 		{"duplicate predicate", handleAssertCell, json.RawMessage(`{"x":0,"y":0,"predicate":{"text":"bad","text":""}}`)},
 		{"noncanonical predicate", handleAssertCell, json.RawMessage(`{"x":0,"y":0,"predicate":{"TEXT":"x"}}`)},

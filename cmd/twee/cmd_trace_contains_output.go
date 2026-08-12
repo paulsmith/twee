@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"regexp/syntax"
+	"slices"
 	"unicode/utf8"
 
 	"github.com/paulsmith/twee/internal/rpc"
@@ -210,12 +211,7 @@ func regexpCanMatchEmpty(re *syntax.Regexp) bool {
 		}
 		return true
 	case syntax.OpAlternate:
-		for _, sub := range re.Sub {
-			if regexpCanMatchEmpty(sub) {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(re.Sub, regexpCanMatchEmpty)
 	default:
 		panic("unhandled regexp syntax op: " + re.Op.String())
 	}

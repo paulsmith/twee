@@ -237,8 +237,8 @@ func TestWaitSessionEndedOnPumpClose(t *testing.T) {
 		}},
 		{"cell", func(te *engine.Term) (any, *rpc.Error) {
 			return handleWaitCell(te, mustJSON(t, rpc.WaitCellArgs{
-				X: intPointer(0), Y: intPointer(0), Timeout: "5s",
-				Predicate: rpc.CellPredicate{Text: stringPointer("never")},
+				X: new(0), Y: new(0), Timeout: "5s",
+				Predicate: rpc.CellPredicate{Text: new("never")},
 			}))
 		}},
 	}

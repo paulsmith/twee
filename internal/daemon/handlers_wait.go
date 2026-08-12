@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"time"
 
@@ -179,9 +180,7 @@ func waitErrDetails(t *engine.Term, err error, extra map[string]any) *rpc.Error 
 	}
 	detailValues := commonFailureDetails(diagnostic)
 	detailValues["cause"] = cause
-	for key, value := range extra {
-		detailValues[key] = value
-	}
+	maps.Copy(detailValues, extra)
 	details, _ := json.Marshal(detailValues)
 	code := rpc.CodeTimeout
 	if engine.IsSessionEnded(err) {

@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	"github.com/paulsmith/twee/internal/engine"
 	"github.com/paulsmith/twee/internal/rpc"
@@ -214,9 +215,7 @@ func regionSummaryDetails(summary engine.RegionSummary) map[string]any {
 
 func assertionFailed(message string, diagnostic engine.Diagnostic, extra map[string]any) *rpc.Error {
 	detailValues := commonFailureDetails(diagnostic)
-	for key, value := range extra {
-		detailValues[key] = value
-	}
+	maps.Copy(detailValues, extra)
 	details, _ := json.Marshal(detailValues)
 	return &rpc.Error{Code: rpc.CodeAssertionFailed, Message: message, Details: details}
 }

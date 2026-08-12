@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"sort"
 	"strings"
 )
@@ -145,9 +146,7 @@ func registerUsage(path, usage string) {
 	case "trace contains-output":
 		d.Artifact = nil
 		exitStatus := make(map[string]string, len(d.ExitStatus))
-		for code, meaning := range d.ExitStatus {
-			exitStatus[code] = meaning
-		}
+		maps.Copy(exitStatus, d.ExitStatus)
 		exitStatus["1"] = "no output match (ASSERTION_FAILED), invalid bundle, or operational failure"
 		d.ExitStatus = exitStatus
 	}
