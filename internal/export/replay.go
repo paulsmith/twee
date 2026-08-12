@@ -32,6 +32,10 @@ type Options struct {
 	// can't be skipped by the emit-on-screen-change rule.
 	InputOverlay bool
 
+	// IncludeInput writes unambiguous human input records to .cast output.
+	// It is ignored by visual formats.
+	IncludeInput bool
+
 	// Quality selects the ffmpeg encoder preset for mp4/webm output:
 	// "low", "medium" (default), or "high" — see ffmpegArgs for the
 	// concrete CRF/preset values. Ignored for GIF and HTML, which have no

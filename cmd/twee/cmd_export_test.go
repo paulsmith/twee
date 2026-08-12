@@ -70,6 +70,12 @@ func TestParseExportArgsCrop(t *testing.T) {
 	}
 }
 
+func TestParseExportArgsInput(t *testing.T) {
+	_, _, opts := parseExportArgs([]string{"demo.twee", "-o", "demo.cast", "--input"})
+	if !opts.IncludeInput {
+		t.Error("IncludeInput = false, want true")
+	}
+}
 func TestParseExportArgsInputOverlay(t *testing.T) {
 	_, _, opts := parseExportArgs([]string{"demo.twee", "-o", "demo.gif", "--input-overlay"})
 	if !opts.InputOverlay {

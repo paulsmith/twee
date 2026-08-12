@@ -13,10 +13,14 @@ import (
 
 func init() {
 	register("export", runExport)
-	registerUsage("export", `twee export <bundle.twee> -o <out.gif|out.html|out.mp4|out.webm>
+	registerUsage("export", `twee export <bundle.twee> -o <out.gif|out.html|out.mp4|out.webm|out.cast>
 Export a .twee trace bundle to a replay artifact. The format is chosen by the
 output extension. GIF and self-contained HTML are encoded in pure Go; MP4 and
 WebM require ffmpeg. HTML replays work offline and include playback controls.
+Cast output is asciicast v2 NDJSON with recorded timing and terminal dimensions;
+it includes output and resize events. Use --input to include type, key, and
+paste input events. Terminal replies and unsupported event kinds are omitted;
+--machine reports their count as omitted_events.
 New output files are created with owner-only permissions. Replacing an existing
 output preserves its permissions.
 
@@ -29,7 +33,8 @@ Frames are emitted only when the screen visibly changes (the cursor is not
 rendered). Timing is faithful to the recording by default.
 
 Flags:
-  -o <path>            output file (required); .gif, .html, .mp4, or .webm
+  -o <path>            output file (required); .gif, .html, .mp4, .webm, or .cast
+  --input               include type, key, and paste input events in .cast output
   --speed <float>      playback speed multiplier (default 1.0)
   --max-idle <duration>
                        cap idle gaps (default 0 = faithful; note: 'twee play'
@@ -55,7 +60,8 @@ Flags:
 
 func runExport(args []string) {
 	path, out, opts := parseExportArgs(args)
-	if err := export.Export(path, out, opts); err != nil {
+	result, err := export.ExportWithResult(path, out, opts)
+	if err != nil {
 		fatalRuntime(rpc.CodeIO, "%v", err)
 	}
 	if output.machine {
@@ -63,10 +69,12 @@ func runExport(args []string) {
 		if err != nil {
 			fatalRuntime(rpc.CodeIO, "resolve export output path: %v", err)
 		}
-		emitOK(map[string]string{
-			"path":   resolved,
-			"format": strings.TrimPrefix(strings.ToLower(filepath.Ext(resolved)), "."),
-		})
+		data := map[string]any{
+			"path":           resolved,
+			"format":         strings.TrimPrefix(strings.ToLower(filepath.Ext(resolved)), "."),
+			"omitted_events": result.OmittedEvents,
+		}
+		emitOK(data)
 	}
 }
 
@@ -81,6 +89,7 @@ func parseExportArgs(args []string) (path, out string, opts export.Options) {
 		FFmpeg       string   `arg:"--ffmpeg"`
 		Crop         string   `arg:"--crop"`
 		InputOverlay bool     `arg:"--input-overlay"`
+		Input        bool     `arg:"--input"`
 		Quality      string   `arg:"--quality"`
 		Path         string   `arg:"positional,required"`
 	}
@@ -121,6 +130,7 @@ func parseExportArgs(args []string) (path, out string, opts export.Options) {
 		opts.Crop = &rect
 	}
 	opts.InputOverlay = parsed.InputOverlay
+	opts.IncludeInput = parsed.Input
 	if parsed.Quality != "" {
 		quality, err := parseQualityFlag(parsed.Quality, parsed.Out)
 		if err != nil {

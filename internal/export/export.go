@@ -12,13 +12,30 @@ import (
 )
 
 // Export replays the bundle at path and writes a replay artifact to outPath.
-// The format is chosen by extension: .gif, .html, .mp4, or .webm.
+// The format is chosen by extension: .gif, .html, .mp4, .webm, or .cast.
 func Export(path, outPath string, opts Options) error {
+	_, err := ExportWithResult(path, outPath, opts)
+	return err
+}
+
+// Result reports format-specific conversion information.
+type Result struct {
+	OmittedEvents int
+}
+
+// ExportWithResult replays the bundle at path and writes a replay artifact to
+// outPath. For cast output, Result reports records omitted because no faithful
+// asciicast representation exists.
+func ExportWithResult(path, outPath string, opts Options) (Result, error) {
 	opts.normalize()
 
 	ext := strings.ToLower(filepath.Ext(outPath))
-	if ext != ".gif" && ext != ".html" && ext != ".mp4" && ext != ".webm" {
-		return fmt.Errorf("twee export: unsupported output format %q (use .gif, .html, .mp4, or .webm)", ext)
+	if ext != ".gif" && ext != ".html" && ext != ".mp4" && ext != ".webm" && ext != ".cast" {
+		return Result{}, fmt.Errorf("twee export: unsupported output format %q (use .gif, .html, .mp4, .webm, or .cast)", ext)
+	}
+	if ext == ".cast" {
+		result, err := exportCast(path, outPath, opts.IncludeInput)
+		return Result{OmittedEvents: result.OmittedEvents}, err
 	}
 
 	var ffmpeg string
@@ -29,23 +46,23 @@ func Export(path, outPath string, opts Options) error {
 		}
 		resolved, err := exec.LookPath(ffmpeg)
 		if err != nil {
-			return fmt.Errorf("twee export: mp4/webm output requires ffmpeg: %w", err)
+			return Result{}, fmt.Errorf("twee export: mp4/webm output requires ffmpeg: %w", err)
 		}
 		ffmpeg = resolved
 	}
 
 	b, err := play.OpenBundle(path)
 	if err != nil {
-		return err
+		return Result{}, err
 	}
 	cv, err := newCanvas(b.MaxCols, b.MaxRows, opts.FontSize, opts.Crop, opts.InputOverlay)
 	if err != nil {
-		return fmt.Errorf("twee export: %w", err)
+		return Result{}, fmt.Errorf("twee export: %w", err)
 	}
 
 	snk, err := newSink(ext, outPath, ffmpeg, opts.Quality)
 	if err != nil {
-		return fmt.Errorf("twee export: %w", err)
+		return Result{}, fmt.Errorf("twee export: %w", err)
 	}
 	defer snk.abort()
 	err = replay(b.Events, b.Manifest.Cols, b.Manifest.Rows, opts, vt.New,
@@ -57,12 +74,12 @@ func Export(path, outPath string, opts Options) error {
 			return snk.add(img, d)
 		})
 	if err != nil {
-		return fmt.Errorf("twee export: %w", err)
+		return Result{}, fmt.Errorf("twee export: %w", err)
 	}
 	if err := snk.close(); err != nil {
-		return fmt.Errorf("twee export: %w", err)
+		return Result{}, fmt.Errorf("twee export: %w", err)
 	}
-	return nil
+	return Result{}, nil
 }
 
 func newSink(ext, outPath, ffmpeg, quality string) (sink, error) {

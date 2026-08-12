@@ -27,6 +27,7 @@ type Bundle struct {
 	Events   []Event
 	MaxCols  int
 	MaxRows  int
+	LastTMS  int64
 }
 
 // Validation reports every independently detectable content issue found while
@@ -74,10 +75,16 @@ func Open(path string) (Bundle, error) {
 // returned as errors. Malformed readable content is returned in Validation;
 // Bundle is non-zero only when Validation.Valid is true.
 func OpenValidated(path string) (Bundle, Validation, error) {
-	return openValidated(path, os.Open)
+	return openValidated(path, os.Open, true)
 }
 
-func openValidated(path string, openFile func(string) (*os.File, error)) (Bundle, Validation, error) {
+// Validate fully validates path without retaining its event records. Its bundle
+// metadata includes the manifest, replay dimensions, and final event timestamp.
+func Validate(path string) (Bundle, Validation, error) {
+	return openValidated(path, os.Open, false)
+}
+
+func openValidated(path string, openFile func(string) (*os.File, error), collectEvents bool) (Bundle, Validation, error) {
 	f, err := openFile(path)
 	if err != nil {
 		return Bundle{}, Validation{}, fmt.Errorf("open %s: %w", path, err)
@@ -134,15 +141,26 @@ func openValidated(path string, openFile func(string) (*os.File, error)) (Bundle
 
 	var events []Event
 	eventCount := 0
+	lastEventTMS := int64(0)
+	eventMaxCols, eventMaxRows := 0, 0
 	if eventsFile := entries["events.jsonl"]; eventsFile != nil {
 		r, openErr := eventsFile.Open()
 		if openErr != nil {
 			issues = append(issues, "events.jsonl: "+openErr.Error())
 		} else {
 			limited := &io.LimitedReader{R: r, N: tracepolicy.MaxEventsBytes + 1}
-			decodedEvents, count, eventIssues := inspectEvents(limited)
+			decodedEvents, count, lastTMS, maxEventCols, maxEventRows, eventIssues := inspectEvents(limited, collectEvents)
 			events = decodedEvents
 			eventCount = count
+			if maxEventCols > eventMaxCols {
+				eventMaxCols = maxEventCols
+			}
+			if maxEventRows > eventMaxRows {
+				eventMaxRows = maxEventRows
+			}
+			if lastTMS > 0 {
+				lastEventTMS = lastTMS
+			}
 			issues = append(issues, eventIssues...)
 			if limited.N == 0 {
 				issues = append(issues, fmt.Sprintf("events.jsonl: decompressed content exceeds %d bytes", tracepolicy.MaxEventsBytes))
@@ -158,17 +176,25 @@ func openValidated(path string, openFile func(string) (*os.File, error)) (Bundle
 	}
 
 	maxCols, maxRows := man.Cols, man.Rows
-	for _, ev := range events {
-		if ev.Type == trace.EventTypeResize {
-			if ev.Cols > maxCols {
-				maxCols = ev.Cols
-			}
-			if ev.Rows > maxRows {
-				maxRows = ev.Rows
+	if eventMaxCols > maxCols {
+		maxCols = eventMaxCols
+	}
+	if eventMaxRows > maxRows {
+		maxRows = eventMaxRows
+	}
+	if collectEvents {
+		for _, ev := range events {
+			if ev.Type == trace.EventTypeResize {
+				if ev.Cols > maxCols {
+					maxCols = ev.Cols
+				}
+				if ev.Rows > maxRows {
+					maxRows = ev.Rows
+				}
 			}
 		}
 	}
-	return Bundle{Manifest: man, Events: events, MaxCols: maxCols, MaxRows: maxRows}, Validation{Valid: true, Events: eventCount}, nil
+	return Bundle{Manifest: man, Events: events, MaxCols: maxCols, MaxRows: maxRows, LastTMS: lastEventTMS}, Validation{Valid: true, Events: eventCount}, nil
 }
 
 func invalid(issues []string, events int) (Bundle, Validation, error) {
@@ -191,18 +217,18 @@ func decodeEvents(r io.Reader) ([]Event, error) {
 }
 
 func decodeEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int) ([]Event, error) {
-	events, _, issues := inspectEventsWithLimits(r, maxEvents, maxDecodedPayload)
+	events, _, _, _, _, issues := inspectEventsWithLimits(r, maxEvents, maxDecodedPayload, true, nil)
 	if len(issues) != 0 {
 		return nil, fmt.Errorf("%s", strings.Join(issues, "; "))
 	}
 	return events, nil
 }
 
-func inspectEvents(r io.Reader) ([]Event, int, []string) {
-	return inspectEventsWithLimits(r, tracepolicy.MaxEventCount, tracepolicy.MaxDecodedPayloadBytes)
+func inspectEvents(r io.Reader, collect bool) ([]Event, int, int64, int, int, []string) {
+	return inspectEventsWithLimits(r, tracepolicy.MaxEventCount, tracepolicy.MaxDecodedPayloadBytes, collect, nil)
 }
 
-func inspectEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int) ([]Event, int, []string) {
+func inspectEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int, collect bool, visit func(Event) error) ([]Event, int, int64, int, int, []string) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), tracepolicy.MaxEventLineBytes)
 
@@ -213,6 +239,7 @@ func inspectEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int) ([]E
 	haveLast := false
 	var lastTMS int64
 	decodedBytes := 0
+	maxCols, maxRows := 0, 0
 	payloadLimitReported := false
 	for sc.Scan() {
 		lineNo++
@@ -246,7 +273,6 @@ func inspectEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int) ([]E
 		}
 		lastTMS = header.TMS
 		haveLast = true
-
 		var raw trace.EventRecord
 		if err := json.Unmarshal(line, &raw); err != nil {
 			issues = append(issues, fmt.Sprintf("events.jsonl line %d: %v", lineNo, err))
@@ -255,6 +281,12 @@ func inspectEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int) ([]E
 		if header.Type == trace.EventTypeResize {
 			if sizeIssue := terminalSizeIssue(raw.Cols, raw.Rows); sizeIssue != "" {
 				issues = append(issues, fmt.Sprintf("events.jsonl line %d: %s", lineNo, sizeIssue))
+			}
+			if raw.Cols > maxCols {
+				maxCols = raw.Cols
+			}
+			if raw.Rows > maxRows {
+				maxRows = raw.Rows
 			}
 		}
 		var decoded []byte
@@ -274,16 +306,65 @@ func inspectEventsWithLimits(r io.Reader, maxEvents, maxDecodedPayload int) ([]E
 			}
 			decodedBytes += len(decoded)
 		}
-		events = append(events, Event{
+		event := Event{
 			TMS: raw.TMS, Type: trace.EventType(strings.TrimSpace(string(raw.Type))), Bytes: decoded,
 			Kind: raw.Kind, Key: raw.Key, Cols: raw.Cols, Rows: raw.Rows, Code: raw.Code,
 			Mouse: raw.Mouse,
-		})
+		}
+		if visit != nil {
+			if err := visit(event); err != nil {
+				issues = append(issues, err.Error())
+				break
+			}
+		}
+		if collect {
+			events = append(events, event)
+		}
 	}
 	if err := sc.Err(); err != nil {
 		issues = append(issues, "events.jsonl: "+err.Error())
 	}
-	return events, count, issues
+	return events, count, lastTMS, maxCols, maxRows, issues
+}
+
+// Stream decodes events from path one at a time without retaining them. Callers
+// that require complete source validation must call Validate before Stream.
+func Stream(path string, visit func(Event) error) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+	defer func() { _ = f.Close() }()
+	fi, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", path, err)
+	}
+	zr, err := zip.NewReader(f, fi.Size())
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	entries, issues := tracearchive.Check(zr)
+	if len(issues) != 0 {
+		return fmt.Errorf("invalid bundle: %s", strings.Join(issues, "; "))
+	}
+	eventsFile := entries["events.jsonl"]
+	if eventsFile == nil {
+		return fmt.Errorf("invalid bundle: missing events.jsonl")
+	}
+	r, err := eventsFile.Open()
+	if err != nil {
+		return fmt.Errorf("events.jsonl: %w", err)
+	}
+	defer func() { _ = r.Close() }()
+	limited := &io.LimitedReader{R: r, N: tracepolicy.MaxEventsBytes + 1}
+	_, _, _, _, _, issues = inspectEventsWithLimits(limited, tracepolicy.MaxEventCount, tracepolicy.MaxDecodedPayloadBytes, false, visit)
+	if limited.N == 0 {
+		issues = append(issues, fmt.Sprintf("events.jsonl: decompressed content exceeds %d bytes", tracepolicy.MaxEventsBytes))
+	}
+	if len(issues) != 0 {
+		return fmt.Errorf("invalid bundle: %s", strings.Join(issues, "; "))
+	}
+	return nil
 }
 
 func childPTYTermiosIssues(record *termios.Record) []string {

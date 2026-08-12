@@ -576,15 +576,17 @@ Graphics playback requires a direct terminal connection. Twee does not support `
 
 ### Export traces
 
-`twee export` creates GIF, self-contained HTML, MP4, or WebM output. The output extension selects the format.
+`twee export` creates GIF, self-contained HTML, MP4, WebM, or asciicast v2 (`.cast`) output. The output extension selects the format.
 
 ```sh
 twee export session.twee -o session.gif
 twee export session.twee -o session.html
 twee export session.twee -o session.mp4 --speed 2 --quality high
+twee export session.twee -o session.cast
+twee export session.twee -o session.cast --input
 ```
 
-GIF and HTML export use pure Go encoders. MP4 and WebM export require `ffmpeg` on `PATH` or through `--ffmpeg`.
+GIF and HTML export use pure Go encoders. MP4 and WebM export require `ffmpeg` on `PATH` or through `--ffmpeg`. Cast export writes portable asciicast v2 NDJSON without rendering frames; it preserves output, resize events, terminal dimensions, and timestamps. Input is excluded by default because it can contain credentials; `--input` includes only type, key, and paste events. Exit records, mouse input, terminal replies, unknown input kinds, and non-UTF-8 payloads are intentionally omitted. In `--machine` output, `omitted_events` reports that count.
 
 HTML output works from a local file without a network connection. It includes playback, step, speed, and timeline controls.
 

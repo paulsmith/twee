@@ -42,6 +42,32 @@ func TestOpenRoundTrip(t *testing.T) {
 	}
 }
 
+func TestValidateAndStream(t *testing.T) {
+	path := writeTestBundle(t, map[string]string{
+		"manifest.json": `{"version":1,"cols":10,"rows":3}`,
+		"events.jsonl": strings.Join([]string{
+			`{"t_ms":10,"type":"output","bytes_b64":"aGk="}`,
+			`{"t_ms":20,"type":"resize","cols":20,"rows":4}`,
+		}, "\n"),
+	})
+	bundle, validation, err := Validate(path)
+	if err != nil || !validation.Valid {
+		t.Fatalf("Validate = bundle %+v, validation %+v, error %v", bundle, validation, err)
+	}
+	if bundle.Events != nil || bundle.Manifest.Cols != 10 || bundle.MaxCols != 20 || bundle.MaxRows != 4 || bundle.LastTMS != 20 {
+		t.Fatalf("validated bundle = %+v", bundle)
+	}
+	var events []Event
+	if err := Stream(path, func(event Event) error {
+		events = append(events, event)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || string(events[0].Bytes) != "hi" || events[1].Cols != 20 {
+		t.Fatalf("streamed events = %+v", events)
+	}
+}
 func TestOpenValidatesChildPTYTermios(t *testing.T) {
 	valid := writeTestBundle(t, map[string]string{
 		"manifest.json": `{"version":1,"cols":10,"rows":3,"child_pty_termios":{"schema_version":1,"platform":"linux","start":{"status":"captured","state":{"canonical":true,"echo":true,"signals":true,"extended_input":true,"input_flow_control":true,"output_flow_control":false,"output_processing":true,"map_nl_to_crnl":true,"raw":{"input_flags":1,"output_flags":2,"control_flags":3,"local_flags":4,"control_chars":[3,28,127,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"input_speed":15,"output_speed":15}}},"exit":{"status":"unavailable","error":"ioctl failed"}}}`,
@@ -209,7 +235,7 @@ func TestOpenValidatedOpensPathOnce(t *testing.T) {
 	bundle, validation, err := openValidated(path, func(name string) (*os.File, error) {
 		opens++
 		return os.Open(name)
-	})
+	}, true)
 	if err != nil || !validation.Valid || len(bundle.Events) != 1 {
 		t.Fatalf("OpenValidated = bundle %+v, validation %+v, error %v", bundle, validation, err)
 	}

@@ -30,11 +30,21 @@ Asciinema is stronger as a recording distribution and presentation ecosystem:
 
 ## Gaps and decisions
 
-### 1. Asciicast interoperability — high priority
+### 1. Asciicast interoperability — complete
 
-**Gap:** Twee cannot import or export asciicast v2 files. This prevents using
-Twee recordings in Asciinema Player, asciinema-server, and the larger cast-file
-ecosystem.
+**Delivered (August 12, 2026):** `.twee` bundles can be exported one way to
+asciicast v2 `.cast` NDJSON with `twee export session.twee -o session.cast`.
+The exporter preserves recorded dimensions, timestamps, output, and resize
+records; `--input` explicitly includes only type, key, and paste input events.
+Unsupported events, terminal replies, mouse input, and non-UTF-8 payloads are
+omitted and counted in `--machine` output as `omitted_events`. Conversion
+validates the bundle before staging output and streams events without rendering
+frames. The native `.twee` trace format remains authoritative because casts
+cannot represent all Twee semantics.
+
+**Status:** `.twee` bundles export to asciicast v2 `.cast` files for use with
+Asciinema Player, asciinema-server, and the wider cast-file ecosystem. Import
+remains out of scope.
 
 **Decision:** Add one-way `.twee` to `.cast` export first. Do not make the
 asciicast format Twee's native trace format: it cannot represent all Twee

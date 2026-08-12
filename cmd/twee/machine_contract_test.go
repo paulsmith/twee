@@ -48,20 +48,45 @@ func TestMachineExportSuccessReportsArtifact(t *testing.T) {
 	var envelope struct {
 		OK   bool `json:"ok"`
 		Data struct {
-			Path   string `json:"path"`
-			Format string `json:"format"`
+			Path          string `json:"path"`
+			Format        string `json:"format"`
+			OmittedEvents *int   `json:"omitted_events"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode stdout: %v\n%s", err, stdout.String())
 	}
-	if !envelope.OK || envelope.Data.Path != outPath || envelope.Data.Format != "html" {
+	if !envelope.OK || envelope.Data.Path != outPath || envelope.Data.Format != "html" || envelope.Data.OmittedEvents == nil || *envelope.Data.OmittedEvents != 0 {
 		t.Fatalf("envelope = %+v", envelope)
 	}
 }
 
+func TestMachineExportCastReportsOmittedEvents(t *testing.T) {
+	dir := t.TempDir()
+	bundle := filepath.Join(dir, "input.twee")
+	writeContractBundle(t, bundle)
+
+	outPath := filepath.Join(dir, "recording.cast")
+	cmd := exec.Command(buildBinary(t), "--machine", "export", bundle, "-o", outPath)
+	stdout, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Format        string `json:"format"`
+			OmittedEvents int    `json:"omitted_events"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout, &envelope); err != nil {
+		t.Fatalf("decode stdout: %v\n%s", err, stdout)
+	}
+	if !envelope.OK || envelope.Data.Format != "cast" || envelope.Data.OmittedEvents != 1 {
+		t.Fatalf("envelope = %+v", envelope)
+	}
+}
 func writeContractBundle(t *testing.T, bundle string) {
-	t.Helper()
 	f, err := os.Create(bundle)
 	if err != nil {
 		t.Fatal(err)
@@ -79,6 +104,9 @@ func writeContractBundle(t *testing.T, bundle string) {
 		t.Fatal(err)
 	}
 	if _, err := fmt.Fprintf(events, `{"t_ms":0,"type":"output","bytes_b64":"%s"}`+"\n", base64.StdEncoding.EncodeToString([]byte("hello"))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fmt.Fprint(events, `{"t_ms":1,"type":"exit","code":0}`+"\n"); err != nil {
 		t.Fatal(err)
 	}
 	if err := zw.Close(); err != nil {
