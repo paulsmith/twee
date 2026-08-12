@@ -22,7 +22,14 @@ const (
 	cmdFwd1s
 	cmdRestart
 	cmdToggleStatus
+	cmdSlower
+	cmdFaster
 	cmdQuit
+)
+
+const (
+	minPlaybackSpeed = 0.25
+	maxPlaybackSpeed = 16
 )
 
 type frameSink interface {
@@ -216,6 +223,12 @@ func (l *loop) drainCommands(now time.Time) (skipAdvance, dispatchReady, done bo
 			case cmdToggleStatus:
 				l.statusVisible = !l.statusVisible
 				l.snapHash = nil
+			case cmdSlower:
+				l.speed = min(max(l.speed/2, minPlaybackSpeed), maxPlaybackSpeed)
+				l.wallPrev = now
+			case cmdFaster:
+				l.speed = min(max(l.speed*2, minPlaybackSpeed), maxPlaybackSpeed)
+				l.wallPrev = now
 			case cmdQuit:
 				return skipAdvance, dispatchReady, true
 			}

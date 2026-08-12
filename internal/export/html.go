@@ -103,11 +103,12 @@ main { width: min(100%, 1100px); padding: 1rem; }
 .screen { display: grid; place-items: center; min-height: 12rem; overflow: auto; background: #000; border: 1px solid #444; }
 #frame { display: block; max-width: 100%; height: auto; image-rendering: auto; }
 .controls { display: grid; grid-template-columns: auto auto auto auto 1fr auto auto; gap: .5rem; align-items: center; padding-top: .75rem; }
-button, select, input { font: inherit; }
-button, select { padding: .35rem .55rem; color: inherit; background: #292929; border: 1px solid #666; border-radius: .25rem; }
+button, input, output { font: inherit; }
+button { padding: .35rem .55rem; color: inherit; background: #292929; border: 1px solid #666; border-radius: .25rem; }
 button:hover { background: #383838; }
 #timeline { width: 100%; }
 #time { min-width: 12ch; text-align: right; font-variant-numeric: tabular-nums; }
+#speed-value { display: inline-block; width: 5ch; font-variant-numeric: tabular-nums; }
 @media (max-width: 720px) { .controls { grid-template-columns: repeat(4, auto); } #timeline { grid-column: 1 / -1; grid-row: 1; } #time { margin-left: auto; } }
 </style>
 </head>
@@ -121,7 +122,7 @@ button:hover { background: #383838; }
 <button id="next" type="button" title="Next frame (Right arrow)">Next</button>
 <input id="timeline" type="range" min="0" value="0" step="any" aria-label="Replay position">
 <span id="time" aria-live="off">0:00.000 / 0:00.000</span>
-<label>Speed <select id="speed" aria-label="Playback speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
+<label for="speed">Speed <input id="speed" type="range" min="-2" max="4" step="1" value="0" aria-label="Playback speed"><output id="speed-value" aria-live="polite">1×</output></label>
 </div>
 <script type="application/json" id="twee-frames">[
 `
@@ -137,7 +138,10 @@ const htmlSuffix = `
   const playButton = document.getElementById('play');
   const timeline = document.getElementById('timeline');
   const timeLabel = document.getElementById('time');
-  const speedSelect = document.getElementById('speed');
+  const speedSlider = document.getElementById('speed');
+  const speedValue = document.getElementById('speed-value');
+  const minSpeedStep = -2;
+  const maxSpeedStep = 4;
   const starts = [];
   let total = 0;
   for (const frame of frames) {
@@ -216,9 +220,19 @@ const htmlSuffix = `
     }
   }
 
+  function speed() {
+    return 2 ** Number(speedSlider.value);
+  }
+
+  function setSpeedStep(step) {
+    speedSlider.value = String(Math.max(minSpeedStep, Math.min(maxSpeedStep, step)));
+    speedValue.textContent = String(speed()) + '×';
+    if (playing) lastTick = performance.now();
+  }
+
   function tick(now) {
     if (!playing) return;
-    position += (now - lastTick) * Number(speedSelect.value);
+    position += (now - lastTick) * speed();
     lastTick = now;
     if (position >= total) {
       position = total;
@@ -260,13 +274,9 @@ const htmlSuffix = `
     render();
     if (wasPlaying) setPlaying(true);
   });
-  speedSelect.addEventListener('change', () => {
-    if (playing) {
-      lastTick = performance.now();
-    }
-  });
+  speedSlider.addEventListener('input', () => setSpeedStep(Number(speedSlider.value)));
   document.addEventListener('keydown', event => {
-    if (event.target === speedSelect || event.target === timeline) return;
+    if (event.target === speedSlider || event.target === timeline) return;
     if (event.key === ' ') {
       event.preventDefault();
       playButton.click();
@@ -279,8 +289,15 @@ const htmlSuffix = `
     } else if (event.key === 'ArrowRight') {
       event.preventDefault();
       seekFrame(frameIndex + 1);
+    } else if (event.key === '-') {
+      event.preventDefault();
+      setSpeedStep(Number(speedSlider.value) - 1);
+    } else if (event.key === '+') {
+      event.preventDefault();
+      setSpeedStep(Number(speedSlider.value) + 1);
     }
   });
+  setSpeedStep(Number(speedSlider.value));
   render();
 })();
 </script>

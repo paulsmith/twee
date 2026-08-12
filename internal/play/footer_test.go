@@ -23,6 +23,16 @@ func TestWriteStatusRow(t *testing.T) {
 	}
 }
 
+func TestWriteStatusRowListsSpeedControls(t *testing.T) {
+	var out bytes.Buffer
+	if err := writeStatusRow(&out, 200, 8, "", "status"); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); !strings.Contains(got, "-/+ speed") {
+		t.Fatalf("footer = %q, want speed controls", got)
+	}
+}
+
 func TestWriteStatusRowSanitizesTruncatesAndFillsWidth(t *testing.T) {
 	var out bytes.Buffer
 	if err := writeStatusRow(&out, 8, 3, "", "abc\x1b[2Jdef"); err != nil {

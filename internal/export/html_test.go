@@ -62,6 +62,9 @@ func TestExportHTMLEndToEnd(t *testing.T) {
 		`id="timeline"`,
 		`id="time"`,
 		`id="speed"`,
+		`type="range"`,
+		`id="speed-value"`,
+		`#speed-value { display: inline-block; width: 5ch`,
 		"<canvas",
 		"drawImage",
 		"requestAnimationFrame",
@@ -334,7 +337,7 @@ const drawn = [];
 function makeElement(id) {
   const element = {
     id,
-    value: id === 'speed' ? '1' : '0',
+    value: id === 'speed' ? '0' : '0',
     textContent: id === 'play' ? 'Play' : '',
     listeners: {},
     attributes: {},
@@ -346,7 +349,7 @@ function makeElement(id) {
   return element;
 }
 const elements = {};
-for (const id of ['twee-frames', 'frame', 'play', 'timeline', 'time', 'speed', 'restart', 'previous', 'next']) {
+for (const id of ['twee-frames', 'frame', 'play', 'timeline', 'time', 'speed', 'speed-value', 'restart', 'previous', 'next']) {
   elements[id] = makeElement(id);
 }
 elements['twee-frames'].textContent = JSON.stringify(frameData);
@@ -387,6 +390,11 @@ function scrub(value) {
   elements.timeline.value = String(value);
   elements.timeline.dispatch('input');
 }
+function key(value, target = {}) {
+  let prevented = false;
+  documentListeners.keydown({key: value, target, preventDefault() { prevented = true; }});
+  return prevented;
+}
 assert(elements.timeline.max === '600', 'total duration');
 assert(elements.time.textContent === '0:00.000 / 0:00.600', 'initial clock');
 assert(lastDrawn() === 'frame-0', 'initial frame');
@@ -414,13 +422,26 @@ animationCallback = null;
 now = 50;
 tick(now);
 assert(elements.timeline.value === '50', 'one-speed playback');
+assert(elements['speed-value'].textContent === '1×', 'initial speed label');
+assert(key('+'), 'faster shortcut prevents default');
+assert(elements.speed.value === '1' && elements['speed-value'].textContent === '2×', 'faster shortcut');
 elements.speed.value = '2';
-elements.speed.dispatch('change');
+elements.speed.dispatch('input');
+assert(elements['speed-value'].textContent === '4×', 'slider speed update');
+assert(!key('+', elements.speed), 'focused speed slider keeps native controls');
+elements.speed.value = '1';
+elements.speed.dispatch('input');
 tick = animationCallback;
 animationCallback = null;
 now = 100;
 tick(now);
 assert(elements.timeline.value === '150' && lastDrawn() === 'frame-1', 'two-speed playback');
+assert(key('-'), 'slower shortcut prevents default');
+assert(elements.speed.value === '0' && elements['speed-value'].textContent === '1×', 'slower shortcut');
+for (let i = 0; i < 8; i++) key('-');
+assert(elements.speed.value === '-2' && elements['speed-value'].textContent === '0.25×', 'minimum speed');
+for (let i = 0; i < 8; i++) key('+');
+assert(elements.speed.value === '4' && elements['speed-value'].textContent === '16×', 'maximum speed');
 elements.play.click();
 assert(elements.play.textContent === 'Play' && animationCallback === null, 'pause transition');
 scrub(600);

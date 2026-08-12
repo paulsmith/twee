@@ -13,7 +13,7 @@ pass. Kitty remains the first-choice backend in auto mode.
 
 For each browser, open a representative exported page directly with `file://`.
 Confirm the first frame renders; play/pause, restart, previous/next, timeline,
-speed selection, and Space/Home/arrow shortcuts work; elapsed/total time is
+speed selection, and Space/Home/arrow/`-`/`+` shortcuts work; elapsed/total time is
 correct; no network requests occur; and a corrupt source bundle did not replace
 an existing destination.
 

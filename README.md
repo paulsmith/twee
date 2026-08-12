@@ -566,6 +566,7 @@ Playback controls are:
 | `space` | Pause or resume. |
 | `.` | Advance one event and remain paused. |
 | `>` | Advance one second of trace time. |
+| `-` / `+` | Halve or double speed, bounded to 0.25×–16×. |
 | `r` | Restart from the beginning. |
 | `q` | Quit. |
 

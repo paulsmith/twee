@@ -17,6 +17,7 @@ Controls:
   space   pause/resume
   .       step one event
   >       jump forward 1s
+  -/+     halve/double speed (0.25x–16x)
   r       restart
   h       hide/show status row
   q       quit

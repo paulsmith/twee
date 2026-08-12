@@ -16,7 +16,7 @@ func writeStatusRow(w io.Writer, terminalCols, terminalRows int, toast, status s
 	if toast != "" {
 		line += " │ " + toast
 	}
-	line += " │ twee play │ space pause  . step  > +1s  r restart  h status  q quit"
+	line += " │ twee play │ space pause  . step  > +1s  -/+ speed  r restart  h status  q quit"
 	line = sanitizeFooterLine(line, terminalCols)
 	padding := max(terminalCols-footerLineWidth(line), 0)
 	_, err := fmt.Fprintf(w, "\x1b[%d;1H\x1b[0m\x1b[2K\x1b[7m%s%s\x1b[0m\x1b[H",

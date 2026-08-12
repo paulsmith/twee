@@ -190,6 +190,51 @@ func TestLoopPauseForwardRestartAndMaxIdle(t *testing.T) {
 	}
 }
 
+func TestLoopSpeedControlsClampAndResetTimingBaseline(t *testing.T) {
+	cmds := make(chan command, 8)
+	l := testLoop(loopConfig{
+		Events: []Event{{TMS: 2_000, Type: "output", Bytes: []byte("A")}},
+		Cmds:   cmds,
+		Sink:   &fakeSink{},
+	})
+	now := time.Unix(0, 0)
+	l.tick(now)
+	l.speed = minPlaybackSpeed
+
+	cmds <- cmdSlower
+	l.tick(now.Add(time.Second))
+	if l.speed != minPlaybackSpeed {
+		t.Fatalf("slower speed = %v, want %v", l.speed, minPlaybackSpeed)
+	}
+	if got := l.status(); !strings.Contains(got, "0.25×") {
+		t.Fatalf("status = %q, want precise quarter speed", got)
+	}
+
+	cmds <- cmdFaster
+	l.tick(now.Add(2 * time.Second))
+	if l.speed != 0.5 {
+		t.Fatalf("faster speed = %v, want 0.5", l.speed)
+	}
+
+	l.speed = maxPlaybackSpeed
+	cmds <- cmdFaster
+	l.tick(now.Add(3 * time.Second))
+	if l.speed != maxPlaybackSpeed {
+		t.Fatalf("faster speed = %v, want %v", l.speed, maxPlaybackSpeed)
+	}
+
+	l.speed = 1
+	cmds <- cmdFaster
+	l.tick(now.Add(4 * time.Second))
+	if l.playT != 0 {
+		t.Fatalf("speed change advanced play time to %s", l.playT)
+	}
+	l.tick(now.Add(4500 * time.Millisecond))
+	if l.playT != time.Second {
+		t.Fatalf("play time after speed change = %s, want 1s", l.playT)
+	}
+}
+
 func TestLoopQuitReturnsDone(t *testing.T) {
 	cmds := make(chan command, 1)
 	l := testLoop(loopConfig{Cmds: cmds, Sink: &fakeSink{}})

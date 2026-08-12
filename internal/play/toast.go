@@ -3,6 +3,7 @@ package play
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/paulsmith/twee/internal/trace"
@@ -108,5 +109,9 @@ func printableBytes(b []byte) string {
 }
 
 func formatStatus(mode string, speed float64, cursor, total int) string {
-	return fmt.Sprintf("%s %.1f× │ %d/%d events", mode, speed, cursor, total)
+	speedText := strconv.FormatFloat(speed, 'f', -1, 64)
+	if !strings.Contains(speedText, ".") {
+		speedText += ".0"
+	}
+	return fmt.Sprintf("%s %s× │ %d/%d events", mode, speedText, cursor, total)
 }
