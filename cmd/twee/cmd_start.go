@@ -177,7 +177,7 @@ func writeSessionToken(path, token string) error {
 		return fmt.Errorf("create token file: %w", err)
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 	if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
 		return fmt.Errorf("chmod token file: %w", err)

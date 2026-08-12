@@ -135,8 +135,8 @@ func TestReceiveExecStatus(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		writer.Close()
-		defer reader.Close()
+		_ = writer.Close()
+		defer func() { _ = reader.Close() }()
 		if err := receiveExecStatus(reader); err != nil {
 			t.Fatalf("receiveExecStatus() = %v", err)
 		}
@@ -146,12 +146,12 @@ func TestReceiveExecStatus(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 		message := []byte(`{"error":"exec command: permission denied"}`)
 		if _, err := writer.Write(message); err != nil {
 			t.Fatal(err)
 		}
-		writer.Close()
+		_ = writer.Close()
 		err = receiveExecStatus(reader)
 		if err == nil || err.Error() != "netwrap: command setup failed: exec command: permission denied" {
 			t.Fatalf("receiveExecStatus() = %v", err)
@@ -164,8 +164,8 @@ func TestExecStatusPreservationFailureUsesSetupProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer parentSocket.Close()
-	defer childSocket.Close()
+	defer func() { _ = parentSocket.Close() }()
+	defer func() { _ = childSocket.Close() }()
 
 	execStatusFD, setupErr := sendSetupSuccess(int(childSocket.Fd()), -1, -1, "netwrap0")
 	if setupErr == nil || execStatusFD != -1 {
@@ -174,7 +174,7 @@ func TestExecStatusPreservationFailureUsesSetupProtocol(t *testing.T) {
 	sendHelperFailure(int(childSocket.Fd()), setupErr)
 	tunFile, _, receiveErr := receiveTUN(parentSocket)
 	if tunFile != nil {
-		tunFile.Close()
+		_ = tunFile.Close()
 		t.Fatal("receiveTUN returned a TUN file after preservation failure")
 	}
 	if receiveErr == nil || !strings.Contains(receiveErr.Error(), "preserve command execution status descriptor") {
@@ -188,8 +188,8 @@ func TestReceiveTUNContextCancellationClosesConcurrentFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer socket.Close()
-	defer socketPeer.Close()
+	defer func() { _ = socket.Close() }()
+	defer func() { _ = socketPeer.Close() }()
 	receivedFile, err := os.Open("/dev/null")
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +205,7 @@ func TestReceiveTUNContextCancellationClosesConcurrentFile(t *testing.T) {
 			return receivedFile, setupMessage{OK: true}, nil
 		})
 		if file != nil {
-			file.Close()
+			_ = file.Close()
 		}
 		done <- err
 	}()
@@ -234,7 +234,7 @@ func TestWaitForExecStatusCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer writer.Close()
+	defer func() { _ = writer.Close() }()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := waitForExecStatus(ctx, reader); !errors.Is(err, context.Canceled) {
@@ -296,7 +296,7 @@ func TestRunReportsPostReadinessExecFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer extraFile.Close()
+	defer func() { _ = extraFile.Close() }()
 	var stderr bytes.Buffer
 	result, err := Run(context.Background(), Config{
 		Command:     []string{commandPath},

@@ -22,16 +22,16 @@ func writeTestBundle(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Fprint(mw, `{"version":1,"command":["super-secret-command"],"env":{"TWEE_SECRET":"secret-environment-value"},"cols":20,"rows":5,"pid":424242,"host":{"os":"secret-os","arch":"secret-arch","hostname":"secret-hostname"}}`)
+	_, _ = fmt.Fprint(mw, `{"version":1,"command":["super-secret-command"],"env":{"TWEE_SECRET":"secret-environment-value"},"cols":20,"rows":5,"pid":424242,"host":{"os":"secret-os","arch":"secret-arch","hostname":"secret-hostname"}}`)
 	ew, err := zw.Create("events.jsonl")
 	if err != nil {
 		t.Fatal(err)
 	}
 	b64 := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
-	fmt.Fprintf(ew, `{"t_ms":100,"type":"output","bytes_b64":"%s"}`+"\n", b64("hello"))
-	fmt.Fprintf(ew, `{"t_ms":300,"type":"input","bytes_b64":"%s"}`+"\n", b64("secret-input-bytes"))
-	fmt.Fprintf(ew, `{"t_ms":600,"type":"output","bytes_b64":"%s"}`+"\n", b64("\r\nworld"))
-	fmt.Fprint(ew, `{"t_ms":1000,"type":"exit","code":0}`+"\n")
+	_, _ = fmt.Fprintf(ew, `{"t_ms":100,"type":"output","bytes_b64":"%s"}`+"\n", b64("hello"))
+	_, _ = fmt.Fprintf(ew, `{"t_ms":300,"type":"input","bytes_b64":"%s"}`+"\n", b64("secret-input-bytes"))
+	_, _ = fmt.Fprintf(ew, `{"t_ms":600,"type":"output","bytes_b64":"%s"}`+"\n", b64("\r\nworld"))
+	_, _ = fmt.Fprint(ew, `{"t_ms":1000,"type":"exit","code":0}`+"\n")
 	if err := zw.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestExportGIFEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	g, err := gif.DecodeAll(f)
 	if err != nil {
 		t.Fatal(err)

@@ -66,7 +66,7 @@ func withUnixSocketAddr(path string, fn func(addr string) error) error {
 	if err := os.Chdir(dir); err != nil {
 		return fmt.Errorf("chdir %s: %w", dir, err)
 	}
-	defer os.Chdir(cwd)
+	defer func() { _ = os.Chdir(cwd) }()
 
 	return fn(base)
 }

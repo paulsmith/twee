@@ -193,12 +193,6 @@ func (c *traceController) recordResize(cols, rows int) {
 	}
 }
 
-func nextRecorderPath(prefix, ext string, now time.Time) (string, error) {
-	path, reservation, err := reserveRecorderPath(prefix, ext, now)
-	releaseReservation(reservation)
-	return path, err
-}
-
 func nextRecorderPathInDir(dir, prefix, ext string, now time.Time) (string, error) {
 	path, reservation, err := reserveRecorderPathInDir(dir, prefix, ext, now)
 	releaseReservation(reservation)

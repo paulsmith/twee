@@ -110,11 +110,12 @@ func EvaluateRegion(s Snapshot, rect *Rect, mode RegionMatch, predicate CellPred
 		}
 	}
 	matches := summary.TotalCells > 0
-	if mode == RegionMatchAny {
+	switch mode {
+	case RegionMatchAny:
 		matches = summary.MatchingCells > 0
-	} else if mode == RegionMatchAll {
+	case RegionMatchAll:
 		matches = matches && summary.MatchingCells == summary.TotalCells
-	} else {
+	default:
 		matches = false
 	}
 	return RegionEvaluation{Matches: matches, Summary: summary}

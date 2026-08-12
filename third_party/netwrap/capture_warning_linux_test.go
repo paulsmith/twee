@@ -53,7 +53,7 @@ func TestCaptureLimitWarningReachesPTYMaster(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open PTY: %v", err)
 	}
-	defer master.Close()
+	defer func() { _ = master.Close() }()
 	warningsFd, err := unix.FcntlInt(slave.Fd(), unix.F_DUPFD_CLOEXEC, 0)
 	if err != nil {
 		_ = slave.Close()

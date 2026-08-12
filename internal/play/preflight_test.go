@@ -364,8 +364,8 @@ func TestSelectBackendFDProbeLeavesNoReaderOnLegacyITermFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer readEnd.Close()
-	defer writeEnd.Close()
+	defer func() { _ = readEnd.Close() }()
+	defer func() { _ = writeEnd.Close() }()
 	r := &unsupportedDeadlineFDReader{file: readEnd}
 	flagsBefore, err := unix.FcntlInt(readEnd.Fd(), unix.F_GETFL, 0)
 	if err != nil {
@@ -404,8 +404,8 @@ func TestReadProbeFDStopsExactlyAtDAFence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer readEnd.Close()
-	defer writeEnd.Close()
+	defer func() { _ = readEnd.Close() }()
+	defer func() { _ = writeEnd.Close() }()
 	const reply = "\x1b]1337;Capabilities=F\x1b\\\x1b[?1;2c"
 	if _, err := io.WriteString(writeEnd, reply+"q"); err != nil {
 		t.Fatal(err)

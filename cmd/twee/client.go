@@ -65,7 +65,7 @@ func callDaemon(name, op string, args any) (rpc.Response, error) {
 	if err != nil {
 		return rpc.Response{}, err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	req := rpc.Request{ID: nextID(), Op: op}
 	if args != nil {
 		raw, err := json.Marshal(args)

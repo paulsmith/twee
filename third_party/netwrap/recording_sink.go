@@ -22,7 +22,7 @@ func (s *recordingSink) RecordPacket(at time.Time, direction netstack.Direction,
 	err := s.recorder.RecordPacket(at, record.Direction(direction), packet)
 	if limit, ok := errors.AsType[*record.ErrCaptureLimit](err); ok {
 		s.limit.Do(func() {
-			fmt.Fprintf(s.warnings, "netwrap: packet capture stopped at the %s byte limit; network forwarding continues\n", strconv.FormatInt(limit.Limit, 10))
+			_, _ = fmt.Fprintf(s.warnings, "netwrap: packet capture stopped at the %s byte limit; network forwarding continues\n", strconv.FormatInt(limit.Limit, 10))
 		})
 		return nil
 	}

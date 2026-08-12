@@ -49,7 +49,7 @@ func TestDoScriptAgainstNamedSession(t *testing.T) {
 	env := testEnv(t)
 	menuBin := menuFixtureBinary(t)
 	name := "do-menu"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", name, "--", menuBin)
 
@@ -99,7 +99,7 @@ func TestDoStdinScript(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "do-stdin"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
 
@@ -132,7 +132,7 @@ func TestDoFailingScriptReportsOpError(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "do-fail"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
 
@@ -178,7 +178,7 @@ func TestDoEmitResultsStreamsNDJSON(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "do-emit"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
 

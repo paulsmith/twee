@@ -162,7 +162,7 @@ func (r *Runtime) handleTCP(request *tcp.ForwarderRequest) {
 		if tcpErr != nil {
 			request.Complete(true)
 			r.tcp.release(id)
-			hostConn.Close()
+			_ = hostConn.Close()
 			r.recordCompletedFlow(&flow, errors.New(tcpErr.String()), 0, 0)
 			return
 		}
@@ -198,7 +198,7 @@ func (r *Runtime) handleUDP(request *udp.ForwarderRequest) bool {
 		dialer := net.Dialer{Timeout: r.cfg.DialTimeout}
 		hostConn, err := dialer.DialContext(r.ctx, "udp4", hostDestination)
 		if err != nil {
-			guestConn.Close()
+			_ = guestConn.Close()
 			r.recordCompletedFlow(&flow, err, 0, 0)
 			return
 		}
@@ -241,7 +241,7 @@ func (r *Runtime) acceptPublished(listener net.Listener, guest string) {
 		}
 		go func() {
 			defer r.work.done()
-			defer hostConn.Close()
+			defer func() { _ = hostConn.Close() }()
 			flow := newFlow("tcp", HostToGuest, hostConn.RemoteAddr().String(), guest)
 			address, err := fullAddress(guest)
 			if err != nil {
@@ -262,8 +262,8 @@ func (r *Runtime) acceptPublished(listener net.Listener, guest string) {
 }
 
 func (r *Runtime) copyTCP(destination, source net.Conn) (int64, int64, error) {
-	defer destination.Close()
-	defer source.Close()
+	defer func() { _ = destination.Close() }()
+	defer func() { _ = source.Close() }()
 	stopWatch := make(chan struct{})
 	defer close(stopWatch)
 	go func() {
@@ -296,8 +296,8 @@ func (r *Runtime) copyTCP(destination, source net.Conn) (int64, int64, error) {
 		select {
 		case second = <-toSource:
 		case <-r.ctx.Done():
-			destination.Close()
-			source.Close()
+			_ = destination.Close()
+			_ = source.Close()
 			second = <-toSource
 		}
 		return first.n, second.n, errors.Join(first.err, second.err)
@@ -305,8 +305,8 @@ func (r *Runtime) copyTCP(destination, source net.Conn) (int64, int64, error) {
 		select {
 		case second = <-toDestination:
 		case <-r.ctx.Done():
-			destination.Close()
-			source.Close()
+			_ = destination.Close()
+			_ = source.Close()
 			second = <-toDestination
 		}
 		return second.n, first.n, errors.Join(first.err, second.err)
@@ -314,8 +314,8 @@ func (r *Runtime) copyTCP(destination, source net.Conn) (int64, int64, error) {
 }
 
 func (r *Runtime) copyUDP(host, guest net.Conn) (int64, int64, error) {
-	defer host.Close()
-	defer guest.Close()
+	defer func() { _ = host.Close() }()
+	defer func() { _ = guest.Close() }()
 	stopWatch := make(chan struct{})
 	defer close(stopWatch)
 	go func() {
@@ -358,8 +358,8 @@ func (r *Runtime) copyUDP(host, guest net.Conn) (int64, int64, error) {
 	go pump(host, guest, &sent)
 	go pump(guest, host, &received)
 	err := <-done
-	host.Close()
-	guest.Close()
+	_ = host.Close()
+	_ = guest.Close()
 	second := <-done
 	return sent.Load(), received.Load(), errors.Join(err, second)
 }

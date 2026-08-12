@@ -38,7 +38,7 @@ func TestScreenshotUsesRequestedPixelSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open screenshot: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	cfg, err := png.DecodeConfig(f)
 	if err != nil {
 		t.Fatalf("decode screenshot: %v", err)

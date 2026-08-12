@@ -321,6 +321,3 @@ func mouseTraceInput(gesture input.MouseGesture) trace.MouseInput {
 	}
 	return mouse
 }
-
-//go:fix inline
-func mouseIntPointer(value int) *int { return new(value) }

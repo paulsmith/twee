@@ -86,6 +86,3 @@ func TestFormatEventToast(t *testing.T) {
 		})
 	}
 }
-
-//go:fix inline
-func intPtr(v int) *int { return new(v) }

@@ -132,7 +132,7 @@ func TestRunUsesPreflightTerminalSizeToFitRecording(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	if _, err := io.WriteString(reply, "\x1b_Gi=31;OK\x1b\\"); err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestRunUsesPreflightTerminalSizeToFitRecording(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	termOps := &fakeTermOps{isTTY: true, width: 80, height: 24}
 	sink := &capturePlaybackSink{}
@@ -183,12 +183,12 @@ func TestRunRescalesPlaybackOnSIGWINCH(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.CreateTemp(t.TempDir(), "terminal-*.out")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	sink := &resizeCaptureSink{
 		frames: make(chan frameRecord, 2),
@@ -268,13 +268,13 @@ func runWithLifecycleSink(t *testing.T, sink *lifecycleSink, wantPanic bool) str
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	outPath := t.TempDir() + "/terminal.out"
 	out, err := os.Create(outPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 	panicked := false
 	func() {
 		defer func() { panicked = recover() != nil }()

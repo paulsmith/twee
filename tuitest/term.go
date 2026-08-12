@@ -80,4 +80,4 @@ func Start(ctx context.Context, opts ...Option) (*Term, error) {
 // Cursor returns the cursor position. Wrapper that gives the historic
 // method name (engine exposes CursorPos to avoid embedding shadow with
 // the engine.Cursor type).
-func (te *Term) Cursor() Cursor { return te.Term.CursorPos() }
+func (te *Term) Cursor() Cursor { return te.CursorPos() }

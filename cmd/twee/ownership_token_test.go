@@ -13,7 +13,7 @@ func TestTokenScopedStopCannotStopReplacement(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	const name = "token-replacement"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	first := mustStartData(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
 	firstToken, _ := first["token"].(string)
@@ -46,7 +46,7 @@ func TestStartTokenOutIsPrivateAndMatchesResponse(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	const name = "token-file"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	path := filepath.Join(t.TempDir(), "owner.token")
 	data := mustStartData(t, bin, env, "start", "--name", name, "--token-out", path, "--", "/bin/sh", "-c", "sleep 30")
@@ -88,7 +88,7 @@ func TestFailedCollisionDoesNotCreateTokenFile(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	const name = "token-collision"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
 
 	path := filepath.Join(t.TempDir(), "owner.token")
@@ -105,7 +105,7 @@ func TestExplicitEmptyTokenNeverFallsBackToNameOnlyStop(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	const name = "token-empty-trap"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
 
 	cmd := exec.Command(bin, "stop", "--name", name, "--token", "")

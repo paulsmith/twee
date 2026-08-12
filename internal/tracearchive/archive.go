@@ -115,7 +115,7 @@ func Read(f *zip.File) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	body, err := io.ReadAll(io.LimitReader(rc, int64(limit)+1))
 	if err != nil {
 		return nil, err

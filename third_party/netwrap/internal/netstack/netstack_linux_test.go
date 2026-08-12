@@ -263,13 +263,13 @@ func TestUDPForwarderDeliversBackToBackDatagrams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen on host UDP socket: %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
 		t.Fatalf("create TUN stand-in socket pair: %v", err)
 	}
 	guest := os.NewFile(uintptr(fds[1]), "guest-tun")
-	defer guest.Close()
+	defer func() { _ = guest.Close() }()
 	sink := &flowsSink{}
 	// Datagrams target the private DNS address, so the forwarder dials the
 	// host listener standing in as the resolver — the musl parallel-query
@@ -281,12 +281,12 @@ func TestUDPForwarderDeliversBackToBackDatagrams(t *testing.T) {
 		DNSAddress:     listener.LocalAddr().String(),
 	}, sink)
 	if err != nil {
-		unix.Close(fds[0])
+		_ = unix.Close(fds[0])
 		t.Fatalf("New: %v", err)
 	}
 	// The caller keeps ownership of the TUN descriptor, matching how
 	// run_linux.go closes its tunFile after Runtime.Close.
-	defer unix.Close(fds[0])
+	defer func() { _ = unix.Close(fds[0]) }()
 	defer runtime.Close()
 
 	const datagrams = 8

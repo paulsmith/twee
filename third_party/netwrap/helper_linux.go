@@ -122,7 +122,7 @@ func setupAndExec(socketFD, statusFD int, cfg setupConfig) (int, error) {
 	if err != nil {
 		return socketFD, err
 	}
-	defer unix.Close(tunFD)
+	defer func() { _ = unix.Close(tunFD) }()
 	if err := installResolver(); err != nil {
 		return socketFD, err
 	}
@@ -174,12 +174,12 @@ func sendSetupSuccess(socketFD, statusFD, tunFD int, tunName string) (int, error
 		return -1, fmt.Errorf("preserve command execution status descriptor: %w", err)
 	}
 	if err := unix.Close(statusFD); err != nil {
-		unix.Close(execStatusFD)
+		_ = unix.Close(execStatusFD)
 		return -1, fmt.Errorf("close original command execution status descriptor: %w", err)
 	}
 	msg, _ := json.Marshal(setupMessage{OK: true, TunName: tunName})
 	if err := unix.Sendmsg(socketFD, msg, unix.UnixRights(tunFD), nil, 0); err != nil {
-		unix.Close(execStatusFD)
+		_ = unix.Close(execStatusFD)
 		return -1, fmt.Errorf("send TUN file descriptor: %w", err)
 	}
 	return execStatusFD, nil
@@ -191,7 +191,7 @@ func createTUN(mtu int) (int, string, error) {
 		return -1, "", fmt.Errorf("open /dev/net/tun: %w", err)
 	}
 	fail := func(err error) (int, string, error) {
-		unix.Close(fd)
+		_ = unix.Close(fd)
 		return -1, "", err
 	}
 	ifr, err := unix.NewIfreq("netwrap0")

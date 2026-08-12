@@ -32,7 +32,7 @@ func TestRecordOptionWritesTweeBundle(t *testing.T) {
 		Size(20, 4))
 
 	term.ExpectText("ready")
-	term.Type("abc")
+	_ = term.Type("abc")
 	if err := term.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}

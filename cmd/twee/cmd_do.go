@@ -60,7 +60,7 @@ func runDo(args []string) {
 		if err != nil {
 			emitError(transportErrorCode(err), err.Error(), dialErrorDetails(err), 1)
 		}
-		c.Close()
+		_ = c.Close()
 	}
 
 	emitResults := opts.Emit == "results"

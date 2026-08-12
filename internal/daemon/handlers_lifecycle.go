@@ -69,9 +69,3 @@ func (d *Dispatcher) handleStop(t *engine.Term, raw json.RawMessage) (any, *rpc.
 	}
 	return map[string]any{"trace_path": t.FinalizedTracePath()}, nil
 }
-
-// handleStop retains the tokenless handler used by focused package tests and
-// ephemeral run dispatch. Named daemons register Dispatcher.handleStop.
-func handleStop(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
-	return (&Dispatcher{}).handleStop(t, raw)
-}

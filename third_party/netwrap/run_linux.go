@@ -129,15 +129,15 @@ func start(ctx context.Context, config Config) (_ process, returnErr error) {
 	if err != nil {
 		return nil, err
 	}
-	defer parentSocket.Close()
-	defer childSocket.Close()
+	defer func() { _ = parentSocket.Close() }()
+	defer func() { _ = childSocket.Close() }()
 
 	execStatus, execStatusWriter, err := os.Pipe()
 	if err != nil {
 		return nil, fmt.Errorf("netwrap: create command execution status pipe: %w", err)
 	}
-	defer execStatus.Close()
-	defer execStatusWriter.Close()
+	defer func() { _ = execStatus.Close() }()
+	defer func() { _ = execStatusWriter.Close() }()
 
 	command, token, err := setupCommand(cfg, childSocket, execStatusWriter)
 	if err != nil {
@@ -149,8 +149,8 @@ func start(ctx context.Context, config Config) (_ process, returnErr error) {
 	if err := command.Start(); err != nil {
 		return nil, fmt.Errorf("netwrap: clone setup process with user, network, and mount namespaces and UID/GID maps: %w", err)
 	}
-	childSocket.Close()
-	execStatusWriter.Close()
+	_ = childSocket.Close()
+	_ = execStatusWriter.Close()
 	if err := ctx.Err(); err != nil {
 		abortSetupCommand(command)
 		return nil, err
@@ -220,7 +220,7 @@ func start(ctx context.Context, config Config) (_ process, returnErr error) {
 		abortSetupCommand(command)
 		return nil, fmt.Errorf("netwrap: release setup process to start command: %w", err)
 	}
-	parentSocket.Close()
+	_ = parentSocket.Close()
 	if err := waitForExecStatus(ctx, execStatus); err != nil {
 		abortSetupCommand(command)
 		return nil, err
@@ -343,7 +343,7 @@ func receiveTUN(socket *os.File) (*os.File, setupMessage, error) {
 	}
 	if len(received) != 1 {
 		for _, fd := range received {
-			unix.Close(fd)
+			_ = unix.Close(fd)
 		}
 		return nil, setup, fmt.Errorf("netwrap: setup sent %d TUN descriptors; want 1", len(received))
 	}
@@ -377,7 +377,7 @@ func receiveTUNContextWith(
 		case result <- received:
 		case <-ctx.Done():
 			if file != nil {
-				file.Close()
+				_ = file.Close()
 			}
 		}
 	}()
@@ -385,14 +385,14 @@ func receiveTUNContextWith(
 	case received := <-result:
 		if err := ctx.Err(); err != nil {
 			if received.file != nil {
-				received.file.Close()
+				_ = received.file.Close()
 			}
-			socket.Close()
+			_ = socket.Close()
 			return nil, setupMessage{}, err
 		}
 		return received.file, received.setup, received.err
 	case <-ctx.Done():
-		socket.Close()
+		_ = socket.Close()
 		return nil, setupMessage{}, ctx.Err()
 	}
 }
@@ -407,7 +407,7 @@ func waitForExecStatus(ctx context.Context, status *os.File) error {
 		}
 		return err
 	case <-ctx.Done():
-		status.Close()
+		_ = status.Close()
 		return ctx.Err()
 	}
 }
@@ -876,17 +876,6 @@ func finishProcessGroup(pid int, timeout time.Duration) error {
 		return nil
 	}
 	return fmt.Errorf("netwrap: managed process group %d remains after SIGKILL", pid)
-}
-
-// stopPinnedProcessGroup runs while the exited leader remains waitable. The
-// zombie leader pins the process-group number against reuse; /proc scanning
-// excludes that leader while waiting for live descendants.
-func stopPinnedProcessGroup(pid int, timeout time.Duration) error {
-	if !processGroupHasLiveDescendants(pid) {
-		return nil
-	}
-	killProcessGroup(pid, syscall.SIGTERM)
-	return finishPinnedProcessGroup(pid, timeout)
 }
 
 func finishPinnedProcessGroup(pid int, timeout time.Duration) error {

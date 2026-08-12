@@ -81,7 +81,7 @@ func TestWrapDefaultCreatesNoArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 	makePTYRaw(t, ptmx)
 	if _, err := ptmx.Write([]byte("hello\x1dq")); err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestWrapPropagatesNaturalChildFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 	_, _ = io.ReadAll(ptmx)
 	if err := cmd.Wait(); err == nil {
 		t.Fatal("wrap succeeded for a failing child")
@@ -138,7 +138,7 @@ func TestWrapImmediateArtifactsFinalizeOnNaturalExit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 	_, _ = io.ReadAll(ptmx)
 	if err := cmd.Wait(); err != nil {
 		t.Fatal(err)
@@ -161,7 +161,7 @@ func TestWrapTraceNaturalExitRecordsExitCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 	_, _ = io.ReadAll(ptmx)
 	err = cmd.Wait()
 	if err == nil || cmd.ProcessState.ExitCode() != 7 {
@@ -198,7 +198,7 @@ func TestWrapCompositorCPRTraceOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 	out, err := waitCodegenPTY(cmd, ptmx, 5*time.Second)
 	if err != nil {
 		t.Fatalf("err=%v out=%q", err, out)
@@ -236,7 +236,7 @@ func TestWrapCompositorCPRTraceOrder(t *testing.T) {
 			n++
 		}
 	}
-	if !(q >= 0 && r > q && m > r && x > m && n == 1) {
+	if q < 0 || r <= q || m <= r || x <= m || n != 1 {
 		t.Fatalf("order q=%d r=%d m=%d x=%d n=%d", q, r, m, x, n)
 	}
 }
@@ -250,7 +250,7 @@ func TestWrapLateScriptIsPartial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 	makePTYRaw(t, ptmx)
 	p := watchPTY(cmd, ptmx)
 	p.waitForVisible(t, "prompt", compositorCols, compositorRows, 5*time.Second)
@@ -289,7 +289,7 @@ func TestWrapRecordersOneShotAndIndependent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 	makePTYRaw(t, ptmx)
 	p := watchPTY(cmd, ptmx)
 	p.write(t, []byte{0x1d, 's'})
@@ -343,7 +343,7 @@ func TestWrapCompositorMirrorsCommonInputModes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 	makePTYRaw(t, ptmx)
 	p := watchPTY(cmd, ptmx)
 	for _, seq := range []string{"\x1b[?1h", "\x1b[?66h", "\x1b[?2004h", "\x1b[?1004h", "\x1b[?1000h", "\x1b[?1006h"} {
@@ -384,7 +384,7 @@ func TestWrapNoStatusRawPassthrough(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 	makePTYRaw(t, ptmx)
 	p := watchPTY(cmd, ptmx)
 	p.waitFor(t, []byte("RAW-MARK"), 5*time.Second)

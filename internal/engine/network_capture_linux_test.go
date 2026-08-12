@@ -95,7 +95,7 @@ func TestNetworkCaptureIncludesPublishedTCPExchange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 	manifestFile, err := zr.Open("manifest.json")
 	if err != nil {
 		t.Fatal(err)
@@ -173,13 +173,13 @@ func TestNetworkCaptureGuestHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	fmt.Println("network-helper-ready")
 	conn, err := listener.Accept()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	request, err := bufio.NewReader(conn).ReadString('\n')
 	if err != nil || !strings.HasPrefix(request, "GET /health ") {
 		t.Fatalf("request = %q, %v", request, err)

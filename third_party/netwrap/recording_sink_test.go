@@ -16,7 +16,7 @@ func TestRecordingSinkTreatsCaptureLimitAsNonFatal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer recorder.Close()
+	defer func() { _ = recorder.Close() }()
 	var warning bytes.Buffer
 	sink := &recordingSink{recorder: recorder, warnings: &warning}
 	if err := sink.RecordPacket(time.Now(), netstack.GuestToHost, []byte{0x45}); err != nil {

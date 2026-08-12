@@ -50,11 +50,11 @@ func TestMenuNavigation(t *testing.T) {
 	if err := term.WaitForText("> first"); err != nil {
 		t.Fatal(err)
 	}
-	term.Key(tuitest.Down)
+	_ = term.Key(tuitest.Down)
 	if err := term.WaitForText("> second"); err != nil {
 		t.Fatal(err)
 	}
-	term.Key(tuitest.Enter)
+	_ = term.Key(tuitest.Enter)
 	if err := term.WaitForText("selected: second", tuitest.WithTimeout(2*time.Second)); err != nil {
 		t.Fatal(err)
 	}

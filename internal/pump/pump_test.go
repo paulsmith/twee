@@ -68,7 +68,7 @@ func TestOutputHookOutsideMutex(t *testing.T) {
 		<-hookRelease
 	})
 
-	go p.Run()
+	go func() { _ = p.Run() }()
 
 	select {
 	case <-hookEntered:

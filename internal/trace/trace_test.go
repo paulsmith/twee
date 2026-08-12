@@ -144,7 +144,7 @@ func TestTraceRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 
 	// Check manifest.json
 	mf, err := zr.Open("manifest.json")
@@ -155,7 +155,7 @@ func TestTraceRoundTrip(t *testing.T) {
 	if err := json.NewDecoder(mf).Decode(&rawManifest); err != nil {
 		t.Fatal("decode manifest:", err)
 	}
-	mf.Close()
+	_ = mf.Close()
 	if _, ok := rawManifest["screenshots"]; ok {
 		t.Fatal("manifest has screenshots key")
 	}
@@ -270,7 +270,7 @@ func TestTraceIncludesNetworkCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 	r, err := zr.Open("streams/network.pcap")
 	if err != nil {
 		t.Fatal(err)
@@ -617,5 +617,5 @@ func TestTraceConcurrentWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	zr.Close()
+	_ = zr.Close()
 }

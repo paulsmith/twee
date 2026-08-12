@@ -12,8 +12,8 @@ func TestDisplayPixelsFromPTY(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pty.Open: %v", err)
 	}
-	defer master.Close()
-	defer slave.Close()
+	defer func() { _ = master.Close() }()
+	defer func() { _ = slave.Close() }()
 
 	if err := pty.Setsize(slave, &pty.Winsize{
 		Rows: 24,
@@ -38,7 +38,7 @@ func TestDisplayPixelsFromFileRejectsZeroPixels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if _, _, ok := displayPixelsFromFile(f); ok {
 		t.Fatal("displayPixelsFromFile returned ok=true for a regular file")

@@ -31,7 +31,7 @@ func TestStartForceReplacesLiveSession(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "sm-force-live"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	firstOut, raw, err := runCLI(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
 	if err != nil {
@@ -82,7 +82,7 @@ func TestStartForceNoExistingSessionOmitsReplaced(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "sm-force-none"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	out, raw, err := runCLI(t, bin, env, "start", "--name", name, "--force", "--", "/bin/sh", "-c", "sleep 30")
 	if err != nil {
@@ -105,7 +105,7 @@ func TestStartForceOverStaleSessionOmitsReplaced(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "sm-force-stale"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	startOut, raw, err := runCLI(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
 	if err != nil {
@@ -142,7 +142,7 @@ func TestStartWithoutForceStillReportsAlreadyRunning(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "sm-noforce"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
 

@@ -31,8 +31,8 @@ func TestRunReapsNaturalExit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer master.Close()
-	defer slave.Close()
+	defer func() { _ = master.Close() }()
+	defer func() { _ = slave.Close() }()
 
 	drainDone := make(chan error, 1)
 	go func() {

@@ -6,6 +6,7 @@ dist/
 result
 result-*
 .tracker/runs/
+.workspaces/
 .sw?
 *.twee
 !examples/recordings/*/*.twee

@@ -64,7 +64,7 @@ func ValidatePCAP(f *zip.File) (PCAPInfo, error) {
 	if err != nil {
 		return PCAPInfo{}, err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	counted := &countingReader{r: io.LimitReader(rc, tracepolicy.MaxNetworkCaptureBytes+1)}
 	info, err := validatePCAPStream(counted)

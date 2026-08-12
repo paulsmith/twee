@@ -17,7 +17,7 @@ func nativeDisplayPixels() (int, int) {
 	if err != nil {
 		return 0, 0
 	}
-	defer tty.Close()
+	defer func() { _ = tty.Close() }()
 	if w, h, ok := displayPixelsFromFile(tty); ok {
 		return w, h
 	}

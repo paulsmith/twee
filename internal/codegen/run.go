@@ -80,10 +80,10 @@ func (w warningSummary) Report(dst io.Writer) {
 		return
 	}
 	if w.count == 1 {
-		fmt.Fprintf(dst, "\ntwee wrap: %s\n", w.first)
+		_, _ = fmt.Fprintf(dst, "\ntwee wrap: %s\n", w.first)
 		return
 	}
-	fmt.Fprintf(dst, "\ntwee wrap: omitted %d unknown input sequences from script; first: %s\n", w.count, w.first)
+	_, _ = fmt.Fprintf(dst, "\ntwee wrap: omitted %d unknown input sequences from script; first: %s\n", w.count, w.first)
 }
 
 // Run starts the child under a PTY, proxies the user's terminal to it, and
@@ -314,43 +314,45 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 					redraw()
 					break
 				}
-				if traces.state == recorderIdle {
+				switch traces.state {
+				case recorderIdle:
 					if err := traces.start("", model.Snapshot(), runner.Termios()); err != nil && runErr == nil {
 						runErr = err
 					} else if traces.state == recorderRecording {
 						setToast("trace started")
 						if !compositorEnabled {
-							fmt.Fprintf(opts.Stderr, "\r\ntwee wrap: started trace recording: %s\r\n", terminalPath(traces.path))
+							_, _ = fmt.Fprintf(opts.Stderr, "\r\ntwee wrap: started trace recording: %s\r\n", terminalPath(traces.path))
 						}
 					}
-				} else if traces.state == recorderRecording {
+				case recorderRecording:
 					if err := traces.close(); err != nil && runErr == nil {
 						runErr = err
 					} else {
 						setToast("trace saved")
 						if !compositorEnabled {
-							fmt.Fprintf(opts.Stderr, "\r\ntwee wrap: stopped trace recording: %s\r\n", terminalPath(traces.path))
+							_, _ = fmt.Fprintf(opts.Stderr, "\r\ntwee wrap: stopped trace recording: %s\r\n", terminalPath(traces.path))
 						}
 					}
-				} else {
+				default:
 					setToast("trace already finalized")
 				}
 				redraw()
 			case 's':
-				if script.state == recorderIdle {
+				switch script.state {
+				case recorderIdle:
 					if err := script.start("", cols, rows, hadSessionActivity); err != nil && runErr == nil {
 						runErr = err
 					} else if script.state == recorderRecording && !compositorEnabled {
-						fmt.Fprintf(opts.Stderr, "\r\ntwee wrap: started script recording: %s\r\n", terminalPath(script.path))
+						_, _ = fmt.Fprintf(opts.Stderr, "\r\ntwee wrap: started script recording: %s\r\n", terminalPath(script.path))
 					}
-				} else if script.state == recorderRecording {
+				case recorderRecording:
 					flushPendingWait()
 					if err := script.close(); err != nil && runErr == nil {
 						runErr = err
 					} else if !compositorEnabled {
-						fmt.Fprintf(opts.Stderr, "\r\ntwee wrap: saved script: %s\r\n", terminalPath(script.path))
+						_, _ = fmt.Fprintf(opts.Stderr, "\r\ntwee wrap: saved script: %s\r\n", terminalPath(script.path))
 					}
-				} else {
+				default:
 					setToast("script already finalized")
 				}
 				redraw()
@@ -539,7 +541,7 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 	host.close()
 	restore()
 	if summary := artifactSummary(script, traces); summary != "" {
-		fmt.Fprintf(opts.Stderr, "twee wrap: %s\n", summary)
+		_, _ = fmt.Fprintf(opts.Stderr, "twee wrap: %s\n", summary)
 	}
 	warnings.Report(opts.Stderr)
 

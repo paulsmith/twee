@@ -92,7 +92,7 @@ func readLockMetadata(name string) (sessionLockMetadata, bool) {
 	if err != nil {
 		return sessionLockMetadata{}, false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	metadata, err := readLockMetadataFile(f)
 	return metadata, err == nil && metadata.PID > 0 && metadata.Token != ""
 }

@@ -40,7 +40,7 @@ func TestServerReturnsJSONWhenResponseExceedsLimit(t *testing.T) {
 		return strings.Repeat("x", rpc.MaxMessageBytes), nil
 	})
 	client, daemon := net.Pipe()
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	go server.handleConn(daemon)
 	const requestID = "oversized-response"
 	if err := rpc.WriteMessage(client, rpc.Request{ID: requestID, Op: "huge"}); err != nil {
@@ -79,7 +79,7 @@ func dialAndCall(t *testing.T, sock string, req rpc.Request) rpc.Response {
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	if err := rpc.WriteMessage(c, req); err != nil {
 		t.Fatalf("write: %v", err)
 	}

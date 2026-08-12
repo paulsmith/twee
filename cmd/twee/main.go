@@ -101,7 +101,7 @@ func printVerbHelp(w io.Writer, args []string) {
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintln(w, `twee - drive TUIs from the shell.
+	_, _ = fmt.Fprintln(w, `twee - drive TUIs from the shell.
 
 Usage: twee [--machine] [--name <session>] <verb> [args...]
 
@@ -113,7 +113,7 @@ Commands:`)
 		}
 	}
 	_ = tw.Flush()
-	fmt.Fprintln(w, `
+	_, _ = fmt.Fprintln(w, `
 Wait commands:
   wait cell       Wait for a physical cell predicate
   wait cursor     Wait for the cursor to reach a position

@@ -24,7 +24,7 @@ func TestUnixSocketHelpersHandleLongDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listenUnixSocket: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	done := make(chan error, 1)
 	go func() {

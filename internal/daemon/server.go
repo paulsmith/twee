@@ -63,7 +63,7 @@ func (s *Server) Stop() {
 }
 
 func (s *Server) handleConn(c net.Conn) {
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	// A partial same-account client must not keep an obsolete daemon alive
 	// indefinitely and block generation-safe teardown.
 	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))

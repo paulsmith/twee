@@ -212,7 +212,7 @@ func Run(path string, opts Options) error {
 		return fmt.Errorf("twee play: close %s backend: %w", backend, closeErr)
 	}
 	if opts.Verbose {
-		fmt.Fprintf(opts.Stderr, "twee play: played %d events from %s in %s\n",
+		_, _ = fmt.Fprintf(opts.Stderr, "twee play: played %d events from %s in %s\n",
 			len(bundle.Events), path, time.Since(start).Round(time.Millisecond))
 	}
 	return nil

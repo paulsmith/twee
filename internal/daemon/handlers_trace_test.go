@@ -53,7 +53,7 @@ func TestTraceStartStopOps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open trace zip: %v", err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 
 	mf, err := zr.Open("manifest.json")
 	if err != nil {
@@ -271,7 +271,7 @@ func traceHasInput(t *testing.T, zr *zip.Reader, want string) bool {
 	if err != nil {
 		t.Fatalf("events.jsonl: %v", err)
 	}
-	defer ef.Close()
+	defer func() { _ = ef.Close() }()
 	sc := bufio.NewScanner(ef)
 	for sc.Scan() {
 		var ev struct {

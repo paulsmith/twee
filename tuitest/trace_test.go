@@ -49,12 +49,12 @@ func traceHasEvent(t *testing.T, tracePath, eventType, want string) bool {
 	if err != nil {
 		t.Fatalf("open trace zip: %v", err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 	ef, err := zr.Open("events.jsonl")
 	if err != nil {
 		t.Fatalf("events.jsonl: %v", err)
 	}
-	defer ef.Close()
+	defer func() { _ = ef.Close() }()
 	sc := bufio.NewScanner(ef)
 	for sc.Scan() {
 		var ev struct {

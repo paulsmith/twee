@@ -159,17 +159,17 @@ func runOpScript(ops []rpc.Request, dial func() (net.Conn, error), emitResults b
 			return
 		}
 		if err := rpc.WriteMessage(c, op); err != nil {
-			c.Close()
+			_ = c.Close()
 			fail(rpc.CodeIO, err.Error(), nil)
 			return
 		}
 		var resp rpc.Response
 		if err := rpc.ReadMessage(c, &resp); err != nil {
-			c.Close()
+			_ = c.Close()
 			fail(rpc.CodeIO, err.Error(), nil)
 			return
 		}
-		c.Close()
+		_ = c.Close()
 		if emitResults {
 			emitNDJSON(resp)
 		}

@@ -13,7 +13,7 @@ func TestAcquireSessionLockFreePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("acquireSessionLock: %v", err)
 	}
-	defer lf.Close()
+	defer func() { _ = lf.Close() }()
 	lp, _ := lockPath("fresh")
 	if _, err := os.Stat(lp); err != nil {
 		t.Fatalf("lock file missing: %v", err)
@@ -27,7 +27,7 @@ func TestGenerationCleanupCannotRemoveReplacementState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer lf.Close()
+	defer func() { _ = lf.Close() }()
 	if err := writeLockMetadata(lf, sessionLockMetadata{PID: os.Getpid(), Token: "new-generation"}); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestAcquireSessionLockHeldByOther(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first acquire: %v", err)
 	}
-	defer holder.Close()
+	defer func() { _ = holder.Close() }()
 	if _, err := acquireSessionLock("held"); err == nil {
 		t.Fatal("second acquire succeeded while lock held")
 	}
@@ -72,7 +72,7 @@ func TestAcquireSessionLockStaleFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("acquire over stale lock file: %v", err)
 	}
-	defer lf.Close()
+	defer func() { _ = lf.Close() }()
 	if err := syscall.Flock(int(lf.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		t.Fatalf("re-flock own fd: %v", err)
 	}

@@ -82,7 +82,7 @@ func TestWrapWritesScriptFromPTYInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	makePTYRaw(t, ptmx)
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 
 	if _, err := ptmx.Write([]byte("abc\x1dq")); err != nil {
 		t.Fatal(err)
@@ -155,7 +155,7 @@ func TestWrapTraceOutWritesBundleFromPTYInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	makePTYRaw(t, ptmx)
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 
 	if _, err := ptmx.Write([]byte("abc\x1dq")); err != nil {
 		t.Fatal(err)
@@ -199,7 +199,7 @@ func TestWrapHotkeyToggleWritesTraceBundle(t *testing.T) {
 	}
 	makePTYRaw(t, ptmx)
 	proc := watchPTY(cmd, ptmx)
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 
 	proc.write(t, []byte("before"))
 	proc.waitFor(t, []byte("before"), 5*time.Second)
@@ -250,7 +250,7 @@ func TestWrapDoesNotHangOnHighVolumeChildExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	makePTYRaw(t, ptmx)
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 
 	done := make(chan error, 1)
 	go func() {
@@ -421,7 +421,7 @@ func TestWrapFlushesFinalWaitOnChildExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	makePTYRaw(t, ptmx)
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 
 	if _, err := ptmx.Write([]byte("x\r")); err != nil {
 		t.Fatal(err)

@@ -43,7 +43,7 @@ func TestGIFSinkRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	g, err := gif.DecodeAll(f)
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestGIFSinkDelayRemainderCarry(t *testing.T) {
 		t.Fatal(err)
 	}
 	f, _ := os.Open(path)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	g, err := gif.DecodeAll(f)
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ func TestGIFSinkClampsMinimumDelay(t *testing.T) {
 		t.Fatal(err)
 	}
 	f, _ := os.Open(path)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	g, err := gif.DecodeAll(f)
 	if err != nil {
 		t.Fatal(err)

@@ -18,7 +18,7 @@ func TestStatusAfterNaturalExitReadsTombstone(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "sm-tomb-natural"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 0.2")
 	mustOK(t, bin, env, "wait", "exit", "--name", name)
@@ -67,7 +67,7 @@ func TestStatusAfterStopReadsTombstone(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "sm-tomb-stopped"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
 	mustOK(t, bin, env, "stop", "--name", name)
@@ -161,7 +161,7 @@ func TestStartClearsOldTombstone(t *testing.T) {
 	env := testEnv(t)
 	stateDir := stateDirOf(t, env)
 	name := "sm-tomb-restart"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 0.2")
 	mustOK(t, bin, env, "wait", "exit", "--name", name)
@@ -189,7 +189,7 @@ func TestLsDoesNotListTombstones(t *testing.T) {
 	env := testEnv(t)
 	stateDir := stateDirOf(t, env)
 	name := "sm-tomb-ls"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 0.2")
 	mustOK(t, bin, env, "wait", "exit", "--name", name)

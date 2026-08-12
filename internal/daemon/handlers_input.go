@@ -273,7 +273,7 @@ func handleResize(t *engine.Term, raw json.RawMessage) (any, *rpc.Error) {
 	if err := t.Resize(a.Cols, a.Rows); err != nil {
 		return nil, engineFailure(err)
 	}
-	return rpc.SizeData{Cols: a.Cols, Rows: a.Rows}, nil
+	return rpc.SizeData(a), nil
 }
 
 func parseSignal(name string) (os.Signal, error) {

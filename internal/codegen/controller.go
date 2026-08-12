@@ -3,8 +3,6 @@ package codegen
 import (
 	"fmt"
 	"time"
-
-	"github.com/paulsmith/twee/internal/rpc"
 )
 
 // scriptController owns the single permitted script artifact for a wrap run.
@@ -54,11 +52,4 @@ func (c *scriptController) close() error {
 	releaseReservation(c.reservation)
 	c.state = recorderFinalized
 	return nil
-}
-
-func (c *scriptController) requests() []rpc.Request {
-	if c.rec == nil {
-		return nil
-	}
-	return c.rec.Requests()
 }

@@ -107,7 +107,7 @@ func (g *ghosttyTerm) DrainPTYReplies() [][]byte {
 func (g *ghosttyTerm) finalize() {
 	g.closeOnce.Do(func() {
 		g.cleanup.Stop()
-		g.ghosttyResources.close()
+		g.close()
 	})
 }
 

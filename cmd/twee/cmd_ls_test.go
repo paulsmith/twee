@@ -41,7 +41,7 @@ func TestLsListsRunningSessions(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "ls-running"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
 
@@ -78,7 +78,7 @@ func TestLsListsStaleSession(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "ls-stale"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	startOut, raw, err := runCLI(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
 	if err != nil {

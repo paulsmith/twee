@@ -119,12 +119,12 @@ func readKeyTraceEvents(t *testing.T, path string) []keyTraceEvent {
 	if err != nil {
 		t.Fatalf("open trace: %v", err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 	eventsFile, err := zr.Open("events.jsonl")
 	if err != nil {
 		t.Fatalf("open events.jsonl: %v", err)
 	}
-	defer eventsFile.Close()
+	defer func() { _ = eventsFile.Close() }()
 
 	var events []keyTraceEvent
 	scanner := bufio.NewScanner(eventsFile)

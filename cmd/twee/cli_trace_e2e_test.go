@@ -30,7 +30,7 @@ func TestVimTraceEndToEnd(t *testing.T) {
 	const sessionName = "vim-trace"
 	const typed = "hello world from twee"
 
-	defer exec.Command(bin, "stop", "--name", sessionName).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", sessionName).Run() }()
 
 	mustOK(t, bin, env, "start",
 		"--name", sessionName,
@@ -64,7 +64,7 @@ func TestVimTraceEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open trace zip: %v", err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 
 	man := readManifest(t, &zr.Reader)
 	if man.Version != 1 {
@@ -108,7 +108,7 @@ func TestTraceFinalizedWhenChildExits(t *testing.T) {
 
 	tracePath := filepath.Join(t.TempDir(), "session.twee")
 	const sessionName = "trace-child-exit"
-	defer exec.Command(bin, "stop", "--name", sessionName).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", sessionName).Run() }()
 
 	mustOK(t, bin, env, "start",
 		"--name", sessionName,
@@ -141,7 +141,7 @@ func TestTraceFinalizedWhenChildExits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open trace zip: %v", err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 
 	man := readManifest(t, &zr.Reader)
 	if man.StoppedAt.IsZero() {
@@ -161,7 +161,7 @@ func TestStartTraceFullSession(t *testing.T) {
 
 	tracePath := filepath.Join(t.TempDir(), "run.twee")
 	const sessionName = "start-trace"
-	defer exec.Command(bin, "stop", "--name", sessionName).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", sessionName).Run() }()
 
 	resp, out, err := runCLI(t, bin, env, "start",
 		"--name", sessionName,
@@ -190,7 +190,7 @@ func TestStartTraceFullSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open trace zip: %v", err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 	man := readManifest(t, &zr.Reader)
 	if man.StoppedAt.IsZero() {
 		t.Error("manifest stopped_at is zero")
@@ -211,7 +211,7 @@ func TestStartTraceQuickExit(t *testing.T) {
 
 	tracePath := filepath.Join(t.TempDir(), "quick.twee")
 	const sessionName = "start-trace-qe"
-	defer exec.Command(bin, "stop", "--name", sessionName).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", sessionName).Run() }()
 
 	stdout := cliStdout(t, bin, env, "start",
 		"--name", sessionName,
@@ -302,7 +302,7 @@ func readManifest(t *testing.T, zr *zip.Reader) traceManifest {
 	if err != nil {
 		t.Fatalf("manifest.json missing: %v", err)
 	}
-	defer mf.Close()
+	defer func() { _ = mf.Close() }()
 	var raw map[string]json.RawMessage
 	if err := json.NewDecoder(mf).Decode(&raw); err != nil {
 		t.Fatalf("decode manifest: %v", err)
@@ -339,7 +339,7 @@ func scanEvents(t *testing.T, zr *zip.Reader) (nOut, nIn int, typed string) {
 	if err != nil {
 		t.Fatalf("events.jsonl missing: %v", err)
 	}
-	defer ef.Close()
+	defer func() { _ = ef.Close() }()
 	sc := bufio.NewScanner(ef)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	var typedB strings.Builder

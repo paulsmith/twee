@@ -171,7 +171,7 @@ func cleanupStaleSession(name string) bool {
 	if err != nil {
 		return false
 	}
-	defer lf.Close()
+	defer func() { _ = lf.Close() }()
 	if syscall.Flock(int(lf.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
 		return false // a live daemon still holds it
 	}
@@ -198,6 +198,6 @@ func isSessionStale(name string) bool {
 	if err != nil {
 		return false
 	}
-	defer lf.Close()
+	defer func() { _ = lf.Close() }()
 	return syscall.Flock(int(lf.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil
 }

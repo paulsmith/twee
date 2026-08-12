@@ -84,39 +84,39 @@ func emitInvalidBundle(operation string, issues []string) {
 }
 
 func printInspectText(w io.Writer, s inspect.Summary) {
-	fmt.Fprintf(w, "Path: %s\n", s.Path)
-	fmt.Fprintf(w, "Version: %d\n", s.Version)
-	fmt.Fprintf(w, "Command: %s\n", formatCommand(s.Command))
-	fmt.Fprintf(w, "Duration: %s (%d ms)\n", s.Duration, s.DurationMS)
-	fmt.Fprintf(w, "Event span: %d ms\n", s.EventSpanMS)
-	fmt.Fprintf(w, "Terminal: %dx%d (max %dx%d)\n", s.Terminal.Cols, s.Terminal.Rows, s.Terminal.MaxCols, s.Terminal.MaxRows)
-	fmt.Fprintf(w, "Events: %d total\n", s.Events.Total)
-	fmt.Fprintf(w, "Types: %s\n", formatCounts(s.Events.ByType))
-	fmt.Fprintf(w, "Input: %s\n", formatCounts(s.Events.InputByKind))
+	_, _ = fmt.Fprintf(w, "Path: %s\n", s.Path)
+	_, _ = fmt.Fprintf(w, "Version: %d\n", s.Version)
+	_, _ = fmt.Fprintf(w, "Command: %s\n", formatCommand(s.Command))
+	_, _ = fmt.Fprintf(w, "Duration: %s (%d ms)\n", s.Duration, s.DurationMS)
+	_, _ = fmt.Fprintf(w, "Event span: %d ms\n", s.EventSpanMS)
+	_, _ = fmt.Fprintf(w, "Terminal: %dx%d (max %dx%d)\n", s.Terminal.Cols, s.Terminal.Rows, s.Terminal.MaxCols, s.Terminal.MaxRows)
+	_, _ = fmt.Fprintf(w, "Events: %d total\n", s.Events.Total)
+	_, _ = fmt.Fprintf(w, "Types: %s\n", formatCounts(s.Events.ByType))
+	_, _ = fmt.Fprintf(w, "Input: %s\n", formatCounts(s.Events.InputByKind))
 	if s.Exit.Recorded && s.Exit.Code != nil {
-		fmt.Fprintf(w, "Exit: code %d\n", *s.Exit.Code)
+		_, _ = fmt.Fprintf(w, "Exit: code %d\n", *s.Exit.Code)
 	} else {
-		fmt.Fprintln(w, "Exit: not recorded")
+		_, _ = fmt.Fprintln(w, "Exit: not recorded")
 	}
 	printChildPTYTermiosText(w, s.ChildPTYTermios)
 	if !s.Network.Present {
-		fmt.Fprintln(w, "Network capture: none")
+		_, _ = fmt.Fprintln(w, "Network capture: none")
 	} else {
-		fmt.Fprintf(w, "Network capture: %s, %d packets, %d bytes, status %s", s.Network.Format, s.Network.PacketCount, s.Network.SizeBytes, s.Network.Status)
+		_, _ = fmt.Fprintf(w, "Network capture: %s, %d packets, %d bytes, status %s", s.Network.Format, s.Network.PacketCount, s.Network.SizeBytes, s.Network.Status)
 		if s.Network.Truncated {
-			fmt.Fprint(w, " (truncated)")
+			_, _ = fmt.Fprint(w, " (truncated)")
 		}
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 	}
 	printInspectReplayText(w, s.Replay)
 }
 
 func printChildPTYTermiosText(w io.Writer, summary inspect.ChildPTYTermiosSummary) {
 	if !summary.Present {
-		fmt.Fprintln(w, "Child PTY termios: not recorded")
+		_, _ = fmt.Fprintln(w, "Child PTY termios: not recorded")
 		return
 	}
-	fmt.Fprintf(w, "Child PTY termios (%s): start %s; exit %s\n",
+	_, _ = fmt.Fprintf(w, "Child PTY termios (%s): start %s; exit %s\n",
 		summary.Platform, formatTermiosSnapshot(summary.Start), formatTermiosSnapshot(summary.Exit))
 }
 
@@ -137,24 +137,24 @@ func formatTermiosSnapshot(snapshot *termios.Snapshot) string {
 func printInspectReplayText(w io.Writer, replay inspect.ReplaySummary) {
 	final := replay.Final
 	if final.EventIndex == nil || final.TMS == nil {
-		fmt.Fprintf(w, "Replay final: %dx%d (initial state)\n", final.Size.Cols, final.Size.Rows)
+		_, _ = fmt.Fprintf(w, "Replay final: %dx%d (initial state)\n", final.Size.Cols, final.Size.Rows)
 	} else {
-		fmt.Fprintf(w, "Replay final: %dx%d at %d ms (event %d)\n", final.Size.Cols, final.Size.Rows, *final.TMS, *final.EventIndex)
+		_, _ = fmt.Fprintf(w, "Replay final: %dx%d at %d ms (event %d)\n", final.Size.Cols, final.Size.Rows, *final.TMS, *final.EventIndex)
 	}
-	fmt.Fprintf(w, "Cursor: x=%d y=%d visible=%t shape=%s\n", final.Cursor.X, final.Cursor.Y, final.Cursor.Visible, final.Cursor.Shape)
-	fmt.Fprintf(w, "Alternate screen: %t\n", final.AltScreen)
-	fmt.Fprintf(w, "Modes: decckm=%t, application_keypad=%t, bracketed_paste=%t, focus_events=%t, kitty_keyboard_known=%t, kitty_keyboard_flags=%d, mouse=%t, mouse_known=%t, mouse_raw=%t\n",
+	_, _ = fmt.Fprintf(w, "Cursor: x=%d y=%d visible=%t shape=%s\n", final.Cursor.X, final.Cursor.Y, final.Cursor.Visible, final.Cursor.Shape)
+	_, _ = fmt.Fprintf(w, "Alternate screen: %t\n", final.AltScreen)
+	_, _ = fmt.Fprintf(w, "Modes: decckm=%t, application_keypad=%t, bracketed_paste=%t, focus_events=%t, kitty_keyboard_known=%t, kitty_keyboard_flags=%d, mouse=%t, mouse_known=%t, mouse_raw=%t\n",
 		final.Modes.DECCKM, final.Modes.ApplicationKeypad, final.Modes.BracketedPaste,
 		final.Modes.FocusEvents, final.Modes.KittyKeyboardKnown, final.Modes.KittyKeyboardFlags,
 		final.Modes.Mouse, final.Modes.MouseKnown, final.Modes.MouseRaw)
-	fmt.Fprintf(w, "Mode transitions: %d\n", len(replay.ModeTransitions))
+	_, _ = fmt.Fprintf(w, "Mode transitions: %d\n", len(replay.ModeTransitions))
 	for _, transition := range replay.ModeTransitions {
-		fmt.Fprintf(w, "  %d ms event=%d byte=%d: %s\n", transition.TMS, transition.EventIndex, transition.ByteOffset, strings.Join(transition.Changed, ", "))
+		_, _ = fmt.Fprintf(w, "  %d ms event=%d byte=%d: %s\n", transition.TMS, transition.EventIndex, transition.ByteOffset, strings.Join(transition.Changed, ", "))
 	}
-	fmt.Fprintf(w, "Styled cells: %d\n", final.StyledCells)
-	fmt.Fprintln(w, "Final viewport:")
+	_, _ = fmt.Fprintf(w, "Styled cells: %d\n", final.StyledCells)
+	_, _ = fmt.Fprintln(w, "Final viewport:")
 	for row, line := range strings.Split(final.VisibleText, "\n") {
-		fmt.Fprintf(w, "%4d | %s\n", row, line)
+		_, _ = fmt.Fprintf(w, "%4d | %s\n", row, line)
 	}
 }
 

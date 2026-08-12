@@ -82,7 +82,7 @@ func openValidated(path string, openFile func(string) (*os.File, error)) (Bundle
 	if err != nil {
 		return Bundle{}, Validation{}, fmt.Errorf("open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	fi, err := f.Stat()
 	if err != nil {

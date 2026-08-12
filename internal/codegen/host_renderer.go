@@ -33,9 +33,9 @@ const hostPrivateInputModes = "1;9;25;66;1000;1002;1003;1004;1005;1006;1015;1016
 func (r *hostRenderer) enter() {
 	if !r.active {
 		if r.preserve {
-			fmt.Fprintf(r.w, "\x1b[?%ss", hostPrivateInputModes)
+			_, _ = fmt.Fprintf(r.w, "\x1b[?%ss", hostPrivateInputModes)
 		}
-		fmt.Fprint(r.w, "\x1b[?1049h\x1b[0m\x1b[r\x1b[?6l\x1b[?25h")
+		_, _ = fmt.Fprint(r.w, "\x1b[?1049h\x1b[0m\x1b[r\x1b[?6l\x1b[?25h")
 		r.writeInputModeReset()
 		r.active = true
 	}
@@ -49,9 +49,9 @@ func (r *hostRenderer) render(s vt.Snapshot, line string, presentation vt.Presen
 
 	// Hide intermediate cursor movement and ask supporting terminals to publish
 	// the update atomically. Unknown DEC private modes are safely ignored.
-	fmt.Fprint(r.w, "\x1b[?2026h\x1b[?25l")
+	_, _ = fmt.Fprint(r.w, "\x1b[?2026h\x1b[?25l")
 	if full {
-		fmt.Fprint(r.w, "\x1b[0m\x1b[r\x1b[?6l")
+		_, _ = fmt.Fprint(r.w, "\x1b[0m\x1b[r\x1b[?6l")
 		// 1049 preserves the primary-screen cursor style in xterm-compatible
 		// terminals, so child style can be represented inside the wrapper screen.
 		_, _ = r.w.Write(engine.TraceSeedOutput(s))
@@ -65,19 +65,19 @@ func (r *hostRenderer) render(s vt.Snapshot, line string, presentation vt.Presen
 	}
 
 	if !r.haveCursorStyle || r.cursorStyle != presentation.Cursor {
-		fmt.Fprint(r.w, hostCursorStyleSequence(presentation.Cursor))
+		_, _ = fmt.Fprint(r.w, hostCursorStyleSequence(presentation.Cursor))
 		r.cursorStyle = presentation.Cursor
 		r.haveCursorStyle = true
 	}
 	r.mirrorInputModes(presentation.Input)
 	// Restore the child cursor presentation last, after child and status paint.
-	fmt.Fprintf(r.w, "\x1b[%d;%dH", s.Cursor.Row+1, s.Cursor.Col+1)
+	_, _ = fmt.Fprintf(r.w, "\x1b[%d;%dH", s.Cursor.Row+1, s.Cursor.Col+1)
 	if s.Cursor.Visible {
-		fmt.Fprint(r.w, "\x1b[?25h")
+		_, _ = fmt.Fprint(r.w, "\x1b[?25h")
 	} else {
-		fmt.Fprint(r.w, "\x1b[?25l")
+		_, _ = fmt.Fprint(r.w, "\x1b[?25l")
 	}
-	fmt.Fprint(r.w, "\x1b[?2026l")
+	_, _ = fmt.Fprint(r.w, "\x1b[?2026l")
 
 	r.frame = s
 	r.haveFrame = true
@@ -89,9 +89,9 @@ func (r *hostRenderer) render(s vt.Snapshot, line string, presentation vt.Presen
 func (r *hostRenderer) close() {
 	if r.active {
 		r.mirrorInputModes(vt.InputModes{})
-		fmt.Fprint(r.w, "\x1b[?2026l\x1b[0m\x1b[r\x1b[?6l\x1b[?25h\x1b[?1049l")
+		_, _ = fmt.Fprint(r.w, "\x1b[?2026l\x1b[0m\x1b[r\x1b[?6l\x1b[?25h\x1b[?1049l")
 		if r.preserve {
-			fmt.Fprintf(r.w, "\x1b[?%sr", hostPrivateInputModes)
+			_, _ = fmt.Fprintf(r.w, "\x1b[?%sr", hostPrivateInputModes)
 		}
 		r.active = false
 		r.haveFrame = false
@@ -102,7 +102,7 @@ func (r *hostRenderer) close() {
 
 func (r *hostRenderer) paintStatus(line string, cols int) {
 	padding := max(cols-statusWidth(line), 0)
-	fmt.Fprintf(r.w, "\x1b[%d;1H\x1b[0m\x1b[2K\x1b[7m%s%s\x1b[0m", r.hostRows, line, strings.Repeat(" ", padding))
+	_, _ = fmt.Fprintf(r.w, "\x1b[%d;1H\x1b[0m\x1b[2K\x1b[7m%s%s\x1b[0m", r.hostRows, line, strings.Repeat(" ", padding))
 }
 
 func hostCursorStyleSequence(style vt.CursorStyle) string {
@@ -145,14 +145,14 @@ func (r *hostRenderer) mirrorInputModes(next vt.InputModes) {
 		if mode.new {
 			set = 'h'
 		}
-		fmt.Fprintf(r.w, "\x1b[?%d%c", mode.code, set)
+		_, _ = fmt.Fprintf(r.w, "\x1b[?%d%c", mode.code, set)
 	}
 	r.modes = next
 }
 
 func (r *hostRenderer) writeInputModeReset() {
 	for _, code := range []int{1, 9, 66, 1000, 1002, 1003, 1004, 1005, 1006, 1015, 1016, 2004} {
-		fmt.Fprintf(r.w, "\x1b[?%dl", code)
+		_, _ = fmt.Fprintf(r.w, "\x1b[?%dl", code)
 	}
 	r.modes = vt.InputModes{}
 }

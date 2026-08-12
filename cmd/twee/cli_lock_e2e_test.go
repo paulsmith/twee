@@ -54,7 +54,7 @@ func TestLockRemovedOnNaturalExit(t *testing.T) {
 	env := testEnv(t)
 	stateDir := stateDirOf(t, env)
 	const sessionName = "lock-natural"
-	defer exec.Command(bin, "stop", "--name", sessionName).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", sessionName).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", sessionName, "--", "/bin/sh", "-c", "sleep 0.3")
 	mustOK(t, bin, env, "wait", "exit", "--name", sessionName)
@@ -205,7 +205,7 @@ func TestStartNameCollisionReportsAlreadyRunning(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	const sessionName = "lock-collide"
-	defer exec.Command(bin, "stop", "--name", sessionName).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", sessionName).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", sessionName, "--", "/bin/sh", "-c", "sleep 30")
 	out := cliStdout(t, bin, env, "start", "--name", sessionName, "--", "/bin/sh", "-c", "sleep 30")
@@ -231,7 +231,7 @@ func TestDaemonRetainsSessionLockUnderGCPressure(t *testing.T) {
 	bin := buildBinary(t)
 	env := append(testEnv(t), "GOGC=1")
 	const sessionName = "lock-gc-pressure"
-	defer exec.Command(bin, "stop", "--name", sessionName).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", sessionName).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", sessionName, "--", "/bin/sh", "-c", "sleep 30")
 	// Each request allocates and GOGC=1 forces frequent collections in the

@@ -12,7 +12,7 @@ func TestCaptureUnavailableForNonTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	snapshot := Capture(file.Fd())
 	if snapshot.Status != StatusUnavailable || snapshot.State != nil || snapshot.Error == "" {

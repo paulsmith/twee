@@ -162,13 +162,13 @@ func TestExportHTMLViaCLI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fmt.Fprint(mw, `{"version":1,"command":["true"],"cols":10,"rows":2}`)
+	_, _ = fmt.Fprint(mw, `{"version":1,"command":["true"],"cols":10,"rows":2}`)
 	ew, err := zw.Create("events.jsonl")
 	if err != nil {
 		t.Fatal(err)
 	}
 	encoded := base64.StdEncoding.EncodeToString([]byte("hello"))
-	fmt.Fprintf(ew, `{"t_ms":100,"type":"output","bytes_b64":"%s"}`+"\n", encoded)
+	_, _ = fmt.Fprintf(ew, `{"t_ms":100,"type":"output","bytes_b64":"%s"}`+"\n", encoded)
 	if err := zw.Close(); err != nil {
 		t.Fatal(err)
 	}

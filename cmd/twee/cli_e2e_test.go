@@ -48,7 +48,7 @@ func runCLIOnPTY(t *testing.T, bin string, env []string, ws *pty.Winsize, args .
 	if err != nil {
 		return nil, nil, err
 	}
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 
 	out, readErr := io.ReadAll(ptmx)
 	waitErr := cmd.Wait()
@@ -98,7 +98,7 @@ func TestMenuFixtureViaCLI(t *testing.T) {
 	if _, err := os.Stat(menuBin); err != nil {
 		t.Skipf("menu fixture not built (run 'make build'): %v", err)
 	}
-	defer exec.Command(bin, "stop", "--name", "menu-test").Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", "menu-test").Run() }()
 
 	mustOK(t, bin, env, "start", "--name", "menu-test", "--", menuBin)
 	mustOK(t, bin, env, "wait", "text", "--name", "menu-test", "--pattern", "Choose an option")
@@ -208,7 +208,7 @@ func mustOK(t *testing.T, bin string, env []string, args ...string) {
 func TestStartStatusStopRoundTrip(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
-	defer exec.Command(bin, "stop", "--name", "rt").Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", "rt").Run() }()
 
 	startOut, raw, err := runCLI(t, bin, env, "start", "--name", "rt", "--", "/bin/sh", "-c", "sleep 30")
 	if err != nil {
@@ -288,7 +288,7 @@ func TestStartReportsImmediateChildExitAndCleansSocket(t *testing.T) {
 		t.Fatalf("socket still exists or stat failed unexpectedly: %v", err)
 	}
 
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 	startOut, raw, err := runCLI(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
 	if err != nil {
 		t.Fatalf("restart after quick exit: %v\n%s", err, raw)
@@ -302,7 +302,7 @@ func TestSessionNamePrecedenceViaCLI(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "session-precedence"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
 	mustOK(t, bin, env, "--name", name, "status")
@@ -325,7 +325,7 @@ func TestScreenshotUsesPTYPixelSizeViaCLI(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "shot-pixels"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "printf 'hi\\r\\n'; sleep 30")
 	mustOK(t, bin, env, "wait", "text", "--name", name, "--pattern", "hi")
@@ -352,7 +352,7 @@ func TestScreenshotUsesPTYPixelSizeViaCLI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open screenshot: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	cfg, err := png.DecodeConfig(f)
 	if err != nil {
 		t.Fatalf("decode screenshot: %v", err)
@@ -372,7 +372,7 @@ func TestRelativeOutPathsResolveAgainstClientCwd(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "relout"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	daemonDir := t.TempDir()
 	clientDir := t.TempDir()

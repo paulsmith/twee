@@ -58,9 +58,9 @@ func TestStopAllStopsLiveAndCleansStale(t *testing.T) {
 	waitProcessGone(t, pid, 3*time.Second)
 
 	defer func() {
-		exec.Command(bin, "stop", "--name", "sm-all-a").Run()
-		exec.Command(bin, "stop", "--name", "sm-all-b").Run()
-		exec.Command(bin, "stop", "--name", "sm-all-stale").Run()
+		_ = exec.Command(bin, "stop", "--name", "sm-all-a").Run()
+		_ = exec.Command(bin, "stop", "--name", "sm-all-b").Run()
+		_ = exec.Command(bin, "stop", "--name", "sm-all-stale").Run()
 	}()
 
 	resp, raw, err := runCLI(t, bin, env, "stop", "--all")
@@ -135,7 +135,7 @@ func TestStopGraceZeroKillsImmediately(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "sm-grace-zero"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", `trap "" TERM; sleep 30`)
 
@@ -161,7 +161,7 @@ func TestStopGraceNegativeIsInvalidArgument(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "sm-grace-neg"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", name, "--", "/bin/sh", "-c", "sleep 30")
 
@@ -192,7 +192,7 @@ func TestStopGraceCustomWindowLetsChildExitOnItsOwn(t *testing.T) {
 	bin := buildBinary(t)
 	env := testEnv(t)
 	name := "sm-grace-custom"
-	defer exec.Command(bin, "stop", "--name", name).Run()
+	defer func() { _ = exec.Command(bin, "stop", "--name", name).Run() }()
 
 	mustOK(t, bin, env, "start", "--name", name, "--",
 		"/bin/sh", "-c", `trap 'exit 0' TERM; read x`)

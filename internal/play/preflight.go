@@ -172,7 +172,7 @@ func probeBackends(opts preflightOptions, requested Backend) (backendSupport, er
 	if err != nil {
 		return backendSupport{}, fmt.Errorf("twee play: raw mode: %w", err)
 	}
-	defer opts.Term.Restore(opts.StdinFD, old)
+	defer func() { _ = opts.Term.Restore(opts.StdinFD, old) }()
 
 	queries := probeQueries(requested)
 	if _, err := io.WriteString(opts.Out, queries); err != nil {

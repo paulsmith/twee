@@ -136,7 +136,7 @@ func runRun(args []string) {
 	}
 
 	srv = daemon.NewServer(te)
-	go srv.Serve(context.Background(), listener)
+	go func() { _ = srv.Serve(context.Background(), listener) }()
 
 	emitResults := opts.emit == "results"
 	dial := func() (net.Conn, error) { return dialUnixSocket(sock) }

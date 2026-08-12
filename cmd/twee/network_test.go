@@ -109,11 +109,12 @@ func TestParsePublishTCPInvalidMatrix(t *testing.T) {
 			} {
 				t.Run(command.name, func(t *testing.T) {
 					var err error
-					if command.name == "run" {
+					switch command.name {
+					case "run":
 						_, err = parseRunArgs(command.args)
-					} else if command.name == "start" {
+					case "start":
 						_, err = parseStartArgs(command.args)
-					} else {
+					default:
 						_, err = parseWrapArgs(command.args)
 					}
 					if err == nil || !strings.Contains(err.Error(), test.want) {

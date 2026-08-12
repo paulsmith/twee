@@ -95,11 +95,17 @@ func TestSGRBoldColor(t *testing.T) {
 
 func TestAltScreen(t *testing.T) {
 	m := New(10, 2)
-	m.Feed([]byte("primary\r\n"))
+	if err := m.Feed([]byte("primary\r\n")); err != nil {
+		t.Fatal(err)
+	}
 	// DECSET 1049 enters the alt screen but does not move the cursor —
 	// position it explicitly with CUP so the assertion is unambiguous.
-	m.Feed([]byte("\x1b[?1049h\x1b[H"))
-	m.Feed([]byte("ALT"))
+	if err := m.Feed([]byte("\x1b[?1049h\x1b[H")); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Feed([]byte("ALT")); err != nil {
+		t.Fatal(err)
+	}
 	s := m.Snapshot()
 	if !s.AltScreen {
 		t.Fatal("expected alt screen active")
@@ -107,7 +113,9 @@ func TestAltScreen(t *testing.T) {
 	if VisibleLines(s)[0] != "ALT" {
 		t.Errorf("alt line 0 = %q", VisibleLines(s)[0])
 	}
-	m.Feed([]byte("\x1b[?1049l"))
+	if err := m.Feed([]byte("\x1b[?1049l")); err != nil {
+		t.Fatal(err)
+	}
 	s = m.Snapshot()
 	if s.AltScreen {
 		t.Fatal("expected primary screen")
@@ -137,8 +145,12 @@ func TestCombiningMark(t *testing.T) {
 
 func TestResize(t *testing.T) {
 	m := New(10, 3)
-	m.Feed([]byte("hello\r\nworld"))
-	m.Resize(20, 5)
+	if err := m.Feed([]byte("hello\r\nworld")); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Resize(20, 5); err != nil {
+		t.Fatal(err)
+	}
 	s := m.Snapshot()
 	if s.Size.Cols != 20 || s.Size.Rows != 5 {
 		t.Errorf("size = %+v", s.Size)
