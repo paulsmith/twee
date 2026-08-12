@@ -5,9 +5,9 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null && pwd)"
 font_dir="$repo_root/internal/render/fonts"
 cache_dir="${TWEE_FONT_SOURCE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/twee/font-sources}"
 
-noto_sans_mono_unicodes="U+25B0"
-noto_sans_symbols_unicodes="U+23BF"
-noto_sans_symbols2_unicodes="U+23F5,U+23FA,U+2722,U+2733,U+273B,U+273D"
+noto_sans_mono_unicodes="U+2190-2195,U+219C-219E,U+21A0,U+21A2-21A4,U+21A6,U+21D0-21D4,U+21DA-21DB,U+21E6,U+21E8,U+2308-230B,U+2310,U+2319,U+2320-2321,U+2336-237A,U+2395,U+239B-23AE,U+23B0-23BD,U+23DC-23E1,U+2500-259F"
+noto_sans_symbols_unicodes="U+2190-2199,U+2300-230F,U+2311-2315,U+2317,U+231C-231F,U+2322-2323,U+2329-232A,U+232C-2335,U+237C,U+2380-2394,U+2396-239A,U+23AF,U+23BE-23CD,U+23D0-23DB,U+23E2-23E8,U+260A-260D,U+2613,U+2624-262F,U+2638-263B,U+263D-2653,U+2669-267E,U+2690-269D,U+26A2-26A9,U+26AD-26BC,U+26CE,U+26E2-26FF,U+271D-2721,U+2776-2793"
+noto_sans_symbols2_unicodes="U+21AF,U+21E6-21F0,U+21F3,U+2316,U+2318,U+231A-231B,U+2324-2328,U+232B,U+237D-237F,U+23CE-23CF,U+23F4-23F6,U+23FA,U+25A0-2609,U+260E-2612,U+2614-2623,U+2630-2637,U+263C,U+2654-2668,U+267F-268F,U+269E-26A1,U+26AA-26AC,U+26BD-26CD,U+26CF-26E1,U+2700-2704,U+2706-2709,U+270B-271C,U+2722-2727,U+2729-274B,U+274D,U+274F-2753,U+2756-2775,U+2794,U+2798-27AF,U+27B1-27BE,U+2800-28FF"
 
 usage() {
 	cat <<'EOF'
@@ -17,9 +17,9 @@ Regenerate the embedded Noto fallback TTFs as tiny pyftsubset outputs.
 The primary JetBrains Mono font is not modified.
 
 Defaults:
-  NotoSansMono-Regular.ttf      U+25B0
-  NotoSansSymbols-Regular.ttf   U+23BF
-  NotoSansSymbols2-Regular.ttf  U+23F5,U+23FA,U+2722,U+2733,U+273B,U+273D
+  NotoSansMono-Regular.ttf      common arrows and technical symbols; U+2500-U+259F
+  NotoSansSymbols-Regular.ttf   common arrows, technical, and miscellaneous symbols
+  NotoSansSymbols2-Regular.ttf  supplemental symbols; U+25A0-U+28FF
 
 Options:
   --mono <list>         Replace Noto Sans Mono code points.

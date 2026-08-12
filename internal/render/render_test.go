@@ -123,7 +123,7 @@ func TestFaceForRuneUsesFallbackForAnyPrimaryMiss(t *testing.T) {
 	}
 }
 
-func TestFallbackFontsCoverKnownTerminalSymbols(t *testing.T) {
+func TestFallbackFontsCoverCommonTerminalSymbols(t *testing.T) {
 	face, err := Face(14)
 	if err != nil {
 		t.Fatalf("face: %v", err)
@@ -140,9 +140,16 @@ func TestFallbackFontsCoverKnownTerminalSymbols(t *testing.T) {
 		t.Fatal("Noto Sans Mono is not the first fallback face")
 	}
 
-	for _, r := range []rune{'⎿', '⏵', '⏺', '✢', '✳', '✻', '✽', '▰'} {
+	for _, r := range []rune{
+		// Common terminal arrows and technical symbols.
+		'←', '↑', '→', '↓', '↔', '↕', '⌘', '⎿', '⏵', '⏺',
+		// Box drawing, block elements, and geometric shapes.
+		'─', '│', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼', '█', '▓', '▒', '░', '■', '●', '◆',
+		// Braille spinners and common dingbats.
+		'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏', '✓', '✗', '✢', '✳', '✻', '✽',
+	} {
 		if _, ok := face.GlyphAdvance(r); ok {
-			t.Fatalf("primary face unexpectedly has %U %q", r, r)
+			continue
 		}
 		if got := faceForRune(face, fallbackFaces, r); got == face {
 			t.Fatalf("faceForRune(%U) did not use a fallback", r)
