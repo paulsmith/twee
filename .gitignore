@@ -11,3 +11,4 @@ result-*
 *.twee
 !examples/recordings/*/*.twee
 .envrc
+.kata.local.toml
