@@ -12,3 +12,4 @@ result-*
 !examples/recordings/*/*.twee
 .envrc
 .kata.local.toml
+node_modules/

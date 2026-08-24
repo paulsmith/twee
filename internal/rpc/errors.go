@@ -7,6 +7,8 @@ const (
 	CodeAmbiguousMatch     = "AMBIGUOUS_MATCH"
 	CodeInvalidSelection   = "INVALID_SELECTION"
 	CodeAlreadyRunning     = "ALREADY_RUNNING"
+	CodeNestedSession      = "NESTED_SESSION"
+	CodeSessionLimit       = "SESSION_LIMIT"
 	CodeChildExited        = "CHILD_EXITED"
 	CodeInvalidArgument    = "INVALID_ARGUMENT"
 	CodeFailedPrecondition = "FAILED_PRECONDITION"

@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,10 +19,11 @@ import (
 // Config configures a Term. Callers populate fields directly; defaults
 // are applied by Start when zero.
 type Config struct {
-	Cmd        []string
-	Env        map[string]string // overrides on top of parent environment and defaults
-	Dir        string
-	Cols, Rows int
+	Cmd          []string
+	Env          map[string]string    // overrides on top of parent environment and defaults
+	ManagedChild *ManagedChildContext // reserved child context applied after Env
+	Dir          string
+	Cols, Rows   int
 
 	DefaultTimeout    time.Duration
 	StableQuietWindow time.Duration
@@ -28,6 +31,28 @@ type Config struct {
 	// WholeSessionTrace starts recording before the command and finalizes it
 	// only after the command and any network recorder have stopped.
 	WholeSessionTrace *WholeSessionTraceConfig
+}
+
+type ManagedChildContext struct {
+	Depth         int
+	ParentSession string
+	CapacityDir   string
+}
+
+func ValidateManagedChildContext(ctx *ManagedChildContext) error {
+	if ctx == nil {
+		return nil
+	}
+	if ctx.Depth <= 0 {
+		return errors.New("managed child depth must be positive")
+	}
+	if ctx.ParentSession == "" {
+		return errors.New("managed child parent session is empty")
+	}
+	if ctx.CapacityDir == "" || !filepath.IsAbs(ctx.CapacityDir) {
+		return errors.New("managed child capacity directory must be absolute")
+	}
+	return nil
 }
 
 // WholeSessionTraceConfig describes artifacts whose lifetime must match the
@@ -67,6 +92,9 @@ func (c *Config) applyDefaults() {
 
 func (c Config) validate() error {
 	if err := ValidateTerminalSize(c.Cols, c.Rows); err != nil {
+		return fmt.Errorf("engine.Start: %w", err)
+	}
+	if err := ValidateManagedChildContext(c.ManagedChild); err != nil {
 		return fmt.Errorf("engine.Start: %w", err)
 	}
 	if c.WholeSessionTrace != nil && c.WholeSessionTrace.Path == "" {
@@ -115,6 +143,12 @@ func (c *Config) BuildEnv() []string {
 		}
 	}
 	maps.Copy(env, c.Env)
+	if c.ManagedChild != nil {
+		env["TWEE_MANAGED"] = "1"
+		env["TWEE_NESTING_DEPTH"] = strconv.Itoa(c.ManagedChild.Depth)
+		env["TWEE_PARENT_SESSION"] = c.ManagedChild.ParentSession
+		env["TWEE_CAPACITY_DIR"] = c.ManagedChild.CapacityDir
+	}
 
 	keys := make([]string, 0, len(env))
 	for k := range env {

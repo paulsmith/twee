@@ -24,6 +24,7 @@ import (
 type Options struct {
 	Command        []string
 	Env            map[string]string
+	ManagedChild   *engine.ManagedChildContext
 	Dir            string
 	Cols           int
 	Rows           int
@@ -92,6 +93,9 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 	if len(opts.Command) == 0 {
 		return errors.New("wrap: missing command")
 	}
+	if err := engine.ValidateManagedChildContext(opts.ManagedChild); err != nil {
+		return fmt.Errorf("wrap: %w", err)
+	}
 	if opts.NetworkCapture && opts.TracePath == "" {
 		return errors.New("wrap: network capture requires an immediate trace path")
 	}
@@ -139,7 +143,7 @@ func Run(ctx context.Context, opts Options) (returnErr error) {
 	}
 	defer restore()
 
-	env := (&engine.Config{Env: opts.Env}).BuildEnv()
+	env := (&engine.Config{Env: opts.Env, ManagedChild: opts.ManagedChild}).BuildEnv()
 	network, networkCfg, err := stageNetworkCapture(opts)
 	if err != nil {
 		return err

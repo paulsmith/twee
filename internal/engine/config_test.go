@@ -49,6 +49,26 @@ func TestBuildEnvInheritsParentAndAppliesOverrides(t *testing.T) {
 	}
 }
 
+func TestBuildEnvManagedChildOverridesUserEnv(t *testing.T) {
+	got := envMap((&Config{
+		Env:          map[string]string{"TWEE_MANAGED": "", "TWEE_CAPACITY_DIR": "/other"},
+		ManagedChild: &ManagedChildContext{Depth: 2, ParentSession: "outer", CapacityDir: "/state"},
+	}).BuildEnv())
+	if got["TWEE_MANAGED"] != "1" || got["TWEE_NESTING_DEPTH"] != "2" || got["TWEE_PARENT_SESSION"] != "outer" || got["TWEE_CAPACITY_DIR"] != "/state" {
+		t.Fatalf("managed environment = %#v", got)
+	}
+}
+
+func TestStartRejectsInvalidManagedChildContext(t *testing.T) {
+	_, err := Start(context.Background(), Config{
+		Cmd:          []string{"/bin/true"},
+		ManagedChild: &ManagedChildContext{Depth: 0, ParentSession: "outer", CapacityDir: "/state"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "managed child depth") {
+		t.Fatalf("Start error = %v, want invalid managed child context", err)
+	}
+}
+
 func TestStartRejectsInvalidWholeSessionTraceConfig(t *testing.T) {
 	_, err := Start(context.Background(), Config{
 		Cmd: []string{"/bin/true"}, WholeSessionTrace: &WholeSessionTraceConfig{},
